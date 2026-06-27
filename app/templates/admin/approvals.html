@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}用户审核{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回后台
+        </a>
+        <h2><i class="fas fa-user-check"></i> 用户审核</h2>
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="btn-group">
+            <a href="{{ url_for('admin.approvals', status='pending') }}" class="btn btn-sm {{ 'btn-warning' if status_filter == 'pending' else 'btn-outline-warning' }}">待审核</a>
+            <a href="{{ url_for('admin.approvals', status='approved') }}" class="btn btn-sm {{ 'btn-success' if status_filter == 'approved' else 'btn-outline-success' }}">已通过</a>
+            <a href="{{ url_for('admin.approvals', status='rejected') }}" class="btn btn-sm {{ 'btn-danger' if status_filter == 'rejected' else 'btn-outline-danger' }}">已拒绝</a>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if users %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>用户名</th>
+                            <th>昵称</th>
+                            <th>角色</th>
+                            <th>注册时间</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                            <tr>
+                                <td>{{ user.id }}</td>
+                                <td>{{ user.username }}</td>
+                                <td>{{ user.nickname }}</td>
+                                <td>
+                                    {% if user.is_super_admin() %}
+                                        <span class="badge bg-danger">超级管理员</span>
+                                    {% elif user.is_admin() %}
+                                        <span class="badge bg-primary">管理员</span>
+                                    {% elif user.is_captain() %}
+                                        <span class="badge bg-info">队长</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">选手</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>
+                                    {% if user.approval_status == 'pending' %}
+                                        <span class="badge bg-warning">待审核</span>
+                                    {% elif user.approval_status == 'approved' %}
+                                        <span class="badge bg-success">已通过</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">已拒绝</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if user.approval_status == 'pending' %}
+                                        <form method="POST" action="{{ url_for('admin.approve_user', user_id=user.id) }}" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <button type="submit" class="btn btn-sm btn-success"><i class="fas fa-check"></i> 通过</button>
+                                        </form>
+                                        <form method="POST" action="{{ url_for('admin.reject_user', user_id=user.id) }}" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <button type="submit" class="btn btn-sm btn-danger"><i class="fas fa-times"></i> 拒绝</button>
+                                        </form>
+                                    {% elif user.approval_status == 'rejected' %}
+                                        <form method="POST" action="{{ url_for('admin.approve_user', user_id=user.id) }}" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-success">重新通过</button>
+                                        </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if pagination.pages > 1 %}
+                <nav>
+                    <ul class="pagination justify-content-center">
+                        {% for p in range(1, pagination.pages + 1) %}
+                            <li class="page-item {{ 'active' if p == pagination.page }}">
+                                <a class="page-link" href="{{ url_for('admin.approvals', page=p, status=status_filter) }}">{{ p }}</a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </nav>
+            {% endif %}
+        {% else %}
+            <p class="text-muted text-center mb-0">暂无{{ {'pending':'待审核','approved':'已通过','rejected':'已拒绝'}.get(status_filter, '') }}用户</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

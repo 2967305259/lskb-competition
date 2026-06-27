@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}赛事规则{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <a href="{{ url_for('main.index') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回首页
+        </a>
+        <h2 class="mb-4">赛事规则</h2>
+        
+        <div class="card">
+            <div class="card-body">
+                <h5 class="mb-3"><i class="fas fa-crown"></i> 冷水坑杯 #3 竞技规则</h5>
+                
+                <h6 class="mt-4 mb-2">一、参赛方式</h6>
+                <p>本赛事采用4人队伍制，每队由1名队长和3名队员组成。</p>
+                
+                <h6 class="mt-4 mb-2">二、肉鸽选择</h6>
+                <p>每位队员需要选择一个肉鸽副本进行挑战，可选择：</p>
+                <ul>
+                    <li>水月与深蓝之树</li>
+                    <li>探索者的银凇止境</li>
+                    <li>萨卡兹的无终奇语</li>
+                    <li>岁的界园志异</li>
+                </ul>
+                
+                <h6 class="mt-4 mb-2">三、报名流程</h6>
+                <ol>
+                    <li>用户注册账号（角色：选手）</li>
+                    <li>选手升级为队长后可创建队伍</li>
+                    <li>队长邀请其他选手加入</li>
+                    <li>队员接受邀请后加入队伍</li>
+                    <li>队员选择肉鸽并填写参赛宣言</li>
+                </ol>
+                
+                <h6 class="mt-4 mb-2">四、队伍限制</h6>
+                <ul>
+                    <li>每支队伍固定4人（队长1人，队员3人）</li>
+                    <li>一个队长只能拥有一个队伍</li>
+                    <li>队员只能加入一个队伍</li>
+                </ul>
+                
+                <h6 class="mt-4 mb-2">五、报名截止</h6>
+                <p>系统管理员有权关闭报名。报名关闭后禁止：</p>
+                <ul>
+                    <li>新用户注册</li>
+                    <li>创建新队伍</li>
+                    <li>邀请新成员加入</li>
+                    <li>修改报名信息</li>
+                </ul>
+                
+                <h6 class="mt-4 mb-2">六、参赛宣言</h6>
+                <p>队员可以填写不超过200字的参赛宣言，用于展示队伍风采。</p>
+                
+                <hr class="my-4">
+                
+                <p class="text-muted small">
+                    本规则最终解释权归赛事组委会所有。如有疑问，请联系管理员。
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

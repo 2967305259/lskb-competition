@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}500 - 服务器错误{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 text-center">
+        <div class="card">
+            <div class="card-body py-5">
+                <h1 class="display-1" style="color: #ff6b6b;">500</h1>
+                <h2 class="mb-3">服务器错误</h2>
+                <p class="text-muted mb-4">抱歉，服务器遇到了一个问题。</p>
+                <a href="{{ url_for('main.index') }}" class="btn btn-primary">
+                    <i class="fas fa-home"></i> 返回首页
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}我的比赛{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('tournament.hall') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回赛事大厅
+        </a>
+        <h2>
+            <i class="fas fa-sword"></i> 我的比赛
+        </h2>
+        <p class="text-muted">查看和管理您的比赛</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list"></i> 比赛列表</h5>
+            </div>
+            <div class="card-body">
+                {% if matches %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>对手</th>
+                                    <th>肉鸽主题</th>
+                                    <th>难度</th>
+                                    <th>状态</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for match in matches %}
+                                    {% set opponent = match.player_a if match.player_a_id != current_user.id else match.player_b %}
+                                    <tr>
+                                        <td>
+                                            <i class="fas fa-user"></i>
+                                            {{ opponent.nickname if opponent else '未知' }}
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-info">{{ get_roguelike_name(match.roguelike) }}</span>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-{{ 'danger' if match.difficulty >= 15 else 'warning' if match.difficulty >= 14 else 'info' if match.difficulty >= 13 else 'secondary' }}">{{ match.difficulty or 12 }}难</span>
+                                        </td>
+                                        <td>
+                                            {% if match.status == 'pending' %}
+                                                <span class="badge bg-secondary">待处理</span>
+                                            {% elif match.status == 'scheduled' %}
+                                                <span class="badge bg-info">已排期</span>
+                                            {% elif match.status == 'submitted' %}
+                                                <span class="badge bg-warning">已提交</span>
+                                            {% elif match.status == 'dispute' %}
+                                                <span class="badge bg-danger">争议中</span>
+                                            {% elif match.status == 'finished' %}
+                                                <span class="badge bg-success">已结束</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ match.created_at.strftime('%m-%d %H:%M') }}</td>
+                                        <td>
+                                            <a href="{{ url_for('tournament.match_detail', match_id=match.id) }}" class="btn btn-sm btn-outline-primary">
+                                                <i class="fas fa-eye"></i> 详情
+                                            </a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-sword" style="font-size: 3rem; color: #555;"></i>
+                        <p class="text-muted mt-3">暂无比赛</p>
+                        <p class="text-muted">等待赛事开始后，系统将自动为您匹配对手</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

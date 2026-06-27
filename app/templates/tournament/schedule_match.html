@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}协商时间{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('tournament.match_detail', match_id=match.id) }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回比赛详情
+        </a>
+        <h2>
+            <i class="fas fa-calendar"></i> 协商比赛时间
+        </h2>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-clock"></i> 建议比赛时间</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label">选择时间</label>
+                        <input type="datetime-local" class="form-control" name="scheduled_time" required>
+                        <div class="form-text text-muted">请选择一个双方都方便的时间</div>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-check"></i> 确认建议
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

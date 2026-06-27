@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}搜索选手{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('captain.dashboard') }}" class="btn btn-outline-secondary mb-3">
+            <i class="fas fa-arrow-left"></i> 返回
+        </a>
+        <h2>搜索选手邀请</h2>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-body">
+                <form method="POST" class="d-flex gap-2">
+                    {{ form.hidden_tag() }}
+                    {{ form.search_keyword(class="form-control", placeholder="输入用户名或昵称...") }}
+                    {{ form.submit(class="btn btn-primary") }}
+                </form>
+            </div>
+        </div>
+        
+        {% if players %}
+            {% for player in players %}
+                <div class="player-card">
+                    <div class="row align-items-center">
+                        <div class="col-md-8">
+                            <h6 class="mb-1">{{ player.nickname }}</h6>
+                            <small class="text-muted">
+                                用户名：<strong>{{ player.username }}</strong>
+                            </small>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <form action="{{ url_for('captain.invite_player', player_id=player.id) }}" method="POST">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-success"
+                                        onclick="return confirm('确定向该选手发送邀请？');">
+                                    <i class="fas fa-paper-plane"></i> 邀请
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% elif form.search_keyword.data %}
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <p class="text-muted mb-0">
+                        <i class="fas fa-search"></i> 没有找到符合条件的选手
+                    </p>
+                </div>
+            </div>
+        {% else %}
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <p class="text-muted mb-0">
+                        <i class="fas fa-search"></i> 输入关键词搜索选手
+                    </p>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-info-circle"></i> 队伍信息</h5>
+            </div>
+            <div class="card-body">
+                <p><strong>队伍名称</strong><br>{{ team.team_name }}</p>
+                <p><strong>队伍人数</strong><br>{{ team.get_member_count() }}/4</p>
+                {% if team.is_full() %}
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-circle"></i> 队伍已满员
+                    </div>
+                {% else %}
+                    <p><strong>可邀请</strong><br>{{ 4 - team.get_member_count() }} 人</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

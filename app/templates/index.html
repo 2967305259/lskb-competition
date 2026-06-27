@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+
+{% block title %}首页 - 冷水坑杯 #3{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/carousel.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- ===== 轮播 - 宣传片风格 ===== -->
+<div class="row mb-4">
+    <div class="col-12">
+        {% if carousel_media and carousel_media|length > 0 %}
+        <div class="hero-slider">
+            <div class="slider-track">
+                {% for item in carousel_media %}
+                <div class="slide {{ 'active' if loop.first else '' }}">
+                    {% if item.type == 'image' %}
+                    <img src="{{ url_for('main.carousel_media_serve', filename=item.file) }}"
+                         alt="轮播 {{ loop.index }}"
+                         loading="{{ 'eager' if loop.first else 'lazy' }}">
+                    {% elif item.type == 'video' %}
+                    <video autoplay muted playsinline preload="metadata">
+                        <source src="{{ url_for('main.carousel_media_serve', filename=item.file) }}">
+                    </video>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="slider-dots"></div>
+        </div>
+        {% else %}
+        <div class="slider-empty">
+            <i class="fas fa-image"></i>
+            <span>暂无轮播内容</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 赛事信息 -->
+{% if tournament %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-trophy"></i> {{ tournament.name }}</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3 mb-2">
+                        <small class="text-muted">赛事状态</small>
+                        <div>
+                            {% if tournament_status == 'registration' %}
+                                <span class="badge bg-warning">报名阶段</span>
+                            {% elif tournament_status == 'matching' %}
+                                <span class="badge bg-info">匹配阶段</span>
+                            {% elif tournament_status == 'running' %}
+                                <span class="badge bg-success">比赛进行中</span>
+                            {% elif tournament_status == 'finished' %}
+                                <span class="badge bg-secondary">已结束</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <small class="text-muted">报名时间</small>
+                        <div>{{ tournament.registration_start.strftime('%m/%d') if tournament.registration_start else '待定' }} - {{ tournament.registration_end.strftime('%m/%d') if tournament.registration_end else '待定' }}</div>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <small class="text-muted">比赛时间</small>
+                        <div>{{ tournament.tournament_start.strftime('%m/%d') if tournament.tournament_start else '待定' }} - {{ tournament.tournament_end.strftime('%m/%d') if tournament.tournament_end else '待定' }}</div>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <small class="text-muted">加成倍率</small>
+                        <div><strong>×{{ tournament.bonus_score }}</strong></div>
+                    </div>
+                </div>
+                {% if tournament.description %}
+                <hr>
+                <p class="text-muted mb-0">{{ tournament.description }}</p>
+                {% endif %}
+                {% if tournament_status == 'finished' %}
+                <hr>
+                <div class="text-center">
+                    <a href="{{ url_for('tournament.results') }}" class="btn btn-warning">
+                        <i class="fas fa-trophy"></i> 查看赛事结果
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 数据统计 -->
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="stat-box">
+            <h3>{{ total_teams }}</h3>
+            <p>参赛队伍</p>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="stat-box">
+            <h3>{{ total_members }}</h3>
+            <p>参赛选手</p>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="stat-box">
+            <h3>{{ total_matches }}</h3>
+            <p>总比赛</p>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="stat-box">
+            <h3>{{ finished_matches }}</h3>
+            <p>已完成</p>
+        </div>
+    </div>
+</div>
+
+<!-- TOP10 排行榜 + 最新队伍 -->
+<div class="row">
+    <!-- TOP10 排行榜 -->
+    <div class="col-md-5 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-crown"></i> TOP10 排行榜</h5>
+            </div>
+            <div class="card-body">
+                {% if rankings %}
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>队伍</th>
+                                    <th>积分</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for r in rankings %}
+                                    <tr>
+                                        <td>
+                                            {% if loop.index == 1 %}
+                                                <span class="badge bg-warning">🥇</span>
+                                            {% elif loop.index == 2 %}
+                                                <span class="badge bg-secondary">🥈</span>
+                                            {% elif loop.index == 3 %}
+                                                <span class="badge bg-danger">🥉</span>
+                                            {% else %}
+                                                {{ loop.index }}
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <a href="{{ url_for('main.team_detail', team_id=r.team.id) }}">{{ r.team.team_name }}</a>
+                                        </td>
+                                        <td><strong>{{ r.points }}</strong></td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center mb-0">暂无排名数据</p>
+                {% endif %}
+                <div class="text-center mt-2">
+                    <a href="{{ url_for('tournament.hall') }}" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-trophy"></i> 查看完整排名
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 最新队伍 -->
+    <div class="col-md-7 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-list"></i> 最新队伍
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if latest_teams.items %}
+                    {% for team in latest_teams.items %}
+                        <div class="team-card">
+                            <div class="row align-items-center">
+                                <div class="col-md-8">
+                                    <h5 class="mb-2">
+                                        <a href="{{ url_for('main.team_detail', team_id=team.id) }}" class="link-primary">
+                                            {{ team.team_name }}
+                                        </a>
+                                    </h5>
+                                    <p class="text-muted mb-2">
+                                        <i class="fas fa-user-shield"></i> 队长：<strong>{{ team.captain.nickname }}</strong>
+                                    </p>
+                                    <p class="mb-0">{{ team.team_slogan }}</p>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <div class="mb-2">
+                                        <span class="badge bg-info">
+                                            {{ team.get_member_count() }}/4 人
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <small class="text-muted">
+                                            <i class="fas fa-calendar"></i> 
+                                            {{ team.created_at.strftime('%Y-%m-%d %H:%M') }}
+                                        </small>
+                                    </div>
+                                    <div class="mt-2">
+                                        <a href="{{ url_for('main.team_detail', team_id=team.id) }}" class="btn btn-sm btn-outline-primary">
+                                            查看详情
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                    
+                    <!-- 分页 -->
+                    {% if latest_teams.pages > 1 %}
+                        <nav aria-label="Page navigation">
+                            <ul class="pagination justify-content-center">
+                                {% if latest_teams.has_prev %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('main.index', page=latest_teams.prev_num) }}">
+                                            上一页
+                                        </a>
+                                    </li>
+                                {% endif %}
+                                
+                                {% for page_num in latest_teams.iter_pages() %}
+                                    {% if page_num %}
+                                        {% if page_num == latest_teams.page %}
+                                            <li class="page-item active">
+                                                <span class="page-link">{{ page_num }}</span>
+                                            </li>
+                                        {% else %}
+                                            <li class="page-item">
+                                                <a class="page-link" href="{{ url_for('main.index', page=page_num) }}">
+                                                    {{ page_num }}
+                                                </a>
+                                            </li>
+                                        {% endif %}
+                                    {% endif %}
+                                {% endfor %}
+                                
+                                {% if latest_teams.has_next %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('main.index', page=latest_teams.next_num) }}">
+                                            下一页
+                                        </a>
+                                    </li>
+                                {% endif %}
+                            </ul>
+                        </nav>
+                    {% endif %}
+                {% else %}
+                    <div class="text-center py-5">
+                        <p class="text-muted mb-0">
+                            <i class="fas fa-inbox"></i> 还没有队伍报名
+                        </p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/carousel.js') }}"></script>
+{% endblock %}

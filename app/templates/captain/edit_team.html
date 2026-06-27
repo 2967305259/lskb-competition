@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}编辑队伍{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-edit"></i> 编辑队伍
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="mb-3">
+                        {{ form.team_name.label(class="form-label") }}
+                        {% if form.team_name.errors %}
+                            {{ form.team_name(class="form-control is-invalid") }}
+                            <div class="invalid-feedback d-block">
+                                {% for error in form.team_name.errors %}
+                                    {{ error }}<br>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            {{ form.team_name(class="form-control") }}
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.team_slogan.label(class="form-label") }}
+                        <p class="text-muted small">最多300个字符</p>
+                        {% if form.team_slogan.errors %}
+                            {{ form.team_slogan(class="form-control is-invalid", rows="4") }}
+                            <div class="invalid-feedback d-block">
+                                {% for error in form.team_slogan.errors %}
+                                    {{ error }}<br>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            {{ form.team_slogan(class="form-control", rows="4") }}
+                        {% endif %}
+                    </div>
+                    
+                    <div class="d-grid gap-2 mb-2">
+                        {{ form.submit(class="btn btn-primary btn-lg") }}
+                    </div>
+                </form>
+                
+                <a href="{{ url_for('captain.dashboard') }}" class="btn btn-outline-secondary w-100">
+                    返回
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

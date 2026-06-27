@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+
+{% block title %}管理员后台{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('main.index') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回首页
+        </a>
+        <h2>
+            <i class="fas fa-cog"></i> 管理员后台
+        </h2>
+    </div>
+</div>
+
+<!-- 统计卡片 -->
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="stat-box">
+            <h3>{{ total_users }}</h3>
+            <p>总用户数</p>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="stat-box">
+            <h3>{{ total_teams }}</h3>
+            <p>总队伍数</p>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="stat-box">
+            <h3>{{ total_captains }}</h3>
+            <p>队长数</p>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="stat-box">
+            <h3>{{ total_members }}</h3>
+            <p>队员数</p>
+        </div>
+    </div>
+</div>
+
+<!-- 报名状态 -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-toggle-on"></i> 报名状态</h5>
+            </div>
+            <div class="card-body text-center">
+                {% if registration_open %}
+                    <div class="stat-box">
+                        <p style="margin-bottom: 0; color: #90ee90;">
+                            <i class="fas fa-check-circle" style="font-size: 2rem;"></i>
+                        </p>
+                        <h5 style="margin-top: 10px; color: #90ee90;">报名开放</h5>
+                    </div>
+                {% else %}
+                    <div class="stat-box">
+                        <p style="margin-bottom: 0; color: #ff6b6b;">
+                            <i class="fas fa-times-circle" style="font-size: 2rem;"></i>
+                        </p>
+                        <h5 style="margin-top: 10px; color: #ff6b6b;">报名关闭</h5>
+                    </div>
+                {% endif %}
+                <a href="{{ url_for('admin.registration_control') }}" class="btn btn-sm btn-outline-primary mt-3">
+                    <i class="fas fa-edit"></i> 管理报名
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-download"></i> 数据导出</h5>
+            </div>
+            <div class="card-body text-center">
+                <p class="text-muted">导出报名信息为 Excel 文件</p>
+                <a href="{{ url_for('admin.export_excel') }}" class="btn btn-primary">
+                    <i class="fas fa-file-excel"></i> 导出 Excel
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 最新队伍 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-list"></i> 最新队伍
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if latest_teams %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>队伍名称</th>
+                                    <th>队长</th>
+                                    <th>人数</th>
+                                    <th>积分</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for team in latest_teams %}
+                                    <tr>
+                                        <td>{{ team.team_name }}</td>
+                                        <td>{{ team.captain.nickname }}</td>
+                                        <td>
+                                            <span class="badge bg-info">{{ team.get_member_count() }}/4</span>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-warning">{{ team.team_score or 0 }}</span>
+                                        </td>
+                                        <td>{{ team.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                        <td>
+                                            <a href="{{ url_for('admin.team_detail', team_id=team.id) }}" class="btn btn-sm btn-outline-primary">
+                                                查看
+                                            </a>
+                                            <form method="POST" action="{{ url_for('admin.delete_team', team_id=team.id) }}" style="display: inline;">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                        onclick="return confirm('确定删除队伍？');">
+                                                    删除
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center mb-0">暂无队伍数据</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 赛事管理 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-trophy"></i> 赛事管理</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-3 mb-2">
+                        <div class="stat-box">
+                            <h3>{{ total_matches }}</h3>
+                            <p>总比赛</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <div class="stat-box">
+                            <h3>{{ pending_matches }}</h3>
+                            <p>待处理</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <div class="stat-box">
+                            <h3>{{ dispute_matches }}</h3>
+                            <p>争议中</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <div class="stat-box">
+                            <h3>{{ finished_matches }}</h3>
+                            <p>已结束</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.users') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-users"></i> 用户管理
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.teams') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-users"></i> 队伍管理
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.registration_list') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-list"></i> 报名列表
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.disputes') }}" class="btn btn-outline-warning w-100">
+                            <i class="fas fa-gavel"></i> 争议调解
+                        </a>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.score_config') }}" class="btn btn-outline-info w-100">
+                            <i class="fas fa-sliders-h"></i> 积分配置
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.advance') }}" class="btn btn-outline-info w-100">
+                            <i class="fas fa-arrow-up"></i> 晋级管理
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.roguelikes') }}" class="btn btn-outline-info w-100">
+                            <i class="fas fa-gamepad"></i> 肉鸽管理
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('tournament.hall') }}" class="btn btn-outline-success w-100">
+                            <i class="fas fa-trophy"></i> 赛事大厅
+                        </a>
+                    </div>
+                </div>
+
+                <!-- 赛事操作按钮 -->
+                <div class="row mt-2">
+                    <div class="col-12">
+                        <div class="d-flex flex-wrap gap-2 justify-content-center">
+                            {% if tournament_status == 'registration' %}
+                                <form method="POST" action="{{ url_for('admin.start_tournament') }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-success"
+                                            onclick="return confirm('确定开始比赛？报名将锁定。');">
+                                        <i class="fas fa-play"></i> 开始比赛
+                                    </button>
+                                </form>
+                            {% endif %}
+                            {% if tournament_status == 'matching' %}
+                                <form method="POST" action="{{ url_for('admin.run_matching') }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-warning"
+                                            onclick="return confirm('确定执行自动匹配？');">
+                                        <i class="fas fa-random"></i> 执行匹配
+                                    </button>
+                                </form>
+                            {% endif %}
+                            {% if tournament_status == 'playing' %}
+                                <form method="POST" action="{{ url_for('admin.finish_tournament') }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-danger"
+                                            onclick="return confirm('确定结束赛事？');">
+                                        <i class="fas fa-stop"></i> 结束赛事
+                                    </button>
+                                </form>
+                            {% endif %}
+                            {% if tournament_status != 'registration' %}
+                                <form method="POST" action="{{ url_for('admin.resume_registration') }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-info"
+                                            onclick="return confirm('确定恢复报名？将回到报名阶段。');">
+                                        <i class="fas fa-undo"></i> 恢复报名
+                                    </button>
+                                </form>
+                            {% endif %}
+                            <span class="badge bg-{{ 'success' if tournament_status == 'playing' else 'info' if tournament_status == 'matching' else 'warning' if tournament_status == 'registration' else 'secondary' }} d-flex align-items-center" style="font-size: 0.9rem;">
+                                <i class="fas fa-circle me-1"></i>
+                                当前状态：
+                                {% if tournament_status == 'registration' %}报名阶段
+                                {% elif tournament_status == 'matching' %}匹配阶段
+                                {% elif tournament_status == 'playing' %}比赛进行中
+                                {% elif tournament_status == 'finished' %}赛事已结束
+                                {% endif %}
+                            </span>
+                            {% if tournament_status == 'finished' %}
+                            <a href="{{ url_for('tournament.results') }}" class="btn btn-warning btn-sm ms-2">
+                                <i class="fas fa-trophy"></i> 查看赛事结果
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+{% endblock %}

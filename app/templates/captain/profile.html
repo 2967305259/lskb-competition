@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}队长资料{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- 左侧：个人信息 -->
+    <div class="col-md-5 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-user-shield"></i> 队长资料
+                </h5>
+            </div>
+            <div class="card-body text-center">
+                <!-- 头像 -->
+                <div class="mb-3">
+                    {% if current_user.avatar %}
+                        <img src="{{ url_for('static', filename='uploads/avatars/' + current_user.avatar) }}" alt="头像" class="rounded-circle" style="width: 100px; height: 100px; object-fit: cover; border: 3px solid #0d6efd;">
+                    {% else %}
+                        <div class="rounded-circle bg-secondary d-inline-flex align-items-center justify-content-center" style="width: 100px; height: 100px;">
+                            <i class="fas fa-user" style="font-size: 2.5rem; color: #fff;"></i>
+                        </div>
+                    {% endif %}
+                </div>
+                <h4>{{ current_user.nickname }}</h4>
+                <p class="text-muted">@{{ current_user.username }}</p>
+                <p><span class="badge bg-primary">队长</span></p>
+                <p class="text-muted small">注册于 {{ current_user.created_at.strftime('%Y-%m-%d') }}</p>
+                <!-- 头像上传 -->
+                <form action="{{ url_for('captain.upload_avatar') }}" method="POST" enctype="multipart/form-data" class="mb-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="file" name="avatar" accept="image/*" class="form-control form-control-sm mb-2" style="font-size: 0.8rem;">
+                    <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                        <i class="fas fa-upload"></i> 上传头像
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        {% if team %}
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-shield-alt"></i> 队伍信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong>队伍名称</strong>
+                    <p>
+                        <a href="{{ url_for('captain.team_info') }}" class="link-primary">
+                            {{ team.team_name }}
+                        </a>
+                    </p>
+                </div>
+                {% if team.team_slogan %}
+                <div class="mb-3">
+                    <strong>队伍口号</strong>
+                    <p class="text-muted">{{ team.team_slogan }}</p>
+                </div>
+                {% endif %}
+                <div class="mb-3">
+                    <strong>队伍人数</strong>
+                    <p>{{ team.get_member_count() }}/4</p>
+                </div>
+                {% if my_membership %}
+                    {% if my_membership.roguelike %}
+                    <div class="mb-3">
+                        <strong>肉鸽选择</strong>
+                        <p><span class="badge bg-primary">{{ get_roguelike_name(my_membership.roguelike) }}</span></p>
+                    </div>
+                    {% endif %}
+                    {% if my_membership.declaration %}
+                    <div class="mb-3">
+                        <strong>参赛宣言</strong>
+                        <p class="text-muted">{{ my_membership.declaration }}</p>
+                    </div>
+                    {% endif %}
+                    <div class="mb-3">
+                        <strong>个人积分</strong>
+                        <p><span class="badge bg-success" style="font-size: 1rem;">{{ member_score }} 分</span></p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- 右侧：比赛历史 -->
+    <div class="col-md-7 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-history"></i> 最近比赛</h5>
+            </div>
+            <div class="card-body">
+                {% if my_matches %}
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>肉鸽</th>
+                                    <th>难度</th>
+                                    <th>对手</th>
+                                    <th>结果</th>
+                                    <th>时间</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for match in my_matches %}
+                                    <tr>
+                                        <td><span class="badge bg-secondary">{{ get_roguelike_name(match.roguelike) }}</span></td>
+                                        <td><span class="badge bg-{{ 'danger' if match.difficulty >= 15 else 'warning' if match.difficulty >= 14 else 'info' if match.difficulty >= 13 else 'secondary' }}">{{ match.difficulty or 12 }}难</span></td>
+                                        <td>
+                                            {% if match.player_a_id == current_user.id %}
+                                                {{ match.player_b.nickname }}
+                                            {% else %}
+                                                {{ match.player_a.nickname }}
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if match.status == 'finished' %}
+                                                {% if match.winner_id == current_user.id %}
+                                                    <span class="text-success">🏆 胜</span>
+                                                {% elif match.winner_id is none %}
+                                                    <span class="text-info">🤝 平</span>
+                                                {% else %}
+                                                    <span class="text-danger">负</span>
+                                                {% endif %}
+                                            {% elif match.status == 'dispute' %}
+                                                <span class="text-warning">⚠️ 争议</span>
+                                            {% else %}
+                                                <span class="text-muted">{{ match.status }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td><small>{{ match.created_at.strftime('%m/%d %H:%M') }}</small></td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center mb-0">暂无比赛记录</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <a href="{{ url_for('captain.dashboard') }}" class="btn btn-outline-primary">
+            <i class="fas fa-arrow-left"></i> 返回队长中心
+        </a>
+    </div>
+</div>
+{% endblock %}

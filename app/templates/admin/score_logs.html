@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}成绩修改日志{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('admin.matches') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回比赛管理
+        </a>
+        <h2><i class="fas fa-history"></i> 成绩修改日志</h2>
+        <p class="text-muted">比赛 #{{ match.id }}：{{ match.player_a.nickname if match.player_a else '?' }} vs {{ match.player_b.nickname if match.player_b else '?' }}</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if logs %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>操作人</th>
+                            <th>旧结果</th>
+                            <th>新结果</th>
+                            <th>原因</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                            <tr>
+                                <td>{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                <td>{{ log.modifier.nickname if log.modifier else '系统' }}</td>
+                                <td><code>{{ log.old_result }}</code></td>
+                                <td><code>{{ log.new_result }}</code></td>
+                                <td>{{ log.reason or '无' }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="text-muted text-center mb-0">暂无修改记录</p>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

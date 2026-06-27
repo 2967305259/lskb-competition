@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}积分配置{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回后台
+        </a>
+        <h2>
+            <i class="fas fa-sliders-h"></i> 积分配置
+        </h2>
+        <p class="text-muted">配置比赛积分规则</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-trophy"></i> 积分规则</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    
+                    <h6 class="text-primary mb-3"><i class="fas fa-star"></i> 同位置比赛积分</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">胜</label>
+                            <input type="number" class="form-control" name="win_score" value="{{ setting.win_score }}" required min="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">平</label>
+                            <input type="number" class="form-control" name="draw_score" value="{{ setting.draw_score }}" required min="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">负</label>
+                            <input type="number" class="form-control" name="lose_score" value="{{ setting.lose_score }}" required min="0">
+                        </div>
+                    </div>
+
+                    <h6 class="text-primary mb-3"><i class="fas fa-sliders-h"></i> 额外设置</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">加成倍率</label>
+                            <input type="number" class="form-control" name="bonus_score" value="{{ form.bonus_score.data if form.bonus_score.data else 500 }}" required min="1">
+                            <small class="text-muted">队伍积分 = 队员积分之和 × 加成倍率</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">晋级名额</label>
+                            <input type="number" class="form-control" name="advance_count" value="{{ form.advance_count.data if form.advance_count.data else 4 }}" required min="1">
+                            <small class="text-muted">排名前 N 的队伍晋级</small>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-3">
+                            <label class="form-label">12难倍率</label>
+                            <input type="number" class="form-control" name="diff_mult_12" value="{{ form.diff_mult_12.data if form.diff_mult_12.data else 1.0 }}" required min="0" step="0.1">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">13难倍率</label>
+                            <input type="number" class="form-control" name="diff_mult_13" value="{{ form.diff_mult_13.data if form.diff_mult_13.data else 1.1 }}" required min="0" step="0.1">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">14难倍率</label>
+                            <input type="number" class="form-control" name="diff_mult_14" value="{{ form.diff_mult_14.data if form.diff_mult_14.data else 1.2 }}" required min="0" step="0.1">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">15难倍率</label>
+                            <input type="number" class="form-control" name="diff_mult_15" value="{{ form.diff_mult_15.data if form.diff_mult_15.data else 1.3 }}" required min="0" step="0.1">
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 保存配置
+                        </button>
+                    </div>
+                </form>
+
+                <hr>
+                <h6 class="text-danger mb-3"><i class="fas fa-exclamation-triangle"></i> 积分重置</h6>
+                <p class="text-muted small">将清零所有队员和队伍积分，然后根据所有已完成的比赛重新计算。适用于积分出现异常时修复。</p>
+                <form method="POST" action="{{ url_for('admin.reset_scores') }}"
+                      onsubmit="return confirm('确定要重置所有积分吗？此操作将清零并重新计算所有积分。');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-danger w-100">
+                        <i class="fas fa-undo"></i> 重置所有积分
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

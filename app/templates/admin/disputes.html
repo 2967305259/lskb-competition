@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}争议管理{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回后台
+        </a>
+        <h2>
+            <i class="fas fa-exclamation-triangle"></i> 争议管理
+        </h2>
+        <p class="text-muted">裁定比赛争议</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list"></i> 争议比赛列表</h5>
+            </div>
+            <div class="card-body">
+                {% if matches %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>选手 A</th>
+                                    <th>选手 B</th>
+                                    <th>肉鸽</th>
+                                    <th>难度</th>
+                                    <th>A 提交</th>
+                                    <th>B 提交</th>
+                                    <th>创建时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for match in matches %}
+                                    <tr>
+                                        <td>#{{ match.id }}</td>
+                                        <td>{{ match.player_a.nickname if match.player_a else '未知' }}</td>
+                                        <td>{{ match.player_b.nickname if match.player_b else '未知' }}</td>
+                                        <td>
+                                            <span class="badge bg-info">{{ get_roguelike_name(match.roguelike) }}</span>
+                                        </td>
+                                        <td><span class="badge bg-{{ 'danger' if match.difficulty >= 15 else 'warning' if match.difficulty >= 14 else 'info' if match.difficulty >= 13 else 'secondary' }}">{{ match.difficulty or 12 }}难</span></td>
+                                        <td>
+                                            {% if match.player_a_result == 'win' %}
+                                                <span class="badge bg-success">胜</span>
+                                            {% elif match.player_a_result == 'lose' %}
+                                                <span class="badge bg-danger">负</span>
+                                            {% elif match.player_a_result == 'draw' %}
+                                                <span class="badge bg-info">平</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">未提交</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if match.player_b_result == 'win' %}
+                                                <span class="badge bg-success">胜</span>
+                                            {% elif match.player_b_result == 'lose' %}
+                                                <span class="badge bg-danger">负</span>
+                                            {% elif match.player_b_result == 'draw' %}
+                                                <span class="badge bg-info">平</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">未提交</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ match.created_at.strftime('%m-%d %H:%M') }}</td>
+                                        <td>
+                                            <div class="btn-group">
+                                                <form method="POST" action="{{ url_for('admin.resolve_dispute', match_id=match.id) }}" style="display: inline;">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <input type="hidden" name="action" value="win_a">
+                                                    <button type="submit" class="btn btn-sm btn-success"
+                                                            onclick="return confirm('裁定 {{ match.player_a.nickname if match.player_a else 'A' }} 获胜？');">
+                                                        A 胜
+                                                    </button>
+                                                </form>
+                                                <form method="POST" action="{{ url_for('admin.resolve_dispute', match_id=match.id) }}" style="display: inline;">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <input type="hidden" name="action" value="win_b">
+                                                    <button type="submit" class="btn btn-sm btn-warning"
+                                                            onclick="return confirm('裁定 {{ match.player_b.nickname if match.player_b else 'B' }} 获胜？');">
+                                                        B 胜
+                                                    </button>
+                                                </form>
+                                                <form method="POST" action="{{ url_for('admin.resolve_dispute', match_id=match.id) }}" style="display: inline;">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <input type="hidden" name="action" value="draw">
+                                                    <button type="submit" class="btn btn-sm btn-info"
+                                                            onclick="return confirm('裁定为平局？');">
+                                                        平局
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-check-circle" style="font-size: 3rem; color: #555;"></i>
+                        <p class="text-muted mt-3">暂无争议比赛</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

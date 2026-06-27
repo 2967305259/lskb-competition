@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}队伍详情{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('player.dashboard') }}" class="btn btn-outline-secondary mb-3">
+            <i class="fas fa-arrow-left"></i> 返回
+        </a>
+        <h2>{{ team.team_name }}</h2>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-info-circle"></i> 队伍信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong>队伍名称</strong>
+                    <p>{{ team.team_name }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>队长</strong>
+                    <p>{{ team.captain.nickname }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>队伍宣言</strong>
+                    <p>{{ team.team_slogan or '(暂无宣言)' }}</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-users"></i> 队伍成员</h5>
+            </div>
+            <div class="card-body">
+                {% for member in team.members %}
+                    <div class="player-card">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="mb-1">
+                                    {{ member.user.nickname }}
+                                    {% if member.user_id == team.captain_id %}
+                                        <span class="badge bg-primary">队长</span>
+                                    {% endif %}
+                                </h6>
+                                <small class="text-muted">
+                                    {% if member.roguelike %}
+                                        <i class="fas fa-dragon"></i> 已选肉鸽
+                                    {% else %}
+                                        <span class="text-muted">肉鸽待选</span>
+                                    {% endif %}
+                                </small>
+                            </div>
+                            <div class="col-md-4 text-end">
+                                {% if member.roguelike %}
+                                    <small>
+                                        <i class="fas fa-dragon"></i>
+                                        {{ get_roguelike_name(member.roguelike) }}
+                                    </small>
+                                {% else %}
+                                    <small class="text-muted">肉鸽待选</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% if member.declaration %}
+                            <div class="mt-2 p-2" style="background-color: #1a1a1a; border-radius: 4px;">
+                                <small class="text-muted">
+                                    <i class="fas fa-quote-left"></i> {{ member.declaration }}
+                                </small>
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-tasks"></i> 我的进度</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    {% if team_membership.roguelike %}
+                        <div class="mb-2">
+                            <i class="fas fa-check-circle" style="color: #90ee90;"></i>
+                            <strong>肉鸽选择</strong>
+                            <small class="d-block text-muted mt-1">
+                                {{ get_roguelike_name(team_membership.roguelike) }}
+                            </small>
+                            <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-sm btn-outline-primary mt-2">
+                                修改选择
+                            </a>
+                        </div>
+                    {% else %}
+                        <div class="mb-2">
+                            <i class="fas fa-circle" style="color: #808080;"></i>
+                            <strong>肉鸽选择</strong>
+                            <div class="mt-2">
+                                <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-sm btn-primary w-100">
+                                    选择肉鸽
+                                </a>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+                
+                <hr>
+                
+                <div class="mb-3">
+                    {% if team_membership.declaration %}
+                        <div class="mb-2">
+                            <i class="fas fa-check-circle" style="color: #90ee90;"></i>
+                            <strong>参赛宣言</strong>
+                            <div class="mt-2 p-2" style="background-color: #1a1a1a; border-radius: 4px;">
+                                <small class="text-muted">{{ team_membership.declaration }}</small>
+                            </div>
+                            <a href="{{ url_for('player.declaration') }}" class="btn btn-sm btn-outline-primary mt-2 w-100">
+                                修改宣言
+                            </a>
+                        </div>
+                    {% else %}
+                        <div class="mb-2">
+                            <i class="fas fa-circle" style="color: #808080;"></i>
+                            <strong>参赛宣言</strong>
+                            <div class="mt-2">
+                                <a href="{{ url_for('player.declaration') }}" class="btn btn-sm btn-primary w-100">
+                                    填写宣言
+                                </a>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

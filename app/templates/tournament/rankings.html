@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}排行榜{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('tournament.hall') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回赛事大厅
+        </a>
+        <h2>
+            <i class="fas fa-list-ol"></i> 排行榜
+        </h2>
+        <p class="text-muted">赛事排名</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-trophy"></i> 队伍排名</h5>
+            </div>
+            <div class="card-body">
+                {% if rankings %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>排名</th>
+                                    <th>队伍名称</th>
+                                    <th>队长</th>
+                                    <th>积分</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for r in rankings %}
+                                    <tr>
+                                        <td>
+                                            {% if loop.index == 1 %}
+                                                <span class="badge bg-warning" style="font-size: 1.2rem;">🥇 1</span>
+                                            {% elif loop.index == 2 %}
+                                                <span class="badge bg-secondary" style="font-size: 1.2rem;">🥈 2</span>
+                                            {% elif loop.index == 3 %}
+                                                <span class="badge bg-danger" style="font-size: 1.2rem;">🥉 3</span>
+                                            {% else %}
+                                                <span class="badge bg-dark">{{ loop.index }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <strong>
+                                                <a href="{{ url_for('main.team_detail', team_id=r.team.id) }}">{{ r.team.team_name }}</a>
+                                            </strong>
+                                        </td>
+                                        <td>{{ r.team.captain.nickname }}</td>
+                                        <td><strong style="font-size: 1.2rem; color: #0d6efd;">{{ r.points }}</strong></td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-chart-bar" style="font-size: 3rem; color: #555;"></i>
+                        <p class="text-muted mt-3">暂无比赛数据</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

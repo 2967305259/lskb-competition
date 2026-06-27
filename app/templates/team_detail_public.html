@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}{{ team.team_name }} - 冷水坑杯 #3{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('main.teams_list') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回列表
+        </a>
+        <h2>{{ team.team_name }}</h2>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-info-circle"></i> 队伍信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong>队伍名称</strong>
+                    <p>{{ team.team_name }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>队长</strong>
+                    <p>{{ team.captain.nickname }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>队伍宣言</strong>
+                    <p>{{ team.team_slogan or '(暂无宣言)' }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>创建时间</strong>
+                    <p>{{ team.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                </div>
+                <div class="mb-0">
+                    <strong>队伍人数</strong>
+                    <p>{{ team.get_member_count() }}/4 人</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-users"></i> 队伍成员</h5>
+            </div>
+            <div class="card-body">
+                {% for member in members %}
+                    <div class="player-card">
+                        <div class="row align-items-center">
+                            <div class="col-md-8">
+                                <h6 class="mb-1">
+                                    {{ member.user.nickname }}
+                                    {% if member.user_id == team.captain_id %}
+                                        <span class="badge bg-primary">队长</span>
+                                    {% endif %}
+                                </h6>
+                                <small class="text-muted">
+                                    {% if member.roguelike %}
+                                        <i class="fas fa-dragon"></i> 已选肉鸽
+                                    {% else %}
+                                        <span class="text-muted">肉鸽待选</span>
+                                    {% endif %}
+                                </small>
+                            </div>
+                            <div class="col-md-4 text-end">
+                                {% if member.roguelike %}
+                                    <small>
+                                        <i class="fas fa-dragon"></i>
+                                        {{ get_roguelike_name(member.roguelike) }}
+                                    </small>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% if member.declaration %}
+                            <div class="mt-2 p-2" style="background-color: #1a1a1a; border-radius: 4px;">
+                                <small class="text-muted">
+                                    <i class="fas fa-quote-left"></i> {{ member.declaration }}
+                                </small>
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-bar"></i> 队伍统计</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong>人数分布</strong>
+                    <div class="mt-2">
+                        <small class="text-muted d-block">
+                            <i class="fas fa-user-shield"></i> 队长：1人
+                        </small>
+                        <small class="text-muted d-block">
+                            <i class="fas fa-users"></i> 队员：{{ members|length }}/3人
+                        </small>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="mb-3">
+                    <strong>肉鸽选择情况</strong>
+                    <div class="mt-2">
+                        {% for member in members %}
+                            <small class="text-muted d-block">
+                                <i class="fas fa-circle-check"></i> {{ member.user.nickname }}
+                                {% if member.roguelike %}
+                                    <span class="text-success">✓ 已选</span>
+                                {% else %}
+                                    <span class="text-muted">(未选)</span>
+                                {% endif %}
+                            </small>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

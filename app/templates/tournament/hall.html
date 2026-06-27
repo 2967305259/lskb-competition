@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block title %}赛事大厅{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('main.index') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回首页
+        </a>
+        <h2>
+            <i class="fas fa-trophy"></i> 赛事大厅
+        </h2>
+        <p class="text-muted">{% if tournament %}{{ tournament.name }}{% else %}赛事中心{% endif %}</p>
+    </div>
+</div>
+
+<!-- 赛事状态 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-info-circle"></i> 赛事状态</h5>
+            </div>
+            <div class="card-body text-center">
+                {% if tournament_status == 'registration' %}
+                    <h3><span class="badge bg-warning">报名阶段</span></h3>
+                    <p class="text-muted mt-2">报名进行中，比赛尚未开始</p>
+                {% elif tournament_status == 'matching' %}
+                    <h3><span class="badge bg-info">匹配阶段</span></h3>
+                    <p class="text-muted mt-2">正在匹配对手，请耐心等待</p>
+                {% elif tournament_status == 'running' %}
+                    <h3><span class="badge bg-success">比赛进行中</span></h3>
+                    <p class="text-muted mt-2">比赛火热进行中！</p>
+                {% elif tournament_status == 'finished' %}
+                    <h3><span class="badge bg-secondary">赛事已结束</span></h3>
+                    <p class="text-muted mt-2">本届赛事已圆满结束</p>
+                    <a href="{{ url_for('tournament.results') }}" class="btn btn-warning mt-2">
+                        <i class="fas fa-trophy"></i> 查看赛事结果
+                    </a>
+                {% endif %}
+                {% if tournament and tournament.bonus_score %}
+                <p class="mt-2"><small class="text-muted">加成倍率：×{{ tournament.bonus_score }}</small></p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 比赛统计 -->
+<div class="row mb-4">
+    <div class="col-md-2 col-4 mb-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="text-primary">{{ total_matches }}</h3>
+                <small class="text-muted">总比赛</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-4 mb-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="text-secondary">{{ pending_matches }}</h3>
+                <small class="text-muted">待处理</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-4 mb-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="text-info">{{ scheduled_matches }}</h3>
+                <small class="text-muted">已排期</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-4 mb-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="text-warning">{{ submitted_matches }}</h3>
+                <small class="text-muted">已提交</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-4 mb-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="text-danger">{{ dispute_matches }}</h3>
+                <small class="text-muted">争议中</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-4 mb-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="text-success">{{ finished_matches }}</h3>
+                <small class="text-muted">已结束</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- 排行榜 -->
+    <div class="col-md-8 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-list-ol"></i> 排行榜</h5>
+                <a href="{{ url_for('tournament.rankings') }}" class="btn btn-sm btn-outline-primary">
+                    查看全部 <i class="fas fa-arrow-right"></i>
+                </a>
+            </div>
+            <div class="card-body">
+                {% if rankings %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>队伍</th>
+                                    <th>积分</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for r in rankings[:10] %}
+                                    <tr>
+                                        <td>
+                                            {% if loop.index == 1 %}
+                                                <span class="badge bg-warning">🥇</span>
+                                            {% elif loop.index == 2 %}
+                                                <span class="badge bg-secondary">🥈</span>
+                                            {% elif loop.index == 3 %}
+                                                <span class="badge bg-danger">🥉</span>
+                                            {% else %}
+                                                {{ loop.index }}
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <a href="{{ url_for('main.team_detail', team_id=r.team.id) }}">{{ r.team.team_name }}</a>
+                                        </td>
+                                        <td><strong>{{ r.points }}</strong></td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center mb-0">暂无比赛数据</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 晋级区 -->
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-arrow-up"></i> 晋级区</h5>
+            </div>
+            <div class="card-body">
+                {% if setting.advance_count and setting.advance_count > 0 %}
+                    <p class="text-muted">前 {{ setting.advance_count }} 名晋级</p>
+                    {% if advanced %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>队伍</th>
+                                        <th>积分</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for r in advanced %}
+                                        <tr>
+                                            <td>{{ loop.index }}</td>
+                                            <td>
+                                                <a href="{{ url_for('main.team_detail', team_id=r.team.id) }}">{{ r.team.team_name }}</a>
+                                            </td>
+                                            <td><strong>{{ r.points }}</strong></td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted text-center mb-0">暂无晋级数据</p>
+                    {% endif %}
+                {% else %}
+                    <p class="text-muted text-center mb-0">尚未设置晋级数量</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

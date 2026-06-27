@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block title %}肉鸽管理{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回后台
+        </a>
+        <h2>
+            <i class="fas fa-gamepad"></i> 肉鸽管理
+        </h2>
+        <p class="text-muted">管理赛事中的肉鸽（Roguelike）项目</p>
+    </div>
+</div>
+
+<div class="row">
+    <!-- 新增肉鸽 -->
+    <div class="col-md-5 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-plus-circle"></i> 新增肉鸽</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('admin.add_roguelike') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label">标识 Key <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="key" required
+                               placeholder="例如：isaac, gungeon, hades">
+                        <small class="text-muted">英文标识，用于数据库存储</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">显示名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="name" required
+                               placeholder="例如：以撒的结合">
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">每队人数上限</label>
+                            <input type="number" class="form-control" name="max_per_team" value="1" min="1" max="4">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">排序</label>
+                            <input type="number" class="form-control" name="sort_order" value="0" min="0">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-plus"></i> 添加肉鸽
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 肉鸽列表 -->
+    <div class="col-md-7 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list"></i> 肉鸽列表</h5>
+            </div>
+            <div class="card-body">
+                {% if roguelikes %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>排序</th>
+                                    <th>标识</th>
+                                    <th>名称</th>
+                                    <th>人数上限</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for rl in roguelikes %}
+                                    <tr>
+                                        <td>{{ rl.sort_order }}</td>
+                                        <td><code>{{ rl.key }}</code></td>
+                                        <td>{{ rl.name }}</td>
+                                        <td>{{ rl.max_per_team }}</td>
+                                        <td>
+                                            {% if rl.is_active %}
+                                                <span class="badge bg-success">启用</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">禁用</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#editRlModal{{ rl.id }}">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <form method="POST" action="{{ url_for('admin.delete_roguelike', rl_id=rl.id) }}"
+                                                  style="display: inline;">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                        onclick="return confirm('确定删除肉鸽「{{ rl.name }}」？');">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+
+                                    <!-- 编辑弹窗 -->
+                                    <div class="modal fade" id="editRlModal{{ rl.id }}" tabindex="-1">
+                                        <div class="modal-dialog">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title">编辑肉鸽 - {{ rl.name }}</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                </div>
+                                                <form method="POST" action="{{ url_for('admin.edit_roguelike', rl_id=rl.id) }}">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <div class="modal-body">
+                                                        <div class="mb-3">
+                                                            <label class="form-label">标识 Key</label>
+                                                            <input type="text" class="form-control" name="key" value="{{ rl.key }}" required>
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <label class="form-label">显示名称</label>
+                                                            <input type="text" class="form-control" name="name" value="{{ rl.name }}" required>
+                                                        </div>
+                                                        <div class="row mb-3">
+                                                            <div class="col-md-6">
+                                                                <label class="form-label">每队人数上限</label>
+                                                                <input type="number" class="form-control" name="max_per_team" value="{{ rl.max_per_team }}" min="1" max="4">
+                                                            </div>
+                                                            <div class="col-md-6">
+                                                                <label class="form-label">排序</label>
+                                                                <input type="number" class="form-control" name="sort_order" value="{{ rl.sort_order }}" min="0">
+                                                            </div>
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="checkbox" name="is_active" value="1"
+                                                                       id="isActive{{ rl.id }}" {% if rl.is_active %}checked{% endif %}>
+                                                                <label class="form-check-label" for="isActive{{ rl.id }}">启用</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                                                        <button type="submit" class="btn btn-primary">保存修改</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center mb-0">暂无肉鸽数据，请添加</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+
+{% endblock %}

@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}队伍详情{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('admin.teams') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回队伍管理
+        </a>
+        <h2>{{ team.team_name }}</h2>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-info-circle"></i> 队伍信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong>队伍名称</strong>
+                    <p>{{ team.team_name }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>队长</strong>
+                    <p>{{ team.captain.nickname }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>队伍宣言</strong>
+                    <p>{{ team.team_slogan or '(暂无)' }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>创建时间</strong>
+                    <p>{{ team.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>队伍人数</strong>
+                    <p>{{ team.get_member_count() }}/4</p>
+                </div>
+                <div class="mb-3">
+                    <strong>队伍积分</strong>
+                    <p>
+                        <span class="badge bg-warning fs-6">{{ team.team_score or 0 }}</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 分数填写卡片 -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-edit"></i> 分数填写</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('admin.update_team_scores', team_id=team.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    
+                    <h6 class="text-primary mb-3"><i class="fas fa-user"></i> 队员个人积分</h6>
+                    {% for member in members %}
+                        <div class="row mb-3 align-items-center">
+                            <div class="col-md-4">
+                                <label class="form-label mb-0">
+                                    {{ member.user.nickname }}
+                                    {% if member.user_id == team.captain_id %}
+                                        <span class="badge bg-primary">队长</span>
+                                    {% endif %}
+                                </label>
+                                <br>
+                                <small class="text-muted">
+                                    {% if member.roguelike %}
+                                        {{ get_roguelike_name(member.roguelike) }}
+                                    {% else %}
+                                        肉鸽待选
+                                    {% endif %}
+                                </small>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="fas fa-star"></i></span>
+                                    <input type="number" class="form-control" name="score_{{ member.id }}"
+                                           value="{{ member.final_score or 0 }}" min="0"
+                                           placeholder="个人积分">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted">当前: {{ member.final_score or 0 }} 分</small>
+                            </div>
+                        </div>
+                    {% endfor %}
+                    
+                    <hr>
+                    
+                    <h6 class="text-primary mb-3"><i class="fas fa-users"></i> 队伍总积分</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-trophy"></i></span>
+                                <input type="number" class="form-control" name="team_score"
+                                       value="{{ team.team_score or 0 }}" min="0"
+                                       placeholder="队伍总积分">
+                            </div>
+                            <small class="text-muted">手动设置队伍总积分（留空则自动计算）</small>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="text-muted">
+                                自动计算: 队员积分之和 × 加成倍率
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 保存积分
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-users"></i> 队伍成员</h5>
+            </div>
+            <div class="card-body">
+                {% for member in members %}
+                    <div class="player-card">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="mb-1">
+                                    {{ member.user.nickname }}
+                                    {% if member.user_id == team.captain_id %}
+                                        <span class="badge bg-primary">队长</span>
+                                    {% endif %}
+                                </h6>
+                                <small class="text-muted">
+                                    {% if member.roguelike %}
+                                        <i class="fas fa-dragon"></i> {{ get_roguelike_name(member.roguelike) }}
+                                    {% else %}
+                                        <span class="text-muted">肉鸽待选</span>
+                                    {% endif %}
+                                </small>
+                            </div>
+                            <div class="col-md-4 text-end">
+                                <span class="badge bg-warning">{{ member.final_score or 0 }} 分</span>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-cog"></i> 操作</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('admin.delete_team', team_id=team.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-danger w-100"
+                            onclick="return confirm('确定删除此队伍？此操作无法撤销。');">
+                        <i class="fas fa-trash"></i> 删除队伍
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

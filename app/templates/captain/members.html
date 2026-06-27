@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}队伍成员{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('captain.dashboard') }}" class="btn btn-outline-secondary mb-3">
+            <i class="fas fa-arrow-left"></i> 返回
+        </a>
+        <h2>队伍成员</h2>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                {% if members %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>成员昵称</th>
+                                    <th>肉鸽</th>
+                                    <th>加入时间</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for member in members %}
+                                    <tr>
+                                        <td>{{ member.user.nickname }}</td>
+                                        <td>
+                                            {% if member.roguelike %}
+                                                {{ get_roguelike_name(member.roguelike) }}
+                                            {% else %}
+                                                <span class="text-muted">未选择</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ member.joined_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center mb-0">暂无队伍成员</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

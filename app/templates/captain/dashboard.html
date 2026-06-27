@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}队长中心{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-3 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-user-shield"></i> 我的信息</h5>
+            </div>
+            <div class="card-body text-center">
+                <div class="mb-3">
+                    {% if current_user.avatar %}
+                        <img src="{{ url_for('static', filename='uploads/avatars/' + current_user.avatar) }}"
+                             class="rounded-circle" style="width: 100px; height: 100px; object-fit: cover; border: 3px solid #0d6efd;">
+                    {% else %}
+                        <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto"
+                             style="width: 100px; height: 100px; background: #2a2a2a; border: 3px solid #444;">
+                            <i class="fas fa-user" style="font-size: 40px; color: #888;"></i>
+                        </div>
+                    {% endif %}
+                </div>
+                <p class="mb-1"><strong>{{ current_user.nickname }}</strong></p>
+                <p class="text-muted small mb-2">@{{ current_user.username }}</p>
+                <p><span class="badge bg-primary">队长</span></p>
+                <form action="{{ url_for('captain.upload_avatar') }}" method="POST" enctype="multipart/form-data" class="mb-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="file" name="avatar" accept="image/*" class="form-control form-control-sm mb-2" style="font-size: 0.8rem;">
+                    <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                        <i class="fas fa-upload"></i> 上传头像
+                    </button>
+                </form>
+                <a href="{{ url_for('captain.team_info') }}" class="btn btn-sm btn-outline-secondary w-100 mb-2">
+                    查看信息
+                </a>
+                <a href="{{ url_for('captain.profile') }}" class="btn btn-sm btn-outline-info w-100">
+                    <i class="fas fa-id-card"></i> 个人资料
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-9">
+        {% if team %}
+            <!-- 队伍卡片 -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-shield-alt"></i> 我的队伍
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-8">
+                            <h5>{{ team.team_name }}</h5>
+                            <p class="text-muted mb-2">{{ team.team_slogan }}</p>
+                            <div class="stat-box" style="display: inline-block; margin-right: 20px;">
+                                <h3>{{ team.get_member_count() }}/4</h3>
+                                <p>队伍人数</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <a href="{{ url_for('captain.edit_team') }}" class="btn btn-sm btn-outline-primary mb-2">
+                                <i class="fas fa-edit"></i> 编辑
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 待处理邀请 -->
+            {% if pending_invitations %}
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-hourglass"></i> 待处理邀请
+                            <span class="badge bg-warning ms-2">{{ pending_invitations|length }}</span>
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        {% for invitation in pending_invitations %}
+                            <div class="player-card">
+                                <div class="row align-items-center">
+                                    <div class="col-md-8">
+                                        <h6 class="mb-2">{{ invitation.user.nickname }}</h6>
+                                        <small class="text-muted">
+                                            邀请时间：{{ invitation.created_at.strftime('%Y-%m-%d %H:%M') }}
+                                        </small>
+                                    </div>
+                                    <div class="col-md-4 text-end">
+                                        <span class="badge bg-warning">等待中...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+            
+            <!-- 快速操作 -->
+            <div class="row">
+                <div class="col-6 mb-3">
+                    <a href="{{ url_for('captain.search_players') }}" class="btn btn-primary w-100">
+                        <i class="fas fa-user-plus"></i> 邀请成员
+                    </a>
+                </div>
+                <div class="col-6 mb-3">
+                    {% if my_membership and my_membership.roguelike %}
+                        <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-dragon"></i> 修改肉鸽
+                        </a>
+                    {% else %}
+                        <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-success w-100">
+                            <i class="fas fa-dragon"></i> 选择肉鸽
+                        </a>
+                    {% endif %}
+                </div>
+                <div class="col-12 mb-3">
+                    {% if my_membership and my_membership.declaration %}
+                        <a href="{{ url_for('player.declaration') }}" class="btn btn-outline-secondary w-100">
+                            <i class="fas fa-quote-left"></i> 修改参赛宣言
+                        </a>
+                    {% else %}
+                        <a href="{{ url_for('player.declaration') }}" class="btn btn-outline-success w-100">
+                            <i class="fas fa-quote-left"></i> 填写参赛宣言
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        {% else %}
+            <!-- 创建队伍 -->
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <p class="text-muted mb-3">
+                        <i class="fas fa-shield-alt" style="font-size: 3rem;"></i>
+                    </p>
+                    <h5>您还未创建队伍</h5>
+                    <p class="text-muted mb-4">创建队伍后即可邀请其他选手</p>
+                    <a href="{{ url_for('captain.create_team') }}" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> 创建队伍
+                    </a>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

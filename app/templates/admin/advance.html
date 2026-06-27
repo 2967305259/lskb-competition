@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}晋级管理{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回后台
+        </a>
+        <h2>
+            <i class="fas fa-arrow-up"></i> 晋级管理
+        </h2>
+        <p class="text-muted">查看当前排名和晋级情况（晋级名额请在积分配置中设置）</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-trophy"></i> 当前排名</h5>
+            </div>
+            <div class="card-body">
+                {% if rankings %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>排名</th>
+                                    <th>队伍</th>
+                                    <th>场次</th>
+                                    <th>胜</th>
+                                    <th>平</th>
+                                    <th>负</th>
+                                    <th>积分</th>
+                                    <th>晋级</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for rank in rankings %}
+                                    <tr class="{% if loop.index <= setting.advance_count %}table-active{% endif %}">
+                                        <td>
+                                            {% if loop.index == 1 %}
+                                                <span class="badge bg-warning">🥇</span>
+                                            {% elif loop.index == 2 %}
+                                                <span class="badge bg-secondary">🥈</span>
+                                            {% elif loop.index == 3 %}
+                                                <span class="badge bg-danger">🥉</span>
+                                            {% else %}
+                                                {{ loop.index }}
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ rank.team_name }}</td>
+                                        <td>{{ rank.matches_played }}</td>
+                                        <td class="text-success">{{ rank.wins }}</td>
+                                        <td class="text-info">{{ rank.draws }}</td>
+                                        <td class="text-danger">{{ rank.losses }}</td>
+                                        <td><strong>{{ rank.points }}</strong></td>
+                                        <td>
+                                            {% if loop.index <= setting.advance_count %}
+                                                <span class="badge bg-success"><i class="fas fa-check"></i> 已晋级</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">未晋级</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center mb-0">暂无比赛数据</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

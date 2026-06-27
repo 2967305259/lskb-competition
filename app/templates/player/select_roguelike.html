@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}选择肉鸽{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-dragon"></i> 选择肉鸽
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="mb-4">
+                        <p class="text-muted">
+                            请选择一个肉鸽副本进行挑战
+                        </p>
+                        {% if taken_roguelikes %}
+                            <div class="alert alert-warning py-2 mb-0 mt-2">
+                                <small><i class="fas fa-info-circle"></i> 以下肉鸽已被队友选择：</small>
+                                <ul class="mb-0 mt-1 ps-3">
+                                    {% for r in taken_roguelikes %}
+                                        <li><small>{{ get_roguelike_name(r) }}</small></li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        {% if form.roguelike.errors %}
+                            {{ form.roguelike(class="form-select is-invalid") }}
+                            <div class="invalid-feedback d-block">
+                                {% for error in form.roguelike.errors %}
+                                    {{ error }}<br>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            {{ form.roguelike(class="form-select") }}
+                        {% endif %}
+                    </div>
+                    
+                    {% if roguelike %}
+                        <div class="alert alert-info">
+                            <strong>当前选择：</strong> {{ get_roguelike_name(roguelike) }}
+                        </div>
+                    {% endif %}
+                    
+                    <div class="d-grid gap-2">
+                        {{ form.submit(class="btn btn-primary btn-lg") }}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

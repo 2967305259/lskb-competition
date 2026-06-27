@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}队伍信息{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('captain.dashboard') }}" class="btn btn-outline-secondary mb-3">
+            <i class="fas fa-arrow-left"></i> 返回
+        </a>
+        <h2>{{ team.team_name }}</h2>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-info-circle"></i> 队伍信息</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong>队伍名称</strong>
+                    <p>{{ team.team_name }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>队伍宣言</strong>
+                    <p>{{ team.team_slogan or '(暂无宣言)' }}</p>
+                </div>
+                <div class="mb-3">
+                    <strong>创建时间</strong>
+                    <p>{{ team.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                </div>
+                <div class="mb-0">
+                    <strong>队伍人数</strong>
+                    <p>{{ team.get_member_count() }}/4 人</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-users"></i> 队伍成员</h5>
+            </div>
+            <div class="card-body">
+                {% for member in members %}
+                    <div class="player-card">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="mb-1">
+                                    {{ member.user.nickname }}
+                                    {% if member.user_id == team.captain_id %}
+                                        <span class="badge bg-primary">队长</span>
+                                    {% endif %}
+                                </h6>
+                                <small class="text-muted">
+                                    {% if member.roguelike %}
+                                        <i class="fas fa-dragon"></i> 已选肉鸽
+                                    {% else %}
+                                        <span class="text-muted">肉鸽待选</span>
+                                    {% endif %}
+                                </small>
+                            </div>
+                            <div class="col-md-4 text-end">
+                                {% if member.roguelike %}
+                                    <small>
+                                        <i class="fas fa-dragon"></i>
+                                        已选肉鸽
+                                    </small>
+                                {% else %}
+                                    <small class="text-muted">肉鸽待选</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-tasks"></i> 快速操作</h5>
+            </div>
+            <div class="card-body">
+                <a href="{{ url_for('captain.edit_team') }}" class="btn btn-outline-primary w-100 mb-2">
+                    <i class="fas fa-edit"></i> 编辑队伍
+                </a>
+                {% if not team.is_full() %}
+                    <a href="{{ url_for('captain.search_players') }}" class="btn btn-outline-primary w-100 mb-2">
+                        <i class="fas fa-user-plus"></i> 邀请成员
+                    </a>
+                {% else %}
+                    <button class="btn btn-outline-secondary w-100 mb-2" disabled>
+                        <i class="fas fa-user-plus"></i> 队伍已满员
+                    </button>
+                {% endif %}
+                <a href="{{ url_for('captain.invitations') }}" class="btn btn-outline-primary w-100">
+                    <i class="fas fa-envelope"></i> 邀请列表
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
