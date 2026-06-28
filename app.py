@@ -34,13 +34,11 @@ DB_DIR = os.path.join(BASE_DIR, '.db')
 DB_FILE = os.path.join(DB_DIR, 'lskb.db')
 UPLOAD_DIR = os.path.join(BASE_DIR, 'app', 'static', 'uploads', 'avatars')
 TEAM_UPLOAD_DIR = os.path.join(BASE_DIR, 'app', 'static', 'uploads', 'teams')
-SCREENSHOT_DIR = os.path.join(BASE_DIR, 'app', 'static', 'uploads', 'screenshots')
 
 # 确保 .db 目录存在
 os.makedirs(DB_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(TEAM_UPLOAD_DIR, exist_ok=True)
-os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
 
 class Config:
@@ -133,6 +131,26 @@ def captain_required(func):
 
 def player_required(func):
     return login_required_with_role('player')(func)
+
+
+def require_status(min_status):
+    """状态机守卫装饰器：要求用户 status >= min_status"""
+    def decorator(func):
+        @wraps(func)
+        def decorated_function(*args, **kwargs):
+            if not current_user.is_authenticated:
+                flash('请先登录', 'warning')
+                return redirect(url_for('auth.login'))
+            if current_user.is_admin():
+                return func(*args, **kwargs)
+            if current_user.status < min_status:
+                flash('请先完成前置步骤', 'warning')
+                if current_user.is_captain():
+                    return redirect(url_for('captain.dashboard'))
+                return redirect(url_for('player.dashboard'))
+            return func(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 
 def check_registration_open():
@@ -370,6 +388,7 @@ class User(UserMixin, db.Model):
     approval_status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
     password_changed = db.Column(db.Boolean, default=False)
     avatar = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.Integer, default=0)  # 0=待邀请 1=已入队 2=已选配置 3=已报时间 4=已匹配 5=比赛中 6=已提交
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -536,8 +555,6 @@ class Match(db.Model):
     player_b_result = db.Column(db.String(20), nullable=True)
     player_a_score = db.Column(db.Integer, nullable=True)  # 选手A提交的分数
     player_b_score = db.Column(db.Integer, nullable=True)  # 选手B提交的分数
-    player_a_endings = db.Column(db.Integer, nullable=True)  # 选手A提交的结局数
-    player_b_endings = db.Column(db.Integer, nullable=True)  # 选手B提交的结局数
     winner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     confirmed_a = db.Column(db.Boolean, default=False)
     confirmed_b = db.Column(db.Boolean, default=False)
@@ -594,6 +611,23 @@ class ScoreLog(db.Model):
         return f'<ScoreLog match={self.match_id}>'
 
 
+class TimePreference(db.Model):
+    """选手可用时间段"""
+    __tablename__ = 'time_preferences'
+
+    id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    day_of_week = db.Column(db.Integer, nullable=False)  # 0=周一 ... 6=周日
+    start_time = db.Column(db.String(5), nullable=False)  # "09:00"
+    end_time = db.Column(db.String(5), nullable=False)    # "18:00"
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    player = db.relationship('User', backref='time_preferences')
+
+    def __repr__(self):
+        return f'<TimePreference player={self.player_id} day={self.day_of_week}>'
+
+
 class Announcement(db.Model):
     """公告模型"""
     __tablename__ = 'announcements'
@@ -643,58 +677,6 @@ class SystemLog(db.Model):
 
     def __repr__(self):
         return f'<SystemLog {self.action}>'
-
-
-class AvailableTime(db.Model):
-    """选手可比赛时间模型"""
-    __tablename__ = 'available_times'
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
-    date = db.Column(db.Date, nullable=False)
-    time_start = db.Column(db.Time, nullable=False)
-    time_end = db.Column(db.Time, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    user = db.relationship('User', backref='available_times')
-
-    def __repr__(self):
-        return f'<AvailableTime user={self.user_id} {self.date} {self.time_start}-{self.time_end}>'
-
-
-class MatchEvent(db.Model):
-    """比赛动态事件模型（用于实时滚动展示）"""
-    __tablename__ = 'match_events'
-
-    id = db.Column(db.Integer, primary_key=True)
-    match_id = db.Column(db.Integer, db.ForeignKey('matches.id'), nullable=True)
-    event_type = db.Column(db.String(30), nullable=False)  # match_created, match_scheduled, match_confirmed, match_submitted, match_finished, match_dispute, match_forfeit, match_reviewed
-    title = db.Column(db.String(200), nullable=False)
-    message = db.Column(db.Text, default='')
-    is_public = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-
-    match = db.relationship('Match', backref='events')
-
-    def __repr__(self):
-        return f'<MatchEvent {self.event_type} match={self.match_id}>'
-
-
-class MatchScreenshot(db.Model):
-    """比赛成绩截图模型"""
-    __tablename__ = 'match_screenshots'
-
-    id = db.Column(db.Integer, primary_key=True)
-    match_id = db.Column(db.Integer, db.ForeignKey('matches.id'), nullable=False, index=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    filename = db.Column(db.String(500), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    match = db.relationship('Match', backref='screenshots')
-    user = db.relationship('User', backref='match_screenshots')
-
-    def __repr__(self):
-        return f'<MatchScreenshot match={self.match_id} user={self.user_id}>'
 
 
 # ============================================================
@@ -826,9 +808,6 @@ class MatchResultForm(FlaskForm):
     score = StringField('比赛分数', validators=[
         DataRequired(message='请输入比赛分数'),
     ])
-    endings = StringField('结局数', validators=[
-        Optional(),
-    ])
     result = SelectField('我的比赛结果', choices=[
         ('win', '我获胜'),
         ('lose', '我失败'),
@@ -852,27 +831,6 @@ class MatchNoteForm(FlaskForm):
         Length(max=500, message='留言最多500个字符')
     ])
     submit = SubmitField('发送')
-
-
-class ProfileForm(FlaskForm):
-    """个人资料编辑表单"""
-    nickname = StringField('游戏昵称', validators=[
-        DataRequired(message='游戏昵称不能为空'),
-        Length(min=2, max=20, message='游戏昵称需要2-20个字符'),
-    ])
-    declaration = TextAreaField('参赛宣言', validators=[
-        Optional(),
-        Length(max=200, message='参赛宣言最多200个字符'),
-    ])
-    submit = SubmitField('保存')
-
-
-class AvailableTimeForm(FlaskForm):
-    """可比赛时间表单"""
-    date = StringField('日期', validators=[DataRequired(message='请选择日期')])
-    time_start = StringField('开始时间', validators=[DataRequired(message='请选择开始时间')])
-    time_end = StringField('结束时间', validators=[DataRequired(message='请选择结束时间')])
-    submit = SubmitField('添加时间')
 
 
 class ScoreConfigForm(FlaskForm):
@@ -905,7 +863,6 @@ player_bp = Blueprint('player', __name__, url_prefix='/player')
 captain_bp = Blueprint('captain', __name__, url_prefix='/captain')
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 tournament_bp = Blueprint('tournament', __name__, url_prefix='/tournament')
-my_bp = Blueprint('my', __name__, url_prefix='/my')
 
 # ============================================================
 # Main 路由
@@ -1122,6 +1079,7 @@ def accept_invitation(invitation_id):
     team_member = TeamMember(team_id=team.id, user_id=current_user.id)
     db.session.add(team_member)
     current_user.role = 'player'
+    current_user.status = 1  # 已入队
     db.session.commit()
     flash(f'成功加入队伍 【{team.team_name}】', 'success')
     return redirect(url_for('player.dashboard'))
@@ -1198,6 +1156,8 @@ def select_roguelike():
             flash(f'该肉鸽已达到队伍选择上限（{limit}人）', 'danger')
             return redirect(url_for('player.select_roguelike'))
         team_membership.roguelike = chosen
+        if current_user.status < 2:
+            current_user.status = 2  # 已选配置
         db.session.commit()
         flash(f'已选择肉鸽：{get_roguelike_name(chosen)}', 'success')
         if current_user.role == 'captain':
@@ -1277,6 +1237,54 @@ def upload_avatar():
     db.session.commit()
     flash('头像上传成功', 'success')
     return redirect(url_for('player.profile'))
+
+
+@player_bp.route('/time-preferences', methods=['GET', 'POST'])
+@login_required_with_role('player', 'captain')
+def time_preferences():
+    """选手填写可用比赛时间"""
+    if current_user.status < 2:
+        flash('请先选择肉鸽和填写宣言', 'warning')
+        if current_user.is_captain():
+            return redirect(url_for('captain.dashboard'))
+        return redirect(url_for('player.dashboard'))
+
+    if request.method == 'POST':
+        # 清除旧时间段
+        TimePreference.query.filter_by(player_id=current_user.id).delete()
+        # 读取新时间段
+        days = request.form.getlist('day_of_week')
+        starts = request.form.getlist('start_time')
+        ends = request.form.getlist('end_time')
+        count = 0
+        for i in range(len(days)):
+            if i < len(starts) and i < len(ends) and days[i] and starts[i] and ends[i]:
+                try:
+                    day = int(days[i])
+                    tp = TimePreference(
+                        player_id=current_user.id,
+                        day_of_week=day,
+                        start_time=starts[i],
+                        end_time=ends[i]
+                    )
+                    db.session.add(tp)
+                    count += 1
+                except (ValueError, TypeError):
+                    pass
+        if count > 0:
+            current_user.status = 3  # 已报时间
+        db.session.commit()
+        flash(f'已保存 {count} 个可用时间段', 'success')
+        if current_user.is_captain():
+            return redirect(url_for('captain.dashboard'))
+        return redirect(url_for('player.dashboard'))
+
+    # GET: 显示表单
+    existing = TimePreference.query.filter_by(player_id=current_user.id).all()
+    day_names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+    return render_template('player/time_preferences.html',
+                           existing=existing,
+                           day_names=day_names)
 
 
 # ============================================================
@@ -2407,8 +2415,8 @@ def review_match(match_id):
 def edit_match_result(match_id):
     """管理员修改比赛结果（记录日志）"""
     match = Match.query.get_or_404(match_id)
-    if match.status not in ('finished', 'forfeit_a', 'forfeit_b'):
-        flash('只能修改已结束的比赛', 'warning')
+    if match.status not in ('finished', 'forfeit_a', 'forfeit_b', 'submitted'):
+        flash('只能修改已提交或已结束的比赛', 'warning')
         return redirect(url_for('admin.matches'))
     action = request.form.get('action')
     reason = request.form.get('reason', '')
@@ -2570,6 +2578,7 @@ def hall():
     finished_matches = Match.query.filter_by(status='finished').count()
     rankings = get_team_rankings()
     advanced = get_advanced_teams()
+    recent_matches = Match.query.order_by(Match.created_at.desc()).limit(30).all()
     return render_template('tournament/hall.html',
                            setting=setting,
                            tournament=tournament,
@@ -2581,7 +2590,8 @@ def hall():
                            dispute_matches=dispute_matches,
                            finished_matches=finished_matches,
                            rankings=rankings,
-                           advanced=advanced)
+                           advanced=advanced,
+                           recent_matches=recent_matches)
 
 
 @tournament_bp.route('/rankings')
@@ -2787,6 +2797,7 @@ def submit_result(match_id):
         if match.difficulty is None or difficulty > match.difficulty:
             match.difficulty = difficulty
         match.status = 'submitted'
+        current_user.status = 6  # 已提交成绩
         db.session.commit()
         # 检查是否可以自动判定
         _check_match_result(match)
@@ -2952,6 +2963,11 @@ def create_app(config_name=None):
             count = Notification.query.filter_by(user_id=current_user.id, read=False).count()
             return {'unread_notifications_count': count}
         return {'unread_notifications_count': 0}
+
+    # 404 处理：非指定页面全部跳回主页
+    @app.errorhandler(404)
+    def page_not_found(e):
+        return redirect(url_for('main.index'))
 
     # 创建表结构和默认数据
     with app.app_context():

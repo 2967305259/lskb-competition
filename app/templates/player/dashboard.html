@@ -144,6 +144,22 @@
                                     </a>
                                 </div>
                             {% endif %}
+
+                            {% if current_user.status >= 3 %}
+                                <div class="mb-2">
+                                    <i class="fas fa-check-circle" style="color: #90ee90;"></i>
+                                    <a href="{{ url_for('player.time_preferences') }}" class="link-primary">
+                                        比赛时间已设置
+                                    </a>
+                                </div>
+                            {% else %}
+                                <div class="mb-2">
+                                    <i class="fas fa-circle" style="color: #808080;"></i>
+                                    <a href="{{ url_for('player.time_preferences') }}" class="link-primary">
+                                        设置比赛可用时间
+                                    </a>
+                                </div>
+                            {% endif %}
                         </div>
                     </div>
                     

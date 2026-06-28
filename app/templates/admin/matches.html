@@ -82,7 +82,7 @@
                                 <td>{{ match.created_at.strftime('%m-%d %H:%M') }}</td>
                                 <td>
                                     <a href="{{ url_for('tournament.match_detail', match_id=match.id) }}" class="btn btn-sm btn-outline-primary mb-1">查看</a>
-                                    {% if match.status in ('finished', 'forfeit_a', 'forfeit_b') %}
+                                    {% if match.status in ('finished', 'forfeit_a', 'forfeit_b', 'submitted') %}
                                         <button type="button" class="btn btn-sm btn-outline-warning mb-1" data-bs-toggle="modal" data-bs-target="#editModal{{ match.id }}">修改</button>
                                         {% if match.review_status == 'pending' %}
                                             <form method="POST" action="{{ url_for('admin.review_match', match_id=match.id) }}" style="display:inline;">
@@ -97,7 +97,7 @@
                             </tr>
 
                             <!-- 修改结果弹窗 -->
-                            {% if match.status in ('finished', 'forfeit_a', 'forfeit_b') %}
+                            {% if match.status in ('finished', 'forfeit_a', 'forfeit_b', 'submitted') %}
                             <div class="modal fade" id="editModal{{ match.id }}" tabindex="-1">
                                 <div class="modal-dialog">
                                     <div class="modal-content bg-dark text-light">

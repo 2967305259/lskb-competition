@@ -99,6 +99,87 @@
     </div>
 </div>
 
+<!-- 比赛列表 -->
+{% if recent_matches %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-sword"></i> 比赛列表</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm">
+                        <thead>
+                            <tr>
+                                <th>选手A</th>
+                                <th>选手B</th>
+                                <th>肉鸽</th>
+                                <th>难度</th>
+                                <th>比分</th>
+                                <th>状态</th>
+                                <th>时间</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in recent_matches %}
+                                <tr>
+                                    <td>
+                                        {{ m.player_a.nickname }}
+                                        <small class="text-muted">({{ m.team_a.team_name }})</small>
+                                    </td>
+                                    <td>
+                                        {{ m.player_b.nickname }}
+                                        <small class="text-muted">({{ m.team_b.team_name }})</small>
+                                    </td>
+                                    <td><span class="badge bg-info">{{ get_roguelike_name(m.roguelike) }}</span></td>
+                                    <td>
+                                        <span class="badge bg-{{ 'danger' if m.difficulty >= 15 else 'warning' if m.difficulty >= 14 else 'info' if m.difficulty >= 13 else 'secondary' }}">
+                                            {{ m.difficulty or 12 }}难
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if m.status in ('finished', 'forfeit_a', 'forfeit_b') %}
+                                            {% if m.player_a_score is not none and m.player_b_score is not none %}
+                                                <strong>{{ m.player_a_score }} : {{ m.player_b_score }}</strong>
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if m.status == 'pending' %}
+                                            <span class="badge bg-secondary">待处理</span>
+                                        {% elif m.status == 'scheduled' %}
+                                            <span class="badge bg-info">已排期</span>
+                                        {% elif m.status == 'confirmed' %}
+                                            <span class="badge bg-primary">已确认</span>
+                                        {% elif m.status == 'submitted' %}
+                                            <span class="badge bg-warning">已提交</span>
+                                        {% elif m.status == 'dispute' %}
+                                            <span class="badge bg-danger">争议中</span>
+                                        {% elif m.status == 'finished' %}
+                                            <span class="badge bg-success">已结束</span>
+                                        {% elif m.status == 'forfeit_a' %}
+                                            <span class="badge bg-dark">A弃权</span>
+                                        {% elif m.status == 'forfeit_b' %}
+                                            <span class="badge bg-dark">B弃权</span>
+                                        {% endif %}
+                                    </td>
+                                    <td><small>{{ m.created_at.strftime('%m-%d %H:%M') }}</small></td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="row">
     <!-- 排行榜 -->
     <div class="col-md-8 mb-4">
