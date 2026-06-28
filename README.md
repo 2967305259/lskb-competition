@@ -225,8 +225,9 @@ pip install -r requirements.txt
 
 ## 许可证
 
-Copyright © 2024 冷水坑杯 #3 赛事组委会
+Copyright © 2026 冷水坑杯 #3 赛事组委会
 
 ---
 
 有问题或建议？请联系管理员。
+"# lskb-competition" 
