@@ -134,9 +134,9 @@
                                     </td>
                                     <td><span class="badge bg-info">{{ get_roguelike_name(m.roguelike) }}</span></td>
                                     <td>
-                                        <span class="badge bg-{{ 'danger' if m.difficulty >= 15 else 'warning' if m.difficulty >= 14 else 'info' if m.difficulty >= 13 else 'secondary' }}">
-                                            {{ m.difficulty or 12 }}难
-                                        </span>
+                                        <span class="badge bg-info">{{ m.get_player_a_difficulty() }}难</span>
+                                        <small class="text-muted">/</small>
+                                        <span class="badge bg-warning">{{ m.get_player_b_difficulty() }}难</span>
                                     </td>
                                     <td>
                                         {% if m.status in ('finished', 'forfeit_a', 'forfeit_b') %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}我的申请 - 冷水坑杯 #3{% endblock %}
+{% block content %}
+<div class="container py-4">
+    <h2 class="mb-4"><i class="fas fa-clipboard-list me-2"></i>我的申请记录</h2>
+    {% if requests %}
+    <div class="table-responsive">
+        <table class="table table-dark table-hover">
+            <thead>
+                <tr>
+                    <th>队伍名称</th>
+                    <th>申请时间</th>
+                    <th>状态</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for req in requests %}
+                <tr>
+                    <td>{{ req.team.team_name }}</td>
+                    <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>
+                        {% if req.status == 'pending' %}
+                        <span class="badge bg-warning">待审核</span>
+                        {% elif req.status == 'accepted' %}
+                        <span class="badge bg-success">已通过</span>
+                        {% else %}
+                        <span class="badge bg-danger">已拒绝</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info">暂无申请记录</div>
+    {% endif %}
+    <a href="{{ url_for('player.search_teams') }}" class="btn btn-primary">
+        <i class="fas fa-search me-1"></i>搜索队伍
+    </a>
+</div>
+{% endblock %}

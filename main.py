@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-冷水坑杯 #3 报名管理系统 - 启动脚本
+冷水坑杯 #3 比赛管理系统 - 启动脚本（简化版）
+如需自动安装依赖，请使用 run.py
 """
 
 import os
@@ -13,11 +14,12 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from app import create_app
 
 if __name__ == '__main__':
-    # 获取环境配置
     env = os.environ.get('FLASK_ENV', 'development')
-    
-    # 创建应用
     app = create_app(env)
-    
-    # 启动应用
-    app.run(debug=True, host='0.0.0.0', port=19198)
+    print("=" * 60)
+    print("  冷水坑杯 #3 比赛管理系统")
+    print("=" * 60)
+    print(f"  启动地址: http://0.0.0.0:19198")
+    print(f"  默认管理员: admin / admin123")
+    print("=" * 60)
+    app.run(host='0.0.0.0', port=19198, debug=(env == 'development'))

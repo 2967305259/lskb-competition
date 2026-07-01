@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}轮播图管理 - 冷水坑杯 #3{% endblock %}
+{% block content %}
+<div class="container py-4">
+    <h2 class="mb-4"><i class="fas fa-images me-2"></i>轮播图管理</h2>
+
+    <!-- 新增轮播图 -->
+    <div class="card bg-dark border-secondary mb-4">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-plus-circle me-2"></i>新增轮播图</h5>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('admin.add_carousel') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">媒体类型</label>
+                        <select name="media_type" class="form-select bg-dark text-light border-secondary">
+                            <option value="image">图片</option>
+                            <option value="video">视频</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">文件路径</label>
+                        <input type="text" name="file_path" class="form-control bg-dark text-light border-secondary"
+                               placeholder="如 1.png 或 image/banner.jpg" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">标题（可选）</label>
+                        <input type="text" name="title" class="form-control bg-dark text-light border-secondary"
+                               placeholder="轮播图标题">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">链接（可选）</label>
+                        <input type="text" name="link_url" class="form-control bg-dark text-light border-secondary"
+                               placeholder="点击跳转URL">
+                    </div>
+                    <div class="col-md-1">
+                        <label class="form-label">排序</label>
+                        <input type="number" name="sort_order" class="form-control bg-dark text-light border-secondary"
+                               value="0" min="0">
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 轮播图列表 -->
+    <div class="card bg-dark border-secondary">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-list me-2"></i>轮播图列表</h5>
+        </div>
+        <div class="card-body">
+            {% if items %}
+            <div class="table-responsive">
+                <table class="table table-dark table-hover">
+                    <thead>
+                        <tr>
+                            <th>预览</th>
+                            <th>标题</th>
+                            <th>类型</th>
+                            <th>排序</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr>
+                            <td>
+                                {% if item.media_type == 'video' %}
+                                <i class="fas fa-video fa-2x text-info"></i>
+                                {% else %}
+                                <img src="{{ url_for('main.carousel_media_serve', filename=item.file_path) }}"
+                                     style="max-height: 50px; max-width: 80px; object-fit: cover;"
+                                     onerror="this.style.display='none'">
+                                {% endif %}
+                            </td>
+                            <td>{{ item.title or '-' }}</td>
+                            <td>
+                                {% if item.media_type == 'video' %}
+                                <span class="badge bg-info">视频</span>
+                                {% else %}
+                                <span class="badge bg-secondary">图片</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ item.sort_order }}</td>
+                            <td>
+                                {% if item.is_active %}
+                                <span class="badge bg-success">启用</span>
+                                {% else %}
+                                <span class="badge bg-danger">禁用</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-light me-1" data-bs-toggle="modal"
+                                        data-bs-target="#editModal{{ item.id }}">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <form method="POST" action="{{ url_for('admin.delete_carousel', item_id=item.id) }}"
+                                      class="d-inline" onsubmit="return confirm('确定删除此轮播图？')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">暂无轮播图，系统将自动使用 image/ 目录下的静态文件</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- 编辑弹窗 -->
+{% for item in items %}
+<div class="modal fade" id="editModal{{ item.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-light">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">编辑轮播图</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('admin.edit_carousel', item_id=item.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">媒体类型</label>
+                        <select name="media_type" class="form-select bg-dark text-light border-secondary">
+                            <option value="image" {% if item.media_type == 'image' %}selected{% endif %}>图片</option>
+                            <option value="video" {% if item.media_type == 'video' %}selected{% endif %}>视频</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">文件路径</label>
+                        <input type="text" name="file_path" class="form-control bg-dark text-light border-secondary"
+                               value="{{ item.file_path }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">标题</label>
+                        <input type="text" name="title" class="form-control bg-dark text-light border-secondary"
+                               value="{{ item.title or '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">链接URL</label>
+                        <input type="text" name="link_url" class="form-control bg-dark text-light border-secondary"
+                               value="{{ item.link_url or '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">排序</label>
+                        <input type="number" name="sort_order" class="form-control bg-dark text-light border-secondary"
+                               value="{{ item.sort_order }}" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input type="checkbox" name="is_active" value="1" class="form-check-input"
+                                   {% if item.is_active %}checked{% endif %}>
+                            <label class="form-check-label">启用</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

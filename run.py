@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-冷水坑杯 #3 报名管理系统 - 启动脚本
+冷水坑杯 #3 比赛管理系统 - 启动脚本
 自动检测 Python 环境，安装依赖，启动服务
 """
 import os, sys, subprocess
@@ -48,19 +48,68 @@ def _check_imports():
     return True
 
 
+def _ensure_pip(python_exe):
+    """确保 pip 可用，不可用则尝试安装"""
+    try:
+        subprocess.check_call(
+            [python_exe, "-m", "pip", "--version"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    # 尝试通过 ensurepip 安装
+    try:
+        subprocess.check_call(
+            [python_exe, "-m", "ensurepip", "--upgrade", "--default-pip"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
 def _install(python_exe, packages):
     """用指定 Python 安装依赖，失败则退出"""
+    if not _ensure_pip(python_exe):
+        print("  [错误] pip 不可用且无法自动安装，请手动安装依赖：")
+        print(f"  {python_exe} -m pip install {' '.join(packages)}")
+        sys.exit(1)
+
+    # 先升级 pip 自身（避免旧版兼容问题）
+    try:
+        subprocess.check_call(
+            [python_exe, "-m", "pip", "install", "--upgrade", "pip"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        pass  # 升级失败不阻塞
+
+    failed = []
     for pkg in packages:
         print(f"  -> 安装 {pkg} ...")
+        # 策略1：优先尝试预编译包（速度快）
         try:
             subprocess.check_call(
-                [python_exe, "-m", "pip", "install", pkg, "--only-binary", ":all:"],
+                [python_exe, "-m", "pip", "install", pkg,
+                 "--only-binary", ":all:", "--no-build-isolation"],
             )
+            continue
         except subprocess.CalledProcessError:
+            pass
+        # 策略2：回退到源码安装
+        try:
             print(f"  -> 预编译包不可用，尝试源码安装 ...")
             subprocess.check_call(
                 [python_exe, "-m", "pip", "install", pkg],
             )
+        except subprocess.CalledProcessError:
+            failed.append(pkg)
+
+    if failed:
+        print(f"\n  [错误] 以下依赖安装失败：{', '.join(failed)}")
+        print(f"  请手动执行：{python_exe} -m pip install {' '.join(failed)}")
+        sys.exit(1)
 
 
 # ==== 入口 ====
@@ -91,7 +140,7 @@ if __name__ == '__main__':
     env = os.environ.get('FLASK_ENV', 'development')
     app = create_app(env)
     print("============================================================")
-    print("  冷水坑杯 #3 报名管理系统")
+    print("  冷水坑杯 #3 比赛管理系统")
     print("============================================================")
     print(f"  启动地址: http://0.0.0.0:19198")
     print(f"  默认管理员: admin")

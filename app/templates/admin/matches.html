@@ -61,7 +61,11 @@
                                     {% endif %}
                                 </td>
                                 <td><span class="badge bg-info">{{ get_roguelike_name(match.roguelike) }}</span></td>
-                                <td><span class="badge bg-{{ 'danger' if match.difficulty >= 15 else 'warning' if match.difficulty >= 14 else 'info' if match.difficulty >= 13 else 'secondary' }}">{{ match.difficulty or 12 }}难</span></td>
+                                <td>
+                                    <span class="badge bg-info">{{ match.get_player_a_difficulty() }}难</span>
+                                    <span class="text-muted">/</span>
+                                    <span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span>
+                                </td>
                                 <td>
                                     {% if match.status == 'pending' %}<span class="badge bg-secondary">待处理</span>
                                     {% elif match.status == 'scheduled' %}<span class="badge bg-info">已排期</span>
@@ -125,6 +129,16 @@
                                                     <div class="col-6">
                                                         <label class="form-label">{{ match.player_b.nickname if match.player_b else 'B' }} 分数</label>
                                                         <input type="number" name="score_b" class="form-control" placeholder="分数" min="0" value="{{ match.player_b_score or '' }}">
+                                                    </div>
+                                                </div>
+                                                <div class="row mb-3">
+                                                    <div class="col-6">
+                                                        <label class="form-label">{{ match.player_a.nickname if match.player_a else 'A' }} 难度</label>
+                                                        <input type="number" name="diff_a" class="form-control" placeholder="难度" min="0" value="{{ match.get_player_a_difficulty() }}">
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <label class="form-label">{{ match.player_b.nickname if match.player_b else 'B' }} 难度</label>
+                                                        <input type="number" name="diff_b" class="form-control" placeholder="难度" min="0" value="{{ match.get_player_b_difficulty() }}">
                                                     </div>
                                                 </div>
                                                 <div class="mb-3">

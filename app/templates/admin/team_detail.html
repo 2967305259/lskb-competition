@@ -48,74 +48,34 @@
             </div>
         </div>
         
-        <!-- 分数填写卡片 -->
+        <!-- 队员积分（系统自动计算，只读展示） -->
         <div class="card mb-4">
             <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-edit"></i> 分数填写</h5>
+                <h5 class="mb-0"><i class="fas fa-star"></i> 队员积分（系统自动计算）</h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('admin.update_team_scores', team_id=team.id) }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    
-                    <h6 class="text-primary mb-3"><i class="fas fa-user"></i> 队员个人积分</h6>
-                    {% for member in members %}
-                        <div class="row mb-3 align-items-center">
-                            <div class="col-md-4">
-                                <label class="form-label mb-0">
-                                    {{ member.user.nickname }}
-                                    {% if member.user_id == team.captain_id %}
-                                        <span class="badge bg-primary">队长</span>
-                                    {% endif %}
-                                </label>
-                                <br>
-                                <small class="text-muted">
-                                    {% if member.roguelike %}
-                                        {{ get_roguelike_name(member.roguelike) }}
-                                    {% else %}
-                                        肉鸽待选
-                                    {% endif %}
-                                </small>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="input-group">
-                                    <span class="input-group-text"><i class="fas fa-star"></i></span>
-                                    <input type="number" class="form-control" name="score_{{ member.id }}"
-                                           value="{{ member.final_score or 0 }}" min="0"
-                                           placeholder="个人积分">
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <small class="text-muted">当前: {{ member.final_score or 0 }} 分</small>
-                            </div>
-                        </div>
-                    {% endfor %}
-                    
-                    <hr>
-                    
-                    <h6 class="text-primary mb-3"><i class="fas fa-users"></i> 队伍总积分</h6>
-                    <div class="row mb-3">
+                <p class="text-muted small mb-3"><i class="fas fa-info-circle"></i> 积分由系统根据比赛原始成绩 × 难度倍率自动计算，无需手动填写。</p>
+                {% for member in members %}
+                    <div class="row mb-2 align-items-center">
                         <div class="col-md-6">
-                            <div class="input-group">
-                                <span class="input-group-text"><i class="fas fa-trophy"></i></span>
-                                <input type="number" class="form-control" name="team_score"
-                                       value="{{ team.team_score or 0 }}" min="0"
-                                       placeholder="队伍总积分">
-                            </div>
-                            <small class="text-muted">手动设置队伍总积分（留空则自动计算）</small>
-                        </div>
-                        <div class="col-md-6">
+                            <strong>{{ member.user.nickname }}</strong>
+                            {% if member.user_id == team.captain_id %}
+                                <span class="badge bg-primary">队长</span>
+                            {% endif %}
+                            <br>
                             <small class="text-muted">
-                                自动计算: 队员积分之和 × 加成倍率
+                                {% if member.roguelike %}
+                                    {{ get_roguelike_name(member.roguelike) }}
+                                {% else %}
+                                    肉鸽待选
+                                {% endif %}
                             </small>
                         </div>
+                        <div class="col-md-6 text-end">
+                            <span class="badge bg-warning fs-6">{{ member.final_score or 0 }} 分</span>
+                        </div>
                     </div>
-                    
-                    <div class="d-grid">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save"></i> 保存积分
-                        </button>
-                    </div>
-                </form>
+                {% endfor %}
             </div>
         </div>
         

@@ -51,10 +51,12 @@
                     </div>
                     <div class="col-md-3">
                         <p><strong>难度：</strong>
-                            <span class="badge bg-{{ 'danger' if match.difficulty >= 15 else 'warning' if match.difficulty >= 14 else 'info' if match.difficulty >= 13 else 'secondary' }}">
-                                {{ match.difficulty or 12 }} 难
-                                (×{{ {12: '1.0', 13: '1.1', 14: '1.2', 15: '1.3'}.get(match.difficulty, '1.0') }})
-                            </span>
+                            {% set rl = get_roguelike_by_key(match.roguelike) %}
+                            <span class="badge bg-info">{{ match.get_player_a_difficulty() }}难</span>
+                            {% if rl %}(×{{ "%.2f"|format(rl.get_multiplier(match.get_player_a_difficulty())) }}){% endif %}
+                            <small class="text-muted"> / </small>
+                            <span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span>
+                            {% if rl %}(×{{ "%.2f"|format(rl.get_multiplier(match.get_player_b_difficulty())) }}){% endif %}
                         </p>
                     </div>
                     <div class="col-md-3">

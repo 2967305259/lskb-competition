@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}赛事时间设置{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回后台
+        </a>
+        <h2>
+            <i class="fas fa-clock"></i> 赛事时间设置
+        </h2>
+        <p class="text-muted">设置报名时间和比赛时间，将在首页展示</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-calendar-alt"></i> 时间配置</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <h6 class="text-primary mb-3"><i class="fas fa-user-plus"></i> 报名时间</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">报名开始时间</label>
+                            <input type="datetime-local" class="form-control" name="registration_start"
+                                   value="{{ form.registration_start.data if form.registration_start.data else '' }}" required>
+                            <small class="text-muted">选手可以开始注册报名的时间</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">报名截止时间</label>
+                            <input type="datetime-local" class="form-control" name="registration_end"
+                                   value="{{ form.registration_end.data if form.registration_end.data else '' }}" required>
+                            <small class="text-muted">报名关闭时间，截止后无法注册</small>
+                        </div>
+                    </div>
+
+                    <h6 class="text-primary mb-3"><i class="fas fa-trophy"></i> 比赛时间</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">比赛开始时间</label>
+                            <input type="datetime-local" class="form-control" name="tournament_start"
+                                   value="{{ form.tournament_start.data if form.tournament_start.data else '' }}" required>
+                            <small class="text-muted">正式比赛开始的时间</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">比赛结束时间</label>
+                            <input type="datetime-local" class="form-control" name="tournament_end"
+                                   value="{{ form.tournament_end.data if form.tournament_end.data else '' }}" required>
+                            <small class="text-muted">比赛预计结束的时间</small>
+                        </div>
+                    </div>
+
+                    {% if tournament %}
+                    <div class="alert alert-info mb-3">
+                        <strong>当前设置：</strong><br>
+                        报名：{{ tournament.registration_start.strftime('%Y-%m-%d %H:%M') if tournament.registration_start else '未设置' }}
+                        ~ {{ tournament.registration_end.strftime('%Y-%m-%d %H:%M') if tournament.registration_end else '未设置' }}<br>
+                        比赛：{{ tournament.tournament_start.strftime('%Y-%m-%d %H:%M') if tournament.tournament_start else '未设置' }}
+                        ~ {{ tournament.tournament_end.strftime('%Y-%m-%d %H:%M') if tournament.tournament_end else '未设置' }}
+                    </div>
+                    {% endif %}
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 保存设置
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -70,10 +70,7 @@
                         <small class="text-muted">比赛时间</small>
                         <div>{{ tournament.tournament_start.strftime('%m/%d') if tournament.tournament_start else '待定' }} - {{ tournament.tournament_end.strftime('%m/%d') if tournament.tournament_end else '待定' }}</div>
                     </div>
-                    <div class="col-md-3 mb-2">
-                        <small class="text-muted">加成倍率</small>
-                        <div><strong>×{{ tournament.bonus_score }}</strong></div>
-                    </div>
+                    
                 </div>
                 {% if tournament.description %}
                 <hr>

@@ -46,6 +46,22 @@
                             <input type="number" class="form-control" name="sort_order" value="0" min="0">
                         </div>
                     </div>
+                    <h6 class="text-primary mb-2"><i class="fas fa-sliders-h"></i> 难度配置</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">最低难度</label>
+                            <input type="number" class="form-control" name="difficulty_min" value="12" min="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">最高难度</label>
+                            <input type="number" class="form-control" name="difficulty_max" value="18" min="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">难度阶级 (Step)</label>
+                            <input type="number" class="form-control" name="difficulty_step" value="0.1" min="0" step="0.01">
+                        </div>
+                    </div>
+                    <small class="text-muted d-block mb-3">倍率 = 1 + (难度 - 最低难度) × 难度阶级</small>
                     <button type="submit" class="btn btn-primary w-100">
                         <i class="fas fa-plus"></i> 添加肉鸽
                     </button>
@@ -70,6 +86,8 @@
                                     <th>标识</th>
                                     <th>名称</th>
                                     <th>人数上限</th>
+                                    <th>难度范围</th>
+                                    <th>Step</th>
                                     <th>状态</th>
                                     <th>操作</th>
                                 </tr>
@@ -81,6 +99,8 @@
                                         <td><code>{{ rl.key }}</code></td>
                                         <td>{{ rl.name }}</td>
                                         <td>{{ rl.max_per_team }}</td>
+                                        <td>{{ rl.difficulty_min }} - {{ rl.difficulty_max }}</td>
+                                        <td>{{ rl.difficulty_step }}</td>
                                         <td>
                                             {% if rl.is_active %}
                                                 <span class="badge bg-success">启用</span>
@@ -134,6 +154,22 @@
                                                                 <input type="number" class="form-control" name="sort_order" value="{{ rl.sort_order }}" min="0">
                                                             </div>
                                                         </div>
+                                                        <h6 class="text-primary mb-2"><i class="fas fa-sliders-h"></i> 难度配置</h6>
+                                                        <div class="row mb-3">
+                                                            <div class="col-md-4">
+                                                                <label class="form-label">最低难度</label>
+                                                                <input type="number" class="form-control" name="difficulty_min" value="{{ rl.difficulty_min }}" min="0">
+                                                            </div>
+                                                            <div class="col-md-4">
+                                                                <label class="form-label">最高难度</label>
+                                                                <input type="number" class="form-control" name="difficulty_max" value="{{ rl.difficulty_max }}" min="0">
+                                                            </div>
+                                                            <div class="col-md-4">
+                                                                <label class="form-label">难度阶级</label>
+                                                                <input type="number" class="form-control" name="difficulty_step" value="{{ rl.difficulty_step }}" min="0" step="0.01">
+                                                            </div>
+                                                        </div>
+                                                        <small class="text-muted d-block mb-3">倍率 = 1 + (难度 - 最低难度) × 难度阶级</small>
                                                         <div class="mb-3">
                                                             <div class="form-check">
                                                                 <input class="form-check-input" type="checkbox" name="is_active" value="1"

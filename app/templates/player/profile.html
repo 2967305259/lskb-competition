@@ -4,8 +4,9 @@
 
 {% block content %}
 <div class="row">
-    <!-- 左侧：个人信息 -->
+    <!-- 左侧：个人信息 + 宣言 -->
     <div class="col-md-5 mb-4">
+        <!-- 头像卡片 -->
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0">
@@ -13,7 +14,6 @@
                 </h5>
             </div>
             <div class="card-body text-center">
-                <!-- 头像 -->
                 <div class="mb-3">
                     {% if current_user.avatar %}
                         <img src="{{ url_for('static', filename='uploads/avatars/' + current_user.avatar) }}" alt="头像" class="rounded-circle" style="width: 100px; height: 100px; object-fit: cover; border: 3px solid #0d6efd;">
@@ -38,36 +38,45 @@
             </div>
         </div>
 
+        <!-- 参赛宣言卡片 -->
         {% if team_membership %}
         <div class="card mt-3">
             <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-users"></i> 队伍信息</h5>
+                <h5 class="mb-0"><i class="fas fa-quote-left"></i> 参赛宣言</h5>
             </div>
             <div class="card-body">
-                <div class="mb-3">
-                    <strong>所在队伍</strong>
-                    <p>
-                        <a href="{{ url_for('player.team_detail', team_id=team_membership.team_id) }}" class="link-primary">
-                            {{ team_membership.team.team_name }}
-                        </a>
-                    </p>
-                </div>
-                {% if team_membership.roguelike %}
-                <div class="mb-3">
-                    <strong>肉鸽选择</strong>
-                    <p><span class="badge bg-primary">{{ get_roguelike_name(team_membership.roguelike) }}</span></p>
-                </div>
-                {% endif %}
+                <form method="POST" action="{{ url_for('player.profile') }}">
+                    {{ form.hidden_tag() }}
+                    <div class="mb-3">
+                        {{ form.declaration.label(class="form-label") }}
+                        <p class="text-muted small">最多200个字符</p>
+                        {% if form.declaration.errors %}
+                            {{ form.declaration(class="form-control is-invalid", rows="4") }}
+                            <div class="invalid-feedback d-block">
+                                {% for error in form.declaration.errors %}
+                                    {{ error }}<br>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            {{ form.declaration(class="form-control", rows="4") }}
+                        {% endif %}
+                    </div>
+                    <div class="d-grid">
+                        {{ form.submit(class="btn btn-primary") }}
+                    </div>
+                </form>
                 {% if team_membership.declaration %}
-                <div class="mb-3">
-                    <strong>参赛宣言</strong>
-                    <p class="text-muted">{{ team_membership.declaration }}</p>
+                <hr>
+                <div class="alert alert-info mb-0 small">
+                    <strong>当前宣言：</strong>{{ team_membership.declaration }}
                 </div>
                 {% endif %}
-                <div class="mb-3">
-                    <strong>个人积分</strong>
-                    <p><span class="badge bg-success" style="font-size: 1rem;">{{ member_score }} 分</span></p>
-                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card mt-3">
+            <div class="card-body text-center text-muted">
+                <p class="mb-0"><i class="fas fa-info-circle"></i> 加入队伍后可填写参赛宣言</p>
             </div>
         </div>
         {% endif %}
@@ -96,7 +105,7 @@
                                 {% for match in my_matches %}
                                     <tr>
                                         <td><span class="badge bg-secondary">{{ get_roguelike_name(match.roguelike) }}</span></td>
-                                        <td><span class="badge bg-{{ 'danger' if match.difficulty >= 15 else 'warning' if match.difficulty >= 14 else 'info' if match.difficulty >= 13 else 'secondary' }}">{{ match.difficulty or 12 }}难</span></td>
+                                        <td><span class="badge bg-info">{{ match.get_player_a_difficulty() }}难</span>/<span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span></td>
                                         <td>
                                             {% if match.player_a_id == current_user.id %}
                                                 {{ match.player_b.nickname }}
@@ -134,10 +143,15 @@
 </div>
 
 <div class="row">
-    <div class="col-12">
+    <div class="col-12 d-flex gap-2">
         <a href="{{ url_for('player.dashboard') }}" class="btn btn-outline-primary">
-            <i class="fas fa-arrow-left"></i> 返回
+            <i class="fas fa-arrow-left"></i> 返回我的队伍
         </a>
+        {% if has_completed_onboarding %}
+        <a href="#" id="onboarding-replay-btn" class="btn btn-outline-info">
+            <i class="fas fa-redo"></i> 重新观看新手教程
+        </a>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

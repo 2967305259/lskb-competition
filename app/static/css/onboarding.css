@@ -1,0 +1,448 @@
+/**
+ * 冷水坑杯 #3 新手引导系统 V2 — 样式
+ *
+ * 组件层级：
+ *   z-index: 9990 — SVG 遮罩层（mask cutout）
+ *   z-index: 9991 — 高亮边框保留层（可选，仅 pulse 动画）
+ *   z-index: 9992 — Tooltip / 欢迎弹窗 / 完成弹窗
+ *   z-index: 9980 — 帮助按钮（右下角）
+ *   z-index: 10000 — 导航锁定层
+ *
+ * 支持：桌面端、平板 (≤768px)、手机 (≤480px)、横屏手机
+ */
+
+/* ================================================================
+   1. SVG 遮罩层 (True Cutout)
+   ================================================================ */
+.onboarding-svg-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9990;
+    transition: opacity 0.3s ease;
+}
+
+/* ================================================================
+   2. 提示气泡 (Tooltip)
+   ================================================================ */
+.onboarding-tooltip {
+    position: fixed;
+    z-index: 9992;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    background: #fff;
+    border-radius: 12px;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.18),
+        0 2px 8px rgba(0, 0, 0, 0.1);
+    padding: 22px 24px 18px;
+    font-size: 14px;
+    line-height: 1.65;
+    color: #2d3748;
+    animation: tooltipFadeIn 0.3s ease-out;
+}
+
+@keyframes tooltipFadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.onboarding-tooltip h5 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1a202c;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.onboarding-tooltip h5 .step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    height: 22px;
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #4a5568;
+    background: #edf2f7;
+    border-radius: 11px;
+}
+
+.onboarding-tooltip p {
+    margin: 0 0 12px;
+    color: #4a5568;
+    font-size: 13.5px;
+}
+
+/* 进度圆点 */
+.onboarding-progress {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.progress-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    transition: background 0.3s;
+}
+
+.progress-dot.done   { background: #68d391; }
+.progress-dot.active { background: #63b3ed; box-shadow: 0 0 6px rgba(99, 179, 237, 0.6); }
+
+/* 理由提示 */
+.onboarding-reason {
+    margin: 0 0 14px;
+    padding: 8px 12px;
+    background: #ebf8ff;
+    border-left: 3px solid #63b3ed;
+    border-radius: 4px;
+    font-size: 12.5px;
+    color: #2b6cb0;
+    line-height: 1.5;
+}
+
+.onboarding-reason i {
+    margin-right: 4px;
+    color: #ecc94b;
+}
+
+/* ================================================================
+   3. 按钮组
+   ================================================================ */
+.onboarding-buttons {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.onboarding-buttons .btn {
+    font-size: 13px;
+    padding: 7px 16px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-onboarding-primary {
+    background: #4299e1;
+    color: #fff;
+}
+.btn-onboarding-primary:hover {
+    background: #3182ce;
+    box-shadow: 0 2px 8px rgba(66, 153, 225, 0.35);
+}
+
+.btn-onboarding-secondary {
+    background: #edf2f7;
+    color: #4a5568;
+}
+.btn-onboarding-secondary:hover { background: #e2e8f0; }
+
+.btn-onboarding-skip {
+    background: transparent;
+    color: #a0aec0;
+    font-weight: 500;
+}
+.btn-onboarding-skip:hover {
+    color: #718096;
+    background: rgba(0, 0, 0, 0.04);
+}
+
+/* ================================================================
+   4. 欢迎弹窗 (Welcome)
+   ================================================================ */
+.onboarding-welcome,
+.onboarding-complete {
+    position: fixed;
+    z-index: 9992;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 440px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow:
+        0 12px 48px rgba(0, 0, 0, 0.2),
+        0 4px 16px rgba(0, 0, 0, 0.12);
+    padding: 32px 28px 24px;
+    text-align: center;
+    animation: modalFadeIn 0.35s ease-out;
+}
+
+@keyframes modalFadeIn {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.94); }
+    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.onboarding-welcome .welcome-icon,
+.onboarding-complete .complete-icon {
+    font-size: 48px;
+    margin-bottom: 14px;
+    color: #4299e1;
+}
+.onboarding-complete .complete-icon { color: #ecc94b; }
+
+.onboarding-welcome h3,
+.onboarding-complete h3 {
+    margin: 0 0 10px;
+    font-size: 20px;
+    font-weight: 700;
+    color: #1a202c;
+}
+
+.onboarding-welcome p,
+.onboarding-complete p {
+    margin: 0 0 18px;
+    font-size: 14px;
+    color: #4a5568;
+    line-height: 1.7;
+}
+
+/* ================================================================
+   5. 完成弹窗 - 后续步骤
+   ================================================================ */
+.next-steps {
+    text-align: left;
+    margin: 0 0 18px;
+    padding: 14px 16px;
+    background: #f7fafc;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+
+.next-steps ul { list-style: none; padding: 0; margin: 0; }
+
+.next-steps li {
+    padding: 6px 0;
+    font-size: 13px;
+    color: #4a5568;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.next-steps li i {
+    color: #4299e1;
+    margin-top: 3px;
+    flex-shrink: 0;
+}
+
+/* ================================================================
+   6. 帮助按钮 (右下角浮动)
+   ================================================================ */
+.onboarding-help-btn {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9980;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: none;
+    background: #4299e1;
+    color: #fff;
+    font-size: 18px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(66, 153, 225, 0.4);
+    transition: all 0.25s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.onboarding-help-btn:hover {
+    background: #3182ce;
+    transform: scale(1.08);
+    box-shadow: 0 6px 20px rgba(66, 153, 225, 0.5);
+}
+.onboarding-help-btn:active { transform: scale(0.96); }
+
+/* ================================================================
+   7. 移动端适配 (≤ 768px)
+   ================================================================ */
+@media (max-width: 768px) {
+    .onboarding-tooltip {
+        width: auto;
+        left: 12px !important;
+        right: 12px;
+        max-width: none;
+        bottom: 12px;
+        top: auto !important;
+        padding: 18px 16px 14px;
+        border-radius: 14px 14px 4px 14px;
+        font-size: 13px;
+        box-shadow:
+            0 -4px 20px rgba(0, 0, 0, 0.15),
+            0 -1px 4px rgba(0, 0, 0, 0.08);
+    }
+
+    .onboarding-tooltip h5 {
+        font-size: 15px;
+    }
+
+    .onboarding-tooltip h5 .step-number {
+        font-size: 10px;
+        min-width: 38px;
+        height: 20px;
+    }
+
+    .onboarding-tooltip p {
+        font-size: 13px;
+    }
+
+    .onboarding-reason {
+        font-size: 12px;
+        padding: 6px 10px;
+    }
+
+    .onboarding-buttons { gap: 6px; }
+
+    .onboarding-buttons .btn {
+        font-size: 12.5px;
+        padding: 8px 12px;
+        flex: 1 1 auto;
+        min-width: 0;
+        text-align: center;
+    }
+
+    .onboarding-welcome,
+    .onboarding-complete {
+        width: auto;
+        left: 12px;
+        right: 12px;
+        transform: translateY(-50%);
+        top: 50%;
+        padding: 24px 18px 18px;
+        border-radius: 14px;
+        max-height: calc(100vh - 40px);
+    }
+
+    .onboarding-welcome .welcome-icon,
+    .onboarding-complete .complete-icon {
+        font-size: 40px;
+        margin-bottom: 10px;
+    }
+
+    .onboarding-welcome h3,
+    .onboarding-complete h3 {
+        font-size: 18px;
+    }
+
+    .onboarding-welcome p,
+    .onboarding-complete p {
+        font-size: 13px;
+    }
+
+    .next-steps li { font-size: 12.5px; }
+
+    .onboarding-help-btn {
+        bottom: 16px;
+        right: 16px;
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+        box-shadow: 0 3px 12px rgba(66, 153, 225, 0.35);
+    }
+}
+
+/* ================================================================
+   9. 小屏手机 (≤ 480px)
+   ================================================================ */
+@media (max-width: 480px) {
+    .onboarding-tooltip {
+        left: 8px !important;
+        right: 8px;
+        bottom: 8px;
+        padding: 16px 14px 12px;
+        border-radius: 12px 12px 2px 12px;
+    }
+
+    .onboarding-tooltip h5 { font-size: 14px; }
+    .onboarding-tooltip p  { font-size: 12.5px; margin-bottom: 10px; }
+
+    .onboarding-welcome,
+    .onboarding-complete {
+        left: 8px;
+        right: 8px;
+        padding: 20px 14px 16px;
+    }
+
+    .onboarding-welcome h3,
+    .onboarding-complete h3 { font-size: 16px; }
+
+    .onboarding-welcome p,
+    .onboarding-complete p { font-size: 12.5px; margin-bottom: 14px; }
+
+    .onboarding-buttons {
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .onboarding-buttons .btn {
+        width: 100%;
+        padding: 10px 14px;
+        font-size: 13px;
+    }
+
+    .onboarding-help-btn {
+        bottom: 12px;
+        right: 12px;
+        width: 38px;
+        height: 38px;
+        font-size: 15px;
+    }
+
+    .next-steps { padding: 10px 12px; }
+    .next-steps li { font-size: 12px; padding: 5px 0; }
+}
+
+/* ================================================================
+   10. 横屏手机 — 高度受限 (≤ 480px height)
+   ================================================================ */
+@media (max-height: 480px) and (orientation: landscape) {
+    .onboarding-welcome,
+    .onboarding-complete {
+        max-height: calc(100vh - 24px);
+        padding: 16px 18px 14px;
+        overflow-y: auto;
+        top: 8px;
+        bottom: 8px;
+    }
+
+    .onboarding-welcome .welcome-icon,
+    .onboarding-complete .complete-icon {
+        font-size: 32px;
+        margin-bottom: 6px;
+    }
+
+    .onboarding-welcome h3,
+    .onboarding-complete h3 {
+        font-size: 15px;
+        margin-bottom: 6px;
+    }
+
+    .onboarding-welcome p,
+    .onboarding-complete p {
+        font-size: 12px;
+        margin-bottom: 10px;
+    }
+
+    .onboarding-buttons .btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .next-steps { display: none; }
+}

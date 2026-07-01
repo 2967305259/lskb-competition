@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}搜索队伍 - 冷水坑杯 #3{% endblock %}
+{% block content %}
+<div class="container py-4">
+    <h2 class="mb-4"><i class="fas fa-search me-2"></i>搜索队伍</h2>
+    <div class="card bg-dark border-secondary mb-4">
+        <div class="card-body">
+            <form method="POST" class="row g-2">
+                {{ form.hidden_tag() }}
+                <div class="col-md-8">
+                    {{ form.search_keyword(class="form-control bg-dark text-light border-secondary", placeholder="输入队伍名称搜索...") }}
+                </div>
+                <div class="col-md-4">
+                    {{ form.submit(class="btn btn-primary w-100") }}
+                </div>
+            </form>
+        </div>
+    </div>
+    {% if teams %}
+    <div class="row">
+        {% for team in teams %}
+        <div class="col-md-6 mb-3">
+            <div class="card bg-dark border-secondary h-100">
+                <div class="card-body">
+                    <h5 class="card-title">{{ team.team_name }}</h5>
+                    <p class="card-text text-muted small">
+                        <i class="fas fa-user me-1"></i>队长：{{ team.captain.nickname }}
+                        <span class="ms-3"><i class="fas fa-users me-1"></i>{{ team.get_member_count() }}/4</span>
+                    </p>
+                    {% if team.team_slogan %}
+                    <p class="card-text">{{ team.team_slogan }}</p>
+                    {% endif %}
+                    {% if team._has_pending %}
+                    <button class="btn btn-secondary btn-sm" disabled>已申请，等待审核</button>
+                    {% else %}
+                    <form method="POST" action="{{ url_for('player.request_join', team_id=team.id) }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-success btn-sm">
+                            <i class="fas fa-paper-plane me-1"></i>申请加入
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% elif request.method == 'POST' %}
+    <div class="alert alert-info">未找到匹配的队伍</div>
+    {% endif %}
+</div>
+{% endblock %}
