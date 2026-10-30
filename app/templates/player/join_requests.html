@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}我的申请 - 冷水坑杯 #3{% endblock %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge, invitation_status_badge, join_request_status_badge with context %}
+{% block title %}我的申请 - {{ event_name }}{% endblock %}
 {% block content %}
 <div class="container py-4">
     <h2 class="mb-4"><i class="fas fa-clipboard-list me-2"></i>我的申请记录</h2>
@@ -19,13 +20,7 @@
                     <td>{{ req.team.team_name }}</td>
                     <td>{{ req.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                     <td>
-                        {% if req.status == 'pending' %}
-                        <span class="badge bg-warning">待审核</span>
-                        {% elif req.status == 'accepted' %}
-                        <span class="badge bg-success">已通过</span>
-                        {% else %}
-                        <span class="badge bg-danger">已拒绝</span>
-                        {% endif %}
+                        {{ join_request_status_badge(req.status) }}
                     </td>
                 </tr>
                 {% endfor %}

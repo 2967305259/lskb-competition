@@ -116,7 +116,7 @@
                                         <td>{{ team.team_name }}</td>
                                         <td>{{ team.captain.nickname }}</td>
                                         <td>
-                                            <span class="badge bg-info">{{ team.get_member_count() }}/4</span>
+                                            <span class="badge bg-info">{{ team.get_member_count() }}/{{ team_size }}</span>
                                         </td>
                                         <td>
                                             <span class="badge bg-warning">{{ team.team_score or 0 }}</span>
@@ -170,12 +170,6 @@
                     </div>
                     <div class="col-md-3 mb-2">
                         <div class="stat-box">
-                            <h3>{{ dispute_matches }}</h3>
-                            <p>争议中</p>
-                        </div>
-                    </div>
-                    <div class="col-md-3 mb-2">
-                        <div class="stat-box">
                             <h3>{{ finished_matches }}</h3>
                             <p>已结束</p>
                         </div>
@@ -194,11 +188,6 @@
                         </a>
                     </div>
                     <div class="col-md-3 mb-3">
-                        <a href="{{ url_for('admin.disputes') }}" class="btn btn-outline-primary w-100">
-                            <i class="fas fa-gavel"></i> 争议调解
-                        </a>
-                    </div>
-                    <div class="col-md-3 mb-3">
                         <a href="{{ url_for('admin.score_config') }}" class="btn btn-outline-primary w-100">
                             <i class="fas fa-sliders-h"></i> 积分配置
                         </a>
@@ -212,7 +201,12 @@
                     </div>
                     <div class="col-md-3 mb-3">
                         <a href="{{ url_for('admin.roguelikes') }}" class="btn btn-outline-primary w-100">
-                            <i class="fas fa-gamepad"></i> 肉鸽管理
+                            <i class="fas fa-gamepad"></i> {{ labels.track }}管理
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.manage_rules') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-book"></i> 规则管理
                         </a>
                     </div>
                     <div class="col-md-3 mb-3">
@@ -222,7 +216,20 @@
                     </div>
                     <div class="col-md-3 mb-3">
                         <a href="{{ url_for('admin.tournament_settings') }}" class="btn btn-outline-primary w-100">
-                            <i class="fas fa-clock"></i> 赛事时间设置
+                            <i class="fas fa-flag"></i> 赛事设置
+                        </a>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.carousel') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-images"></i> 轮播图管理
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.schedule') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-calendar-alt"></i> 日程管理
                         </a>
                     </div>
                 </div>

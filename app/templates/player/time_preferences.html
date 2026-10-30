@@ -47,6 +47,31 @@
                             </div>
                         </div>
                     </div>
+                    <template id="time-slot-template">
+                        <div class="time-slot row mb-3 align-items-end">
+                            <div class="col-md-3">
+                                <label class="form-label">星期</label>
+                                <select name="day_of_week" class="form-select">
+                                    {% for i in range(7) %}
+                                        <option value="{{ i }}">{{ day_names[i] }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">开始时间</label>
+                                <input type="time" name="start_time" class="form-control" value="19:00">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">结束时间</label>
+                                <input type="time" name="end_time" class="form-control" value="22:00">
+                            </div>
+                            <div class="col-md-3">
+                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="this.closest('.time-slot').remove()">
+                                    <i class="fas fa-trash"></i> 删除
+                                </button>
+                            </div>
+                        </div>
+                    </template>
                     <div class="mb-3">
                         <button type="button" class="btn btn-outline-primary btn-sm" onclick="addTimeSlot()">
                             <i class="fas fa-plus"></i> 添加时间段
@@ -86,10 +111,8 @@
 <script>
 function addTimeSlot() {
     const container = document.getElementById('time-slots');
-    const template = container.querySelector('.time-slot').cloneNode(true);
-    // 清空已选值
-    template.querySelectorAll('input').forEach(i => i.value = '');
-    container.appendChild(template);
+    const tpl = document.getElementById('time-slot-template');
+    container.appendChild(tpl.content.cloneNode(true));
 }
 </script>
 {% endblock %}

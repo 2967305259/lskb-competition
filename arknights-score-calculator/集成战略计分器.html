@@ -1,0 +1,1530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>明日方舟 · 集成战略 比赛计分器</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#fff; --line:#e5e8ee; --line-soft:#eef1f6;
+    --text:#1e2430; --muted:#7a8291; --accent:#3b6ef6;
+    --pos:#0f8a52; --pos-bg:#e8f7ef; --neg:#d0342c; --neg-bg:#fdecea;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-text-size-adjust:100%;
+  }
+  .app{max-width:1060px;margin:0 auto;padding:14px 14px 56px;display:flex;flex-direction:column;gap:12px}
+
+  /* ---------- 顶栏 ---------- */
+  .top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .title{font-size:18px;font-weight:700}
+  .title span{display:block;font-size:12px;font-weight:400;color:var(--muted);margin-top:2px}
+  .btn{border:1px solid var(--line);background:#fff;color:var(--text);border-radius:8px;padding:7px 12px;font:inherit;font-size:14px;cursor:pointer}
+  .btn:hover{background:#fafbfd;border-color:#ccd3df}
+  .btn:active{transform:translateY(1px)}
+
+  /* ---------- 总分面板 ---------- */
+  .summary{
+    position:sticky;top:8px;z-index:10;
+    display:grid;grid-template-columns:repeat(4,1fr);gap:10px;
+    background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+    box-shadow:0 6px 18px rgba(24,38,64,.06);
+  }
+  .stat{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .stat-label{font-size:12px;color:var(--muted)}
+  .stat-value{
+    font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .stat--total{border-left:1px solid var(--line-soft);padding-left:12px}
+  .stat--total .stat-value{font-size:24px}
+  .stat-value.pos{color:var(--pos)}
+  .stat-value.neg{color:var(--neg)}
+
+  /* ---------- 分区卡片 ---------- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+  .card-title{display:flex;align-items:center;gap:8px;margin:0;font-size:16px;font-weight:600}
+  .card-title::before{content:"";width:4px;height:16px;border-radius:2px;background:var(--accent)}
+  .card--penalty .card-title{color:var(--neg)}
+  .card--penalty .card-title::before{background:var(--neg)}
+  .chip{
+    font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;
+    background:#f1f4f9;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;
+  }
+  .chip.pos{background:var(--pos-bg);color:var(--pos)}
+  .chip.neg{background:var(--neg-bg);color:var(--neg)}
+
+  /* ---------- 基础结算（输入行） ---------- */
+  .fields{display:flex;flex-direction:column}
+  .field{display:flex;align-items:center;gap:12px;padding:8px 6px;border-bottom:1px dashed var(--line-soft)}
+  .field:last-child{border-bottom:0}
+  .field-label{flex:1;min-width:0;display:flex;flex-direction:column}
+  .field-label .name{font-weight:500}
+  .field-input{display:flex;align-items:center;gap:8px;flex:none}
+
+  /* ---------- 条目列表 ---------- */
+  .items{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:4px}
+  .group + .group{margin-top:10px}
+  .group-title{font-size:13px;font-weight:600;color:var(--muted);margin:2px 0 4px}
+  .item{display:flex;align-items:center;gap:8px;min-height:36px;padding:5px 8px;border-radius:8px}
+  label.item{cursor:pointer}
+  label.item:hover{background:#f7f9fc}
+  label.item:has(input:checked){background:var(--pos-bg)}
+  .card--penalty label.item:has(input:checked){background:var(--neg-bg)}
+  .item-name{flex:1;min-width:0;overflow-wrap:anywhere}
+  .item--input .item-name,.field-label{line-height:1.35}
+  .hint{display:block;font-size:12px;font-weight:400;color:var(--muted)}
+  .unit{font-size:13px;color:var(--muted)}
+
+  /* 基础结算的条目列表与上方固定行（原始分 / 用时）视觉统一 */
+  #sec-basic .items{grid-template-columns:1fr;gap:0}
+  #sec-basic .items .item{padding:8px 6px;border-bottom:1px dashed var(--line-soft);border-radius:0}
+  #sec-basic .items .item:last-child{border-bottom:0}
+
+  .item-score,.item-sub{
+    font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;
+    text-align:right;color:var(--muted);
+  }
+  .item-sub{min-width:52px}
+  .is-on-pos{color:var(--pos)}
+  .is-on-neg{color:var(--neg)}
+
+  input.num{
+    width:96px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;
+    font:inherit;font-size:16px;text-align:right;background:#fff;color:inherit;
+    font-variant-numeric:tabular-nums;
+  }
+  input.num:focus{outline:2px solid rgba(59,110,246,.22);border-color:var(--accent);outline-offset:0}
+  /* 输入被自动纠正时的提示高亮 */
+  input.num-corrected,.cfg-input.num-corrected{box-shadow:0 0 0 2px rgba(224,168,0,.5)}
+  input[type=checkbox]{width:18px;height:18px;margin:0;flex:none;accent-color:var(--accent)}
+
+  @media (max-width:600px){
+    .app{padding:10px 10px 48px}
+    .summary{grid-template-columns:repeat(2,1fr);gap:8px 10px}
+    .stat--total{border-left:0;padding-left:0}
+    .stat--total .stat-value{font-size:22px}
+    .items{grid-template-columns:1fr}
+    .title{font-size:16px}
+  }
+
+  /* ---------- 分区配置模式 ---------- */
+  .card-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+  .btn--sm{padding:5px 10px;font-size:13px}
+  .btn--primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn--primary:hover{background:#2f5fe0;border-color:#2f5fe0;color:#fff}
+  .card .config-view{display:none}
+  .card .edit-actions{display:none}
+  .card.is-editing .config-view{display:block}
+  .card.is-editing .edit-actions{display:flex;gap:6px}
+  .card.is-editing .score-view,
+  .card.is-editing [data-act="edit"],
+  .card.is-editing .chip{display:none}
+
+  .cfg{display:flex;flex-direction:column;gap:8px;padding-top:2px}
+  .cfg-rows{display:flex;flex-direction:column;gap:8px}
+  .cfg-row{display:grid;grid-template-columns:minmax(70px,.85fr) minmax(120px,1.6fr) 82px 78px 62px 74px minmax(74px,.95fr) auto;gap:6px;align-items:end}
+  .cfg-row--rule{grid-template-columns:repeat(3,minmax(70px,1fr)) auto}
+  .cfg-field{display:flex;flex-direction:column;gap:2px;min-width:0;flex:0 1 auto}
+  .cfg-field::before{content:attr(data-label);font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cfg-field--name{min-width:120px}
+  .cfg-field--score{max-width:96px}
+  .cfg-field--unit,.cfg-field--min,.cfg-field--threshold{max-width:96px}
+  .cfg-input{
+    width:100%;min-width:0;padding:5px 7px;border:1px solid var(--line);border-radius:7px;
+    font:inherit;font-size:14px;background:#fff;color:inherit;
+  }
+  .cfg-input:focus{outline:2px solid rgba(59,110,246,.22);border-color:var(--accent)}
+  .cfg-tools{display:flex;gap:4px;justify-content:flex-end;padding-bottom:1px}
+  .icon-btn{
+    width:28px;height:28px;padding:0;border:1px solid var(--line);background:#fff;border-radius:7px;
+    font:inherit;font-size:14px;line-height:1;color:var(--muted);cursor:pointer;
+  }
+  .icon-btn:hover{background:#f4f6fa;color:var(--text)}
+  .icon-btn--danger:hover{background:var(--neg-bg);color:var(--neg);border-color:#f2c6c2}
+  .cfg-foot,.cfg-line{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+  .cfg-line .cfg-field{flex:1 1 170px}
+  .cfg-sub-title{font-size:13px;font-weight:600;color:var(--muted);margin-top:2px}
+  .cfg-hint{font-size:12px;line-height:1.45;color:var(--muted)}
+  /* 按条目类型显隐字段（最低值只在需要数量的类型下出现） */
+  .cfg-row[data-type="check"] .cfg-field--unit,
+  .cfg-row[data-type="check"] .cfg-field--min,
+  .cfg-row[data-type="check"] .cfg-field--threshold,
+  .cfg-row[data-type="fixed"] .cfg-field--unit,
+  .cfg-row[data-type="fixed"] .cfg-field--min,
+  .cfg-row[data-type="fixed"] .cfg-field--threshold,
+  .cfg-row[data-type="number"] .cfg-field--threshold{display:none}
+
+  #toast{
+    position:fixed;left:50%;bottom:22px;z-index:60;
+    transform:translate(-50%,10px);opacity:0;pointer-events:none;
+    background:rgba(30,36,48,.92);color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;
+    transition:opacity .18s ease,transform .18s ease;
+  }
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+
+  @media (max-width:760px){
+    .cfg-row{grid-template-columns:repeat(2,1fr)}
+    .cfg-row--rule{grid-template-columns:repeat(2,1fr)}
+    .cfg-field--name{grid-column:1/-1}
+    .cfg-row .cfg-tools{grid-column:1/-1;justify-content:flex-start}
+    .cfg-row--rule .cfg-tools{grid-column:auto;justify-content:flex-end}
+  }
+
+  /* 屏幕很矮时（如手机横屏）总分面板不再吸顶，避免遮挡分区标题按钮 */
+  @media (max-height:520px){
+    .summary{position:static}
+  }
+
+  /* ---------- 比赛信息与工具条 ---------- */
+  .meta{display:flex;gap:10px;flex-wrap:wrap}
+  .meta-field{display:flex;flex-direction:column;gap:3px;flex:1 1 180px;min-width:0}
+  .meta-field > span{font-size:12px;color:var(--muted)}
+  .meta-field input{
+    width:100%;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:8px;
+    font:inherit;font-size:15px;background:#fff;color:inherit;
+  }
+  .meta-field input:focus{outline:2px solid rgba(59,110,246,.22);border-color:var(--accent)}
+  .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn--danger{color:var(--neg);border-color:#f0cfcc}
+  .btn--danger:hover{background:var(--neg-bg);border-color:#e8b4b0}
+  .hidden-file{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+
+  @media (max-width:600px){
+    .tools .btn{flex:1 1 40%}
+  }
+
+  /* ---------- 打印 / 导出 PDF：打印计分明细表（而不是页面本身） ---------- */
+  #printView{display:none}
+  #printView h1{margin:0 0 8px;font-size:17px;font-weight:700}
+  .pv-meta{display:flex;flex-wrap:wrap;gap:4px 24px;font-size:13px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #dde1e8}
+  .pv-meta b{font-weight:600}
+  .pv-table{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+  .pv-table th,.pv-table td{border:1px solid #c9ced8;padding:5px 8px;text-align:left;vertical-align:middle;word-break:break-word}
+  .pv-table th{background:#eef1f6;font-weight:600}
+  .pv-table th:nth-child(1),.pv-table td:nth-child(1){width:16%}
+  .pv-table th:nth-child(2),.pv-table td:nth-child(2){width:38%}
+  .pv-table th:nth-child(3),.pv-table td:nth-child(3){width:16%}
+  .pv-table th:nth-child(4),.pv-table td:nth-child(4){width:15%}
+  .pv-table th:nth-child(5),.pv-table td:nth-child(5){width:15%}
+  .pv-table thead{display:table-header-group}
+  .pv-table tr{break-inside:avoid;page-break-inside:avoid}
+  .pv-table td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .pv-table td.cell-section{white-space:nowrap;color:#333}
+  .pv-table tr.sec-start td{border-top:1.5px solid #8a93a5}
+  .pv-table td.pos{color:#0f8a52}
+  .pv-table td.neg{color:#d0342c}
+  .pv-summary{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px 28px;margin-top:12px;font-size:13px;break-inside:avoid;page-break-inside:avoid}
+  .pv-line{display:flex;align-items:baseline;gap:10px}
+  .pv-line span{color:#555}
+  .pv-line b{font-size:15px;font-variant-numeric:tabular-nums}
+  .pv-line.pv-total b{font-size:19px}
+  .pv-line b.pos{color:#0f8a52}
+  .pv-line b.neg{color:#d0342c}
+  .pv-foot{display:flex;flex-wrap:wrap;gap:6px 28px;margin-top:18px;padding-top:8px;border-top:1px solid #dde1e8;font-size:12px;color:#444}
+
+  @page{margin:12mm}
+
+  @media print{
+    body{background:#fff}
+    .app{display:none !important}
+    #printView{display:block}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<div id="printView"></div>
+
+<!-- 「导出定制 HTML」会把当前配置写进这里；有内容时它取代脚本里的内置默认配置 -->
+<script id="default-config" type="application/json"></script>
+
+<script>
+/* ============================================================================
+ * 配置对象（默认值）—— 直接在此修改即可调整计分规则
+ * 说明：修改默认值后，请把 version 加 1，否则浏览器里已保存的旧配置会覆盖新默认值
+ * 条目 type 取值：
+ *   'check'     勾选型：勾选即加/扣 score 分
+ *   'number'    输入型：小计 = 数量 × score
+ *   'fixed'     固定型：小计恒为 score
+ *   'threshold' 阈值型：小计 = max(0, 数量 - threshold) × score
+ * 条目 min 字段：输入型 / 阈值型的数量下限，默认 0（数量不能为负，负输入按 0 计）；
+ *   需要允许负数时，在该分区的配置模式里把「最低值」改小即可。
+ * ========================================================================== */
+const BUILTIN_CONFIG = {
+  version: 3,
+
+  /* 一、基础结算：原始分 + 用时（时段规则）+ 可自由增删的输入条目 */
+  basic: {
+    kind: 'bonus',
+    title: '基础结算',
+    scoreLabel: '原始分',
+    scoreHint: '基础分，直接计入总分',
+    timeLabel: '用时（小时）',
+    // 用时规则：命中区间 [min, max]（含两端，按顺序优先命中）
+    timeRules: [
+      { min: 0, max: 2, score: 30 },
+      { min: 2, max: 4, score: 0 }
+    ],
+    // 超出最后一个规则区间后的处理：每超 1 小时加/扣 perHour 分
+    timeOverflow: { perHour: -20, rounding: 'ceil' }, // 'ceil' 不足 1 小时按 1 小时计 | 'exact' 按实际小数计算
+    // 除「原始分」「用时」外的条目，与其它分区同构，可在配置模式中增删改
+    groups: [
+      { title: '', items: [
+        { id: 'basic-relic', name: '藏品数量', type: 'number', score: 5, unit: '个', min: 0 }
+      ] }
+    ]
+  },
+
+  /* 二、关卡加分（勾选型） */
+  levelBonus: {
+    kind: 'bonus',
+    title: '关卡加分',
+    groups: [
+      { title: '', items: [
+        { id: 'lv-1', name: '无效验尸', type: 'check', score: 200 },
+        { id: 'lv-2', name: '同域共存', type: 'check', score: 300 }
+      ] }
+    ]
+  },
+
+  /* 三、额外加分 */
+  extraBonus: {
+    kind: 'bonus',
+    title: '额外加分',
+    groups: [
+      { title: '携带特殊藏品', items: [
+        { id: 'ex-special', name: '携带特殊藏品', type: 'check', score: 100 }
+      ] },
+      { title: '临时招募', items: [
+        { id: 'ex-recruit-6', name: '六星', type: 'number', score: 50, unit: '个', min: 0 },
+        { id: 'ex-recruit-5', name: '五星', type: 'number', score: 20, unit: '个', min: 0 },
+        { id: 'ex-recruit-4', name: '四星', type: 'number', score: 10, unit: '个', min: 0 }
+      ] }
+    ]
+  },
+
+  /* 四、扣分项 */
+  penalty: {
+    kind: 'penalty',
+    title: '扣分项',
+    groups: [
+      { title: '', items: [
+        // 输入的是总共取出的锭数（含 100 锭），超出 100 锭的部分每锭 -10 分
+        { id: 'p-money', name: '取钱超过 100 锭', type: 'threshold', threshold: 100, score: -10, unit: '锭', min: 0 },
+        { id: 'p-special', name: '携带特殊藏品', type: 'check', score: -100 }
+      ] }
+    ]
+  }
+};
+
+/* 条目类型白名单：localStorage 存档 / 导入的 JSON / 内嵌配置里的 type 一律按这里归一化 */
+const ITEM_TYPES = ['check', 'number', 'fixed', 'threshold'];
+
+/* ----------------------------------------------------------------------------
+ * 内嵌配置：「导出定制 HTML」会把当前配置写进 <script id="default-config">。
+ * 有内容时它取代上面的内置默认值（连同 version），这样把定制过的 HTML 拷到
+ * 别的设备 / 浏览器打开就能直接带上配置。
+ * -------------------------------------------------------------------------- */
+const EMBEDDED_CONFIG = (function () {
+  try {
+    const el = document.getElementById('default-config');
+    const raw = el ? String(el.textContent).trim() : '';
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return (parsed && typeof parsed === 'object' && parsed.basic && parsed.penalty) ? normalizeItems(parsed) : null;
+  } catch (e) {
+    return null; // 内嵌配置损坏时退回内置默认值
+  }
+})();
+
+const DEFAULT_CONFIG = EMBEDDED_CONFIG || BUILTIN_CONFIG;
+
+const STORAGE_KEY = 'arknights-ir-score-calculator.config.v1';
+const EMBED_SIG_KEY = STORAGE_KEY + '.embedded';
+
+/* ============================================================================
+ * 配置持久化（localStorage）
+ * 注意：仅配置会被保存，当前选手的计分输入不会写入 localStorage
+ * ========================================================================== */
+function clone_(v) { return JSON.parse(JSON.stringify(v)); }
+
+/* 信任边界归一化：外来配置（存档 / 导入的 JSON / 内嵌配置）都要过一遍，
+   避免 type 这类自由文本直接进入 DOM（属性注入）或计分逻辑 */
+function normalizeItems(cfg) {
+  Object.keys(cfg || {}).forEach(key => {
+    const sec = cfg[key];
+    if (!sec || typeof sec !== 'object' || !Array.isArray(sec.groups)) return;
+    sec.groups.forEach(g => {
+      if (!g || typeof g !== 'object' || !Array.isArray(g.items)) return;
+      g.items.forEach(it => {
+        if (!it || typeof it !== 'object') return;
+        it.type = ITEM_TYPES.indexOf(it.type) >= 0 ? it.type : 'check';
+      });
+    });
+  });
+  return cfg;
+}
+
+function mergeConfig(base, stored) {
+  const merged = {};
+  for (const key of Object.keys(base)) {
+    const def = base[key];
+    const cur = stored ? stored[key] : undefined;
+    merged[key] = (def && typeof def === 'object' && !Array.isArray(def) && cur && typeof cur === 'object' && !Array.isArray(cur))
+      ? Object.assign({}, def, cur)
+      : (cur === undefined ? clone_(def) : cur);
+  }
+  return normalizeItems(merged);
+}
+
+/* 内嵌配置的指纹：用来判断"当前这份 HTML 自带的配置"是否已经在本机生效过 */
+function embeddedSignature() {
+  if (!EMBEDDED_CONFIG) return '';
+  const text = JSON.stringify(EMBEDDED_CONFIG);
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0;
+  return text.length + '-' + h.toString(36);
+}
+
+function loadConfig() {
+  let stored = null;
+  let storedSig = '';
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) stored = JSON.parse(raw);
+    storedSig = localStorage.getItem(EMBED_SIG_KEY) || '';
+  } catch (e) {
+    stored = null; // localStorage 不可用（如隐私模式）时静默降级为默认配置
+    storedSig = '';
+  }
+  // 换了一份带内嵌配置的 HTML（指纹变了）时，内嵌配置优先——否则拷到别的设备
+  // 打开时会被同版本的旧存档顶掉；同一份文件再次打开则仍以本机存档为准，保留改动。
+  const embeddedChanged = (function () {
+    const sig = embeddedSignature();
+    return sig !== '' && sig !== storedSig;
+  })();
+  if (!stored || typeof stored !== 'object' || stored.version !== DEFAULT_CONFIG.version || embeddedChanged) {
+    const fresh = clone_(DEFAULT_CONFIG);
+    saveConfig(fresh);
+    return fresh;
+  }
+  return mergeConfig(DEFAULT_CONFIG, stored);
+}
+
+function saveConfig(cfg) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg || config));
+    localStorage.setItem(EMBED_SIG_KEY, embeddedSignature());
+  } catch (e) { /* 忽略写入失败 */ }
+}
+
+let config = loadConfig();
+
+/* ============================================================================
+ * 工具函数
+ * ========================================================================== */
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function r2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+function signed(n) { const v = r2(n); return (v > 0 ? '+' : '') + v; }
+function lastTimeBound() {
+  const rules = config.basic.timeRules || [];
+  return rules.length ? Math.max.apply(null, rules.map(r => Number(r.max) || 0)) : 0;
+}
+function timeHint() {
+  const b = config.basic;
+  if (!(b.timeRules || []).length) return '未设置时段规则，用时不计分';
+  const parts = (b.timeRules || []).map(r => `${r.min}~${r.max}h ${signed(r.score)}`);
+  const tail = b.timeOverflow.rounding === 'exact' ? '（按实际小数计）' : '（不足 1h 按 1h 计）';
+  parts.push(`超 ${lastTimeBound()}h 每超 1h ${signed(b.timeOverflow.perHour)}${tail}`);
+  return parts.join('；');
+}
+
+/* ============================================================================
+ * 渲染：页面结构只渲染一次，之后只更新小计/合计文本（避免输入时丢失焦点）
+ * ========================================================================== */
+const app = document.getElementById('app');
+const els = new Map();  // path -> input/checkbox 元素
+const subs = new Map(); // path -> 小计元素
+const chips = new Map(); // sectionKey -> 本区小计元素
+const sums = new Map();  // 'original' | 'bonus' | 'penalty' | 'total' -> 元素
+
+function inputHtml(path, nonNegative) {
+  return `<input type="text" class="num" inputmode="decimal" autocomplete="off" placeholder="0" data-num${nonNegative ? ' data-nonneg' : ''} data-path="${path}">`;
+}
+
+/* 数字输入归一化：把各种小数分隔符/全角字符统一成可解析的半角数字串
+   （type="number" 会静默丢弃 "1,5"、"1。5" 这类输入，把它们变成 "15"，因此改用 text + 归一化） */
+function normalizeNumeric(raw) {
+  let s = String(raw == null ? '' : raw);
+  s = s.replace(/[\uFF10-\uFF19]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)); // 全角数字 → 半角
+  s = s.replace(/[\u2212\uFF0D\u2013\u2014\uFE63]/g, '-');   // 各种负号 → 半角减号
+  s = s.replace(/[\u3002\uFF0E\uFF61\u00B7\u30FB\u2027\u2219\u066B]/g, '.'); // 各种小数点 → 半角小数点
+  s = s.replace(/[,\uFF0C\u3001]/g, '.');                    // 半角/全角逗号、顿号 → 小数点
+  s = s.replace(/[\s\u00A0\u3000]/g, '');                    // 空白
+  s = s.replace(/[^0-9.\-]/g, '');                           // 其它字符
+  const negative = s.charAt(0) === '-';
+  s = s.replace(/-/g, '');
+  const dot = s.indexOf('.');
+  if (dot >= 0) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '');
+  return (negative ? '-' : '') + s;
+}
+
+function sanitizeNumericInput(el) {
+  const fixed = normalizeNumeric(el.value);
+  if (fixed === el.value) return;
+  el.value = fixed;
+  flagCorrected(el);
+}
+
+/* 输入被自动纠正时给出短暂的高亮反馈，避免"被悄悄改掉却看不出来" */
+function flagCorrected(el) {
+  el.classList.add('num-corrected');
+  clearTimeout(el.__fixTimer);
+  el.__fixTimer = setTimeout(() => el.classList.remove('num-corrected'), 800);
+}
+
+/* 提示文字：把行内说明（每 X 单位 ±N 分）临时换成纠正原因，再自动还原 */
+function flashHint(el, text) {
+  const box = el && el.closest ? el.closest('.item') : null;
+  const hint = box ? box.querySelector('.hint') : null;
+  if (!hint) return;
+  if (hint.dataset.base === undefined) hint.dataset.base = hint.textContent;
+  hint.textContent = text;
+  hint.style.color = 'var(--neg)';
+  clearTimeout(hint.__hintTimer);
+  hint.__hintTimer = setTimeout(() => {
+    hint.textContent = hint.dataset.base;
+    hint.style.color = '';
+  }, 2000);
+}
+
+/* 数量类输入：负号不进框（含全角/其它负号），避免"打了减号却看不出为什么被吃掉" */
+const MINUS_RE = /[\-−﹣－–—]/;
+function isNonNegativeEl(el) {
+  return !!(el && el.hasAttribute && el.hasAttribute('data-nonneg'));
+}
+
+/* 数量下限：条目拥有有限 min 时用它，否则用兜底值（输入型 / 阈值型默认 0） */
+function qtyMin(item, fallback) {
+  const m = Number(item && item.min);
+  return Number.isFinite(m) ? m : (fallback || 0);
+}
+/* 读取一个数量输入框：返回解析值、钳制后的值、是否被钳制 */
+function readQty(el, min) {
+  const raw = el ? String(el.value).trim() : '';
+  if (raw === '') return { raw: raw, value: 0, clamped: false, empty: true };
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n)) return { raw: raw, value: 0, clamped: false, empty: false };
+  return { raw: raw, value: Math.max(min, n), clamped: n < min, empty: false };
+}
+/* 把被钳制的数量输入框改写成钳制值，并给出反馈 */
+function applyQtyClamp(el, info, min) {
+  if (!info.clamped || !el) return;
+  el.value = String(r2(info.value));
+  flagCorrected(el);
+  flashHint(el, '不能小于 ' + r2(min) + '，已按 ' + r2(info.value) + ' 计');
+}
+/* 用时同样不允许为负 */
+function clampTimeInput(el) {
+  if (!el) return;
+  const raw = String(el.value).trim();
+  if (raw === '') return;
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n >= 0) return;
+  el.value = '0';
+  flagCorrected(el);
+  flashHint(el, '用时不能为负，已按 0 计');
+}
+
+function itemHtml(key, gi, ii, item) {
+  const path = `${key}:${gi}:${ii}`;
+  const value = signed(item.score);
+
+  if (item.type === 'check') {
+    return `<label class="item item--check">
+      <input type="checkbox" data-path="${path}">
+      <span class="item-name">${esc(item.name)}</span>
+      <span class="item-score" data-sub="${path}">${value}</span>
+    </label>`;
+  }
+  if (item.type === 'fixed') {
+    return `<div class="item">
+      <span class="item-name">${esc(item.name)}<span class="hint">固定计入</span></span>
+      <span class="item-score" data-sub="${path}">${value}</span>
+    </div>`;
+  }
+
+  const unit = esc(item.unit || '个');
+  const min = qtyMin(item, 0);
+  const hint = item.type === 'threshold'
+    ? `超出 ${r2(item.threshold)}${unit}后，每${unit} ${value}`
+    : `每${unit} ${value}`;
+  return `<div class="item item--input">
+    <span class="item-name">${esc(item.name)}<span class="hint">${hint}</span></span>
+    ${inputHtml(path, min >= 0)}
+    <span class="unit">${unit}</span>
+    <span class="item-sub" data-sub="${path}">0</span>
+  </div>`;
+}
+
+const SECTION_KEYS = ['basic', 'levelBonus', 'extraBonus', 'penalty'];
+
+function itemsBodyHtml(key) {
+  const sec = config[key];
+  return (sec.groups || []).map((g, gi) => {
+    const items = (g.items || []).map((it, ii) => itemHtml(key, gi, ii, it)).join('');
+    return `<div class="group">
+      ${g.title ? `<div class="group-title">${esc(g.title)}</div>` : ''}
+      <div class="items">${items}</div>
+    </div>`;
+  }).join('');
+}
+
+function sectionShell(key) {
+  const sec = config[key];
+  const isPenalty = sec.kind === 'penalty';
+  const body = key === 'basic' ? basicBodyHtml() : itemsBodyHtml(key);
+  return `<section class="card${isPenalty ? ' card--penalty' : ''}" id="sec-${key}" data-sec="${key}">
+    <div class="card-head">
+      <h2 class="card-title">${esc(sec.title)}</h2>
+      <div class="card-actions">
+        <span class="chip" data-chip="${key}">本区小计 0</span>
+        <button type="button" class="btn btn--sm" data-act="edit">修改配置</button>
+        <span class="edit-actions">
+          <button type="button" class="btn btn--sm" data-act="reset">恢复默认</button>
+          <button type="button" class="btn btn--sm" data-act="cancel">取消</button>
+          <button type="button" class="btn btn--sm btn--primary" data-act="save">保存</button>
+        </span>
+      </div>
+    </div>
+    <div class="score-view">${body}</div>
+    <div class="config-view"></div>
+  </section>`;
+}
+
+function basicBodyHtml() {
+  const b = config.basic;
+  return `<div class="fields">
+      <div class="field">
+        <span class="field-label"><span class="name">${esc(b.scoreLabel)}</span><span class="hint">${esc(b.scoreHint)}</span></span>
+        <span class="field-input">${inputHtml('basic:original')}</span>
+      </div>
+      <div class="field">
+        <span class="field-label"><span class="name">${esc(b.timeLabel)}</span><span class="hint">${esc(timeHint())}</span></span>
+        <span class="field-input">${inputHtml('basic:time', true)}<span class="item-sub" data-sub="basic:time">0</span></span>
+      </div>
+    </div>
+    ${itemsBodyHtml('basic')}`;
+}
+
+function bindAll() {
+  els.clear(); subs.clear(); chips.clear(); sums.clear();
+  app.querySelectorAll('[data-path]').forEach(el => els.set(el.dataset.path, el));
+  app.querySelectorAll('[data-sub]').forEach(el => subs.set(el.dataset.sub, el));
+  app.querySelectorAll('[data-chip]').forEach(el => chips.set(el.dataset.chip, el));
+  app.querySelectorAll('[data-sum]').forEach(el => sums.set(el.dataset.sum, el));
+}
+
+function todayStr() {
+  const d = new Date();
+  const p = n => (n < 10 ? '0' : '') + n;
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
+function render() {
+  app.innerHTML = `
+    <header class="top">
+      <div class="title">明日方舟 · 集成战略 比赛计分器<span>计分数据不自动保存，刷新页面即重置；分区配置只存在本浏览器，换设备请用「导出定制 HTML」或「导出配置 / 导入配置」</span></div>
+    </header>
+    <div class="meta">
+      <label class="meta-field"><span>比赛名称</span><input data-meta="title" placeholder="例如：集成战略夏季邀请赛"></label>
+      <label class="meta-field"><span>选手 / 队伍</span><input data-meta="player" placeholder="例如：罗德岛小队"></label>
+      <label class="meta-field"><span>日期</span><input type="date" data-meta="date" value="${todayStr()}"></label>
+    </div>
+    <div class="tools">
+      <button type="button" class="btn btn--primary" data-act="export-csv">导出 CSV</button>
+      <button type="button" class="btn" data-act="export-json">导出 JSON</button>
+      <button type="button" class="btn" data-act="import-json">导入 JSON</button>
+      <button type="button" class="btn" data-act="export-config" title="只导出分区配置，用于在其它设备同步规则">导出配置</button>
+      <button type="button" class="btn" data-act="import-config" title="只导入分区配置，保留当前已填写的计分输入">导入配置</button>
+      <button type="button" class="btn" data-act="export-html" title="导出自带当前配置的 HTML 副本，拷到其它设备打开即可用">导出定制 HTML</button>
+      <button type="button" class="btn" data-act="print">打印 / 导出 PDF</button>
+      <button type="button" class="btn btn--danger" data-act="clear">清空计分</button>
+      <input type="file" id="importFile" class="hidden-file" accept=".json,application/json" aria-hidden="true" tabindex="-1">
+      <input type="file" id="importConfigFile" class="hidden-file" accept=".json,application/json" aria-hidden="true" tabindex="-1">
+    </div>
+    <div class="summary">
+      <div class="stat"><div class="stat-label">原始分</div><div class="stat-value" data-sum="original">0</div></div>
+      <div class="stat"><div class="stat-label">加分合计</div><div class="stat-value" data-sum="bonus">0</div></div>
+      <div class="stat"><div class="stat-label">扣分合计</div><div class="stat-value" data-sum="penalty">0</div></div>
+      <div class="stat stat--total"><div class="stat-label">最终得分</div><div class="stat-value" data-sum="total">0</div></div>
+    </div>
+    ${SECTION_KEYS.map(sectionShell).join('')}
+  `;
+
+  bindAll();
+  updateScores();
+}
+
+/* ============================================================================
+ * 计算与显示
+ * ========================================================================== */
+function num(path) {
+  const el = els.get(path);
+  if (!el) return 0;
+  const v = parseFloat(el.value);
+  return Number.isFinite(v) ? v : 0;
+}
+
+function rawText(path) {
+  const el = els.get(path);
+  return el ? String(el.value).trim() : '';
+}
+
+function timeScore(hours) {
+  const b = config.basic;
+  const rules = b.timeRules || [];
+  if (!rules.length) return 0;
+  const h = Math.max(0, Number(hours) || 0);   // 用时不允许为负，负值按 0 计
+  for (const r of rules) {
+    if (h >= r.min && h <= r.max) return Number(r.score) || 0;
+  }
+  const bound = lastTimeBound();
+  if (h <= bound) return 0;
+  const over = h - bound;
+  const units = b.timeOverflow.rounding === 'exact' ? over : Math.ceil(over);
+  return units * (Number(b.timeOverflow.perHour) || 0);
+}
+
+/* 数量下限：输入型 / 阈值型的数量不允许低于 min（默认 0），避免"负数量"变成变相加分/扣分 */
+function itemQty(item, elem) {
+  const min = qtyMin(item, 0);
+  return Math.max(min, readQty(elem, min).value);
+}
+
+function itemScore(item, elem) {
+  switch (item.type) {
+    case 'check': return (elem && elem.checked) ? (Number(item.score) || 0) : 0;
+    case 'fixed': return Number(item.score) || 0;
+    case 'threshold':
+      // 低于阈值的部分不产生分数，因此负数数量天然被钳到 0
+      return Math.max(0, itemQty(item, elem) - (Number(item.threshold) || 0)) * (Number(item.score) || 0);
+    case 'number':
+    default:
+      return itemQty(item, elem) * (Number(item.score) || 0);
+  }
+}
+
+function paintSub(path, value, text) {
+  const el = subs.get(path);
+  if (!el) return;
+  const v = r2(value);
+  el.textContent = text === undefined ? signed(v) : text;
+  el.classList.toggle('is-on-pos', v > 0);
+  el.classList.toggle('is-on-neg', v < 0);
+}
+
+function paintChip(key, value) {
+  const el = chips.get(key);
+  if (!el) return;
+  const v = r2(value);
+  el.textContent = '本区小计 ' + signed(v);
+  el.classList.toggle('pos', v > 0);
+  el.classList.toggle('neg', v < 0);
+}
+
+function paintSum(key, text, tone) {
+  const el = sums.get(key);
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('pos', tone === 'pos');
+  el.classList.toggle('neg', tone === 'neg');
+}
+
+function sectionItemSum(key) {
+  let sum = 0;
+  (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
+    sum += itemScore(item, els.get(key + ':' + gi + ':' + ii));
+  }));
+  return sum;
+}
+
+function computeTotals() {
+  const original = num('basic:original');
+  // 用时未填写时不计分（避免刚打开页面就出现 +30）
+  const time = rawText('basic:time') === '' ? 0 : timeScore(num('basic:time'));
+  const sections = {};
+  SECTION_KEYS.forEach(key => { sections[key] = sectionItemSum(key); });
+
+  const basicSub = time + sections.basic;
+  const bonus = basicSub + sections.levelBonus + sections.extraBonus;
+  const penalty = sections.penalty;
+  return {
+    original: r2(original), time: r2(time), sections: sections,
+    basicSub: r2(basicSub), bonus: r2(bonus), penalty: r2(penalty), total: r2(original + bonus + penalty)
+  };
+}
+
+function updateScores() {
+  clampTimeInput(els.get('basic:time'));
+
+  // 先把越界的数量输入改写成下限值并给出提示，再按钳制后的值计分
+  SECTION_KEYS.forEach(key => (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
+    if (item.type === 'check' || item.type === 'fixed') return;
+    const min = qtyMin(item, 0);
+    const el = els.get(key + ':' + gi + ':' + ii);
+    applyQtyClamp(el, readQty(el, min), min);
+  })));
+
+  const t = computeTotals();
+
+  paintSub('basic:time', t.time);
+  SECTION_KEYS.forEach(key => (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
+    const path = key + ':' + gi + ':' + ii;
+    const s = itemScore(item, els.get(path));
+    if (item.type === 'check') paintSub(path, s, signed(item.score));
+    else if (item.type !== 'fixed') paintSub(path, s);
+  })));
+
+  paintChip('basic', t.basicSub);
+  paintChip('levelBonus', t.sections.levelBonus);
+  paintChip('extraBonus', t.sections.extraBonus);
+  paintChip('penalty', t.sections.penalty);
+
+  paintSum('original', signed(t.original), '');
+  paintSum('bonus', signed(t.bonus), t.bonus >= 0 ? 'pos' : 'neg');
+  paintSum('penalty', signed(t.penalty), t.penalty < 0 ? 'neg' : '');
+  paintSum('total', signed(t.total), t.total > 0 ? 'pos' : (t.total < 0 ? 'neg' : ''));
+}
+
+function clearScores() {
+  if (!window.confirm('确定清空当前所有计分输入吗？此操作不可撤销。')) return;
+  app.querySelectorAll('[data-path]').forEach(el => {
+    if (el.type === 'checkbox') el.checked = false;
+    else el.value = '';
+  });
+  updateScores();
+}
+
+/* ============================================================================
+ * 分区配置模式
+ * 进入配置时只切换当前分区的显示：其他分区继续计分，当前分区的计分输入仍保留在
+ * DOM 中（隐藏但未销毁），因此总分不会因为进入配置而跳动；点击「保存」后才按新
+ * 配置重建该分区。
+ * ========================================================================== */
+const TYPE_LABELS = { check: '勾选型', number: '输入型', fixed: '固定型', threshold: '阈值型' };
+const TYPE_OPTIONS = ITEM_TYPES.map(t => [t, TYPE_LABELS[t]]);
+let itemUid = 0;
+let toastTimer = null;
+
+function toast(msg) {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+function optionHtml(value, label, current) {
+  return `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`;
+}
+
+function cfgEl(root, field) { return root.querySelector('[data-field="' + field + '"]'); }
+function cfgStr(root, field, fallback) {
+  const el = cfgEl(root, field);
+  const v = el ? String(el.value).trim() : '';
+  return v || fallback;
+}
+function cfgNum(root, field, fallback) {
+  const el = cfgEl(root, field);
+  const v = el ? parseFloat(el.value) : NaN;
+  return Number.isFinite(v) ? v : fallback;
+}
+
+/* ---------- 配置界面 HTML ---------- */
+function itemRowHtml(item) {
+  const type = item.type || 'check';
+  const types = TYPE_OPTIONS.map(o => optionHtml(o[0], o[1], type)).join('');
+  return `<div class="cfg-row" data-row data-id="${esc(item.id || '')}" data-type="${esc(type)}">
+    <span class="cfg-field" data-label="分组"><input class="cfg-input" data-field="group" value="${esc(item.group || '')}" placeholder="无分组"></span>
+    <span class="cfg-field cfg-field--name" data-label="名称"><input class="cfg-input" data-field="name" value="${esc(item.name || '')}" placeholder="条目名称"></span>
+    <span class="cfg-field" data-label="类型"><select class="cfg-input" data-field="type">${types}</select></span>
+    <span class="cfg-field" data-label="分值"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="score" value="${item.score === undefined ? '' : r2(item.score)}"></span>
+    <span class="cfg-field cfg-field--unit" data-label="单位"><input class="cfg-input" data-field="unit" value="${esc(item.unit || '')}" placeholder="个"></span>
+    <span class="cfg-field cfg-field--min" data-label="最低值（数量不能小于）"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="min" value="${r2(qtyMin(item, 0))}"></span>
+    <span class="cfg-field cfg-field--threshold" data-label="阈值"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="threshold" value="${item.threshold === undefined ? '' : r2(item.threshold)}"></span>
+    <span class="cfg-tools">
+      <button type="button" class="icon-btn" data-act="up" title="上移">↑</button>
+      <button type="button" class="icon-btn" data-act="down" title="下移">↓</button>
+      <button type="button" class="icon-btn icon-btn--danger" data-act="del" title="删除">✕</button>
+    </span>
+  </div>`;
+}
+
+function rowsEditorHtml(sec) {
+  const rows = [];
+  (sec.groups || []).forEach(g => (g.items || []).forEach(it => {
+    rows.push(itemRowHtml(Object.assign({}, it, { group: g.title })));
+  }));
+  return `<div class="cfg-rows" data-rows>${rows.join('')}</div>
+    <div class="cfg-foot">
+      <button type="button" class="btn btn--sm" data-act="addItem">+ 添加条目</button>
+      <span class="cfg-hint">勾选型＝勾选即加/扣分；输入型＝数量 × 分值；固定型＝恒定加/扣分；阈值型＝超出阈值部分 × 分值。分组用于在计分界面显示小标题，留空表示不分组。「最低值」是数量下限，默认 0（数量不能为负数），需要负数时改小即可。</span>
+    </div>`;
+}
+
+function itemsEditorHtml(sec) {
+  return `<div class="cfg">${rowsEditorHtml(sec)}</div>`;
+}
+
+function ruleRowHtml(rule) {
+  return `<div class="cfg-row cfg-row--rule" data-rule>
+    <span class="cfg-field" data-label="最短（小时）"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="min" value="${r2(rule.min)}"></span>
+    <span class="cfg-field" data-label="最长（小时）"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="max" value="${r2(rule.max)}"></span>
+    <span class="cfg-field" data-label="加/扣分"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="score" value="${r2(rule.score)}"></span>
+    <span class="cfg-tools"><button type="button" class="icon-btn icon-btn--danger" data-act="delRule" title="删除该时段">✕</button></span>
+  </div>`;
+}
+
+function basicEditorHtml(sec) {
+  const rounding = sec.timeOverflow.rounding === 'exact' ? 'exact' : 'ceil';
+  const rules = (sec.timeRules || []).map(ruleRowHtml).join('');
+  return `<div class="cfg">
+    <div class="cfg-line">
+      <span class="cfg-field" data-label="原始分标签"><input class="cfg-input" data-field="scoreLabel" value="${esc(sec.scoreLabel)}"></span>
+      <span class="cfg-field" data-label="原始分说明"><input class="cfg-input" data-field="scoreHint" value="${esc(sec.scoreHint)}"></span>
+    </div>
+    <div class="cfg-sub-title">用时时段规则（区间含两端，按顺序优先命中）</div>
+    <div class="cfg-rows" data-rules>${rules}</div>
+    <button type="button" class="btn btn--sm" data-act="addRule">+ 添加时段</button>
+    <div class="cfg-line">
+      <span class="cfg-field" data-label="超出最后一个时段后，每超 1 小时"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="perHour" value="${r2(sec.timeOverflow.perHour)}"></span>
+      <span class="cfg-field" data-label="不足 1 小时的计算方式"><select class="cfg-input" data-field="rounding">
+        ${optionHtml('ceil', '不足 1 小时按 1 小时计', rounding)}
+        ${optionHtml('exact', '按实际小数精确计算', rounding)}
+      </select></span>
+    </div>
+    <div class="cfg-line">
+      <span class="cfg-field" data-label="用时标签"><input class="cfg-input" data-field="timeLabel" value="${esc(sec.timeLabel)}"></span>
+    </div>
+    <div class="cfg-sub-title">本区其它条目（原始分、用时之外的输入项，可增删改）</div>
+    ${rowsEditorHtml(sec)}
+  </div>`;
+}
+
+function editorHtml(key, sec) {
+  return key === 'basic' ? basicEditorHtml(sec) : itemsEditorHtml(sec);
+}
+
+/* ---------- 配置界面读取 ---------- */
+/* 读取编辑器时按条目 id 找回原条目：修改类型后仍保留阈值 / 单位 / 最低值等字段 */
+function existingItems() {
+  const map = {};
+  SECTION_KEYS.forEach(key => (config[key].groups || []).forEach(g => (g.items || []).forEach(it => {
+    if (it && it.id) map[it.id] = it;
+  })));
+  return map;
+}
+
+function readGroups(root) {
+  const groups = [];
+  const byTitle = {};
+  const prev = existingItems();
+  root.querySelectorAll('[data-row]').forEach(row => {
+    const title = cfgStr(row, 'group', '');
+    const type = (cfgEl(row, 'type') || {}).value || 'check';
+    const id = row.dataset.id || ('it-' + (++itemUid));
+    const old = prev[id];
+    const item = {
+      id: id,
+      name: cfgStr(row, 'name', '未命名条目'),
+      type: type,
+      score: cfgNum(row, 'score', 0)
+    };
+    if (type === 'number' || type === 'threshold') {
+      item.unit = cfgStr(row, 'unit', (old && old.unit) || '个');
+      // 最低值：以输入框为准；输入框为空时沿用原条目（最低值固定为 0 的旧条目也能平滑升级）
+      item.min = cfgNum(row, 'min', old && Number.isFinite(Number(old.min)) ? Number(old.min) : 0);
+    }
+    if (type === 'threshold') item.threshold = cfgNum(row, 'threshold', (old && old.threshold) || 0);
+
+    const bucket = '\u0000' + title;
+    if (!byTitle[bucket]) {
+      byTitle[bucket] = { title: title, items: [] };
+      groups.push(byTitle[bucket]);
+    }
+    byTitle[bucket].items.push(item);
+  });
+  if (!groups.length) groups.push({ title: '', items: [] });
+  return groups;
+}
+
+function readItemsEditor(key, root) {
+  return Object.assign({}, config[key], { groups: readGroups(root) });
+}
+
+function readBasicEditor(root) {
+  const next = clone_(config.basic);
+  next.scoreLabel = cfgStr(root, 'scoreLabel', '原始分');
+  next.scoreHint = cfgStr(root, 'scoreHint', '');
+  next.timeLabel = cfgStr(root, 'timeLabel', '用时（小时）');
+  next.timeOverflow = {
+    perHour: cfgNum(root, 'perHour', 0),
+    rounding: cfgStr(root, 'rounding', 'ceil') === 'exact' ? 'exact' : 'ceil'
+  };
+  next.timeRules = Array.prototype.map.call(root.querySelectorAll('[data-rule]'), row => ({
+    min: cfgNum(row, 'min', 0),
+    max: cfgNum(row, 'max', 0),
+    score: cfgNum(row, 'score', 0)
+  }));
+  next.groups = readGroups(root);
+  return next;
+}
+
+/* ---------- 进入 / 退出 / 保存 / 恢复默认 ---------- */
+function enterEdit(key) {
+  const secEl = document.getElementById('sec-' + key);
+  if (!secEl) return;
+  secEl.querySelector('.config-view').innerHTML = editorHtml(key, config[key]);
+  secEl.classList.add('is-editing');
+}
+
+function closeEditor(secEl) {
+  secEl.classList.remove('is-editing');
+  secEl.querySelector('.config-view').innerHTML = '';
+}
+
+function resetEditor(key) {
+  const secEl = document.getElementById('sec-' + key);
+  secEl.querySelector('.config-view').innerHTML = editorHtml(key, DEFAULT_CONFIG[key]);
+  toast('已载入「' + DEFAULT_CONFIG[key].title + '」默认配置，点击「保存」生效');
+}
+
+function snapshotValues(key) {
+  const snap = {};
+  (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((it, ii) => {
+    const el = els.get(key + ':' + gi + ':' + ii);
+    if (!el) return;
+    snap[it.id] = el.type === 'checkbox' ? el.checked : el.value;
+  }));
+  // 基础结算的固定行（原始分 / 用时）与条目无关，也应保留
+  ['basic:original', 'basic:time'].forEach(p => {
+    const el = els.get(p);
+    if (el) snap[p] = el.value;
+  });
+  return snap;
+}
+
+function restoreValues(key, snap) {
+  (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((it, ii) => {
+    const el = els.get(key + ':' + gi + ':' + ii);
+    const v = snap[it.id];
+    if (!el || v === undefined) return;
+    if (el.type === 'checkbox') el.checked = !!v;
+    else if (it.type === 'number' || it.type === 'threshold') {
+      // 空值保持空（"未填写"不等于"填了 0"），非空才按最低值钳制
+      el.value = String(v).trim() === '' ? '' : String(r2(readQty({ value: v }, qtyMin(it, 0)).value));
+    }
+    else el.value = v;
+  }));
+  ['basic:original', 'basic:time'].forEach(p => {
+    const el = els.get(p);
+    if (!el || snap[p] === undefined) return;
+    if (p !== 'basic:time') { el.value = snap[p]; return; }
+    // 用时留空代表"未填写"（不计分），不能固化成 0，否则平白多出 0~2h 档的加分
+    const raw = String(snap[p]).trim();
+    el.value = raw === '' ? '' : String(Math.max(0, parseFloat(raw) || 0));
+  });
+}
+
+function saveEdit(key) {
+  const secEl = document.getElementById('sec-' + key);
+  const cv = secEl.querySelector('.config-view');
+  const snap = snapshotValues(key);
+
+  config[key] = key === 'basic' ? readBasicEditor(cv) : readItemsEditor(key, cv);
+  saveConfig();
+  secEl.querySelector('.score-view').innerHTML = key === 'basic' ? basicBodyHtml() : itemsBodyHtml(key);
+  closeEditor(secEl);
+  bindAll();
+  restoreValues(key, snap);   // 未改动的条目保留已填写的数值
+  updateScores();
+  toast('已保存「' + config[key].title + '」配置');
+}
+
+/* ---------- 条目 / 时段 的增删与排序 ---------- */
+function lastRowValue(rows, field) {
+  if (!rows.length) return undefined;
+  const el = cfgEl(rows[rows.length - 1], field);
+  return el ? el.value : undefined;
+}
+
+function addItemRow(key) {
+  const wrap = document.getElementById('sec-' + key).querySelector('[data-rows]');
+  if (!wrap) return;
+  const rows = wrap.querySelectorAll('[data-row]');
+  const lastMin = parseFloat(lastRowValue(rows, 'min'));
+  const row = {
+    group: lastRowValue(rows, 'group') || '',
+    type: lastRowValue(rows, 'type') || 'check',
+    unit: lastRowValue(rows, 'unit') || '',
+    min: Number.isFinite(lastMin) ? lastMin : 0,
+    score: undefined
+  };
+  wrap.insertAdjacentHTML('beforeend', itemRowHtml(row));
+  const nameInput = wrap.lastElementChild.querySelector('[data-field="name"]');
+  if (nameInput) nameInput.focus();
+}
+
+function addRuleRow(key) {
+  const wrap = document.getElementById('sec-' + key).querySelector('[data-rules]');
+  if (!wrap) return;
+  const rows = wrap.querySelectorAll('[data-rule]');
+  const lastMax = parseFloat(lastRowValue(rows, 'max'));
+  const min = Number.isFinite(lastMax) ? lastMax : 0;
+  wrap.insertAdjacentHTML('beforeend', ruleRowHtml({ min: min, max: r2(min + 2), score: 0 }));
+}
+
+function moveRow(btn, dir) {
+  const row = btn.closest('[data-row]');
+  if (!row) return;
+  const sibling = dir < 0 ? row.previousElementSibling : row.nextElementSibling;
+  if (!sibling || !sibling.hasAttribute('data-row')) return;
+  if (dir < 0) row.parentNode.insertBefore(row, sibling);
+  else row.parentNode.insertBefore(sibling, row);
+}
+
+/* ============================================================================
+ * 比赛信息 / 导出（CSV、JSON）/ 导入 / 打印
+ * ========================================================================== */
+function metaOf() {
+  const get = k => {
+    const el = app.querySelector('[data-meta="' + k + '"]');
+    return el ? String(el.value).trim() : '';
+  };
+  return { title: get('title'), player: get('player'), date: get('date') };
+}
+
+function setMeta(meta) {
+  if (!meta) return;
+  ['title', 'player', 'date'].forEach(k => {
+    const el = app.querySelector('[data-meta="' + k + '"]');
+    if (el && meta[k] !== undefined) el.value = meta[k];
+  });
+}
+
+/* 明细行：{ 分区, 分组, 名称, 数量/勾选, 单位分值, 小计 } —— 包含未勾选条目，便于复核 */
+function collectRows() {
+  const rows = [];
+  const b = config.basic;
+  const timeText = rawText('basic:time');
+  const timeVal = timeText === '' ? null : Math.max(0, parseFloat(timeText) || 0); // 与计分一致：负用时按 0
+  rows.push({ section: b.title, group: '', name: b.scoreLabel, qty: '', unit: '', sub: num('basic:original') });
+  rows.push({
+    section: b.title, group: '', name: b.timeLabel,
+    qty: timeVal === null ? '' : r2(timeVal),
+    unit: '',
+    sub: timeVal === null ? 0 : timeScore(timeVal)
+  });
+
+  SECTION_KEYS.forEach(key => {
+    const sec = config[key];
+    (sec.groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
+      const el = els.get(key + ':' + gi + ':' + ii);
+      let qty = '';
+      if (item.type === 'check') qty = (el && el.checked) ? '已勾选' : '未勾选';
+      else if (item.type === 'fixed') qty = '固定计入';
+      else {
+        const raw = el ? String(el.value).trim() : '';
+        // 数量按钳制后的值导出，避免明细里出现与计算不符的负数
+        qty = raw === '' ? '' : r2(readQty(el, qtyMin(item, 0)).value);
+      }
+      rows.push({ section: sec.title, group: g.title, name: item.name, qty: qty, unit: r2(item.score), sub: itemScore(item, el) });
+    }));
+  });
+  return rows;
+}
+
+/* 纯数字（可带正负号）保持原样，Excel 才能把它当数值参与计算 */
+const PLAIN_NUMBER_RE = /^[+-]?\d+(\.\d+)?$/;
+
+function csvCell(value) {
+  let s = value === undefined || value === null ? '' : String(value);
+  // 公式注入防护：以 = + - @ 或 Tab/CR 开头且不是纯数字的单元格加 ' 前缀，
+  // 否则 Excel 会把条目名之类的内容当公式执行（-200、+30 这类分值不受影响）
+  if (!PLAIN_NUMBER_RE.test(s) && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function buildCsv() {
+  const meta = metaOf();
+  const t = computeTotals();
+  const lines = [];
+  lines.push(['比赛名称', meta.title]);
+  lines.push(['选手/队伍', meta.player]);
+  lines.push(['日期', meta.date]);
+  lines.push([]);
+  lines.push(['分区', '名称', '数量/勾选', '单位分值', '小计']);
+  collectRows().forEach(r => {
+    lines.push([r.section, (r.group && r.group !== r.name) ? r.group + ' · ' + r.name : r.name, r.qty, r.unit, r.sub]);
+  });
+  lines.push([]);
+  lines.push(['加分合计', t.bonus]);
+  lines.push(['扣分合计', t.penalty]);
+  lines.push(['最终得分', t.total]);
+  // 前置 BOM，避免 Excel 打开中文乱码
+  return '\uFEFF' + lines.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+}
+
+function buildJson() {
+  const scores = { original: rawText('basic:original'), time: rawText('basic:time'), items: {} };
+  SECTION_KEYS.forEach(key => (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
+    const el = els.get(key + ':' + gi + ':' + ii);
+    if (!el || !item.id) return;
+    if (el.type === 'checkbox') scores.items[item.id] = !!el.checked;
+    else if (item.type === 'number' || item.type === 'threshold') {
+      // 与计分保持一致：导出的是钳制后的数量，负数不会进入备份文件
+      const info = readQty(el, qtyMin(item, 0));
+      scores.items[item.id] = info.empty ? '' : String(r2(info.value));
+    } else scores.items[item.id] = String(el.value);
+  })));
+
+  return JSON.stringify({
+    app: 'arknights-ir-score-calculator',
+    version: DEFAULT_CONFIG.version,
+    exportedAt: new Date().toISOString(),
+    meta: metaOf(),
+    result: computeTotals(),
+    config: config,
+    scores: scores
+  }, null, 2);
+}
+
+function restoreScores(scores) {
+  if (!scores) return;
+  const put = (path, value) => {
+    const el = els.get(path);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!value;
+    else el.value = (value === undefined || value === null) ? '' : String(value);
+  };
+  put('basic:original', scores.original);
+  put('basic:time', scores.time);
+  const items = scores.items || {};
+  SECTION_KEYS.forEach(key => (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
+    if (Object.prototype.hasOwnProperty.call(items, item.id)) put(key + ':' + gi + ':' + ii, items[item.id]);
+  })));
+}
+
+function applyImport(data) {
+  if (!data || typeof data !== 'object' || !data.config || typeof data.config !== 'object') {
+    throw new Error('不是本计分器导出的 JSON 文件');
+  }
+  config = mergeConfig(DEFAULT_CONFIG, data.config);
+  config.version = DEFAULT_CONFIG.version;
+  saveConfig(config);
+  render();
+  setMeta(data.meta);
+  restoreScores(data.scores);
+  updateScores();
+}
+
+/* 仅导入配置：按条目 id 恢复已填写的计分输入，避免同步规则时丢掉当前选手的数据 */
+function applyConfigImport(data) {
+  if (!data || typeof data !== 'object' || !data.config || typeof data.config !== 'object') {
+    throw new Error('不是本计分器导出的配置文件');
+  }
+  const snap = {};
+  SECTION_KEYS.forEach(key => Object.assign(snap, snapshotValues(key)));
+  const meta = metaOf();
+
+  config = mergeConfig(DEFAULT_CONFIG, data.config);
+  config.version = DEFAULT_CONFIG.version;
+  saveConfig(config);
+  render();
+  setMeta(meta);
+  SECTION_KEYS.forEach(key => restoreValues(key, snap));
+  updateScores();
+}
+
+function fileTag() {
+  const meta = metaOf();
+  const base = (meta.player || meta.title || '集成战略计分').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
+  const date = (meta.date || todayStr()).replace(/[^\d-]/g, '');
+  return base + '_' + date;
+}
+
+function exportFileName(ext) { return '计分明细_' + fileTag() + '.' + ext; }
+
+/* 仅含配置的导出：用于在设备之间同步分区配置（不含计分输入） */
+function buildConfigJson() {
+  return JSON.stringify({
+    app: 'arknights-ir-score-calculator',
+    kind: 'config',
+    version: DEFAULT_CONFIG.version,
+    exportedAt: new Date().toISOString(),
+    config: config
+  }, null, 2);
+}
+
+/* 把当前配置写进 HTML 副本的内嵌配置块，得到「拷到别的设备打开即带配置」的文件 */
+const EMBEDDED_BLOCK_RE = /<script id="default-config" type="application\/json">[\s\S]*?<\/script>/;
+
+function buildCustomHtml() {
+  // JSON 里的 "<" 转义成 \u003c，避免配置内容破坏外层的脚本块
+  const block = '<script id="default-config" type="application/json">'
+    + JSON.stringify(clone_(config)).replace(/</g, '\\u003c')
+    + '<\/script>';
+  const source = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  return EMBEDDED_BLOCK_RE.test(source)
+    ? source.replace(EMBEDDED_BLOCK_RE, function () { return block; })
+    : source.replace('<script', function () { return block + '\n<script'; });
+}
+
+/* 打印用的计分明细表（与页面控件无关的纯报表） */
+function buildPrintSheet() {
+  const meta = metaOf();
+  const t = computeTotals();
+  const rows = collectRows();
+  const view = document.getElementById('printView');
+  if (!view) return;
+
+  let lastSection = null;
+  const bodyRows = rows.map(r => {
+    const isStart = r.section !== lastSection;
+    lastSection = r.section;
+    const name = (r.group && r.group !== r.name) ? r.group + ' · ' + r.name : r.name;
+    const cls = ['num'];
+    if (r.sub > 0) cls.push('pos');
+    if (r.sub < 0) cls.push('neg');
+    return '<tr' + (isStart ? ' class="sec-start"' : '') + '>'
+      + '<td class="cell-section">' + (isStart ? esc(r.section) : '') + '</td>'
+      + '<td>' + esc(name) + '</td>'
+      + '<td class="num">' + (r.qty === '' ? '—' : esc(r.qty)) + '</td>'
+      + '<td class="num">' + (r.unit === '' ? '—' : esc(r.unit)) + '</td>'
+      + '<td class="' + cls.join(' ') + '">' + signed(r.sub) + '</td>'
+      + '</tr>';
+  }).join('');
+
+  const now = new Date();
+  const p = n => (n < 10 ? '0' : '') + n;
+  const stamp = now.getFullYear() + '-' + p(now.getMonth() + 1) + '-' + p(now.getDate()) + ' ' + p(now.getHours()) + ':' + p(now.getMinutes());
+
+  view.innerHTML = `
+    <h1>明日方舟 · 集成战略 计分明细</h1>
+    <div class="pv-meta">
+      <span><b>比赛名称：</b>${esc(meta.title) || '—'}</span>
+      <span><b>选手 / 队伍：</b>${esc(meta.player) || '—'}</span>
+      <span><b>日期：</b>${esc(meta.date) || '—'}</span>
+    </div>
+    <table class="pv-table">
+      <thead><tr><th>分区</th><th>名称</th><th>数量 / 勾选</th><th>单位分值</th><th>小计</th></tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <div class="pv-summary">
+      <div class="pv-line"><span>原始分</span><b>${signed(t.original)}</b></div>
+      <div class="pv-line"><span>加分合计</span><b class="${t.bonus >= 0 ? 'pos' : 'neg'}">${signed(t.bonus)}</b></div>
+      <div class="pv-line"><span>扣分合计</span><b class="${t.penalty < 0 ? 'neg' : ''}">${signed(t.penalty)}</b></div>
+      <div class="pv-line pv-total"><span>最终得分</span><b>${signed(t.total)}</b></div>
+    </div>
+    <div class="pv-foot">
+      <span>打印时间：${stamp}</span>
+    </div>`;
+  return view;
+}
+
+function download(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function handleImportFile(input, mode) {
+  const onlyConfig = mode === 'config';
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function () {
+    let data = null;
+    try {
+      data = JSON.parse(String(reader.result));
+    } catch (e) {
+      toast('导入失败：文件不是有效的 JSON');
+      return;
+    }
+    if (!data || typeof data !== 'object' || !data.config) {
+      toast('导入失败：不是本计分器导出的文件');
+      return;
+    }
+    const confirmMsg = onlyConfig
+      ? '导入会覆盖当前的分区配置（已填写的计分输入会保留），确定继续吗？'
+      : '导入会覆盖当前的分区配置与计分输入，确定继续吗？';
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      if (onlyConfig) applyConfigImport(data);
+      else applyImport(data);
+      toast(onlyConfig ? '配置已导入' : '导入完成');
+    } catch (e) {
+      toast('导入失败：' + e.message);
+    }
+  };
+  reader.onerror = function () { toast('导入失败：无法读取文件'); };
+  reader.readAsText(file, 'utf-8');
+}
+
+/* ============================================================================
+ * 事件绑定与启动
+ * ========================================================================== */
+// 数量类输入直接拒收负号：与其"打进去再被改掉"，不如从源头说清楚
+app.addEventListener('keydown', function (e) {
+  const el = e.target;
+  if (!isNonNegativeEl(el)) return;
+  if (e.key === '-' || MINUS_RE.test(String(e.key || ''))) {
+    e.preventDefault();
+    toast('该项数量不能为负');
+  }
+});
+
+app.addEventListener('input', function (e) {
+  const el = e.target;
+  if (el && el.hasAttribute && el.hasAttribute('data-num')) sanitizeNumericInput(el);
+  if (el.closest && el.closest('.config-view')) return;
+  updateScores();
+});
+
+// 无论点按钮还是用浏览器自带打印（Ctrl+P），都在打印前生成计分明细表
+window.addEventListener('beforeprint', buildPrintSheet);
+
+app.addEventListener('change', function (e) {
+  const el = e.target;
+  if (el && el.type === 'file') { handleImportFile(el, el.id === 'importConfigFile' ? 'config' : 'full'); return; }
+  if (el && el.hasAttribute && el.hasAttribute('data-num')) sanitizeNumericInput(el);
+  if (el.closest && el.closest('.config-view')) {
+    const typeSelect = el.closest('[data-field="type"]');
+    if (typeSelect) typeSelect.closest('[data-row]').dataset.type = typeSelect.value;
+    return;
+  }
+  updateScores();
+});
+
+app.addEventListener('click', function (e) {
+  const btn = e.target.closest ? e.target.closest('[data-act]') : null;
+  if (!btn) return;
+
+  switch (btn.dataset.act) {
+    case 'clear': clearScores(); return;
+    case 'export-csv':
+      download(exportFileName('csv'), buildCsv(), 'text/csv;charset=utf-8');
+      toast('已导出 CSV');
+      return;
+    case 'export-json':
+      download(exportFileName('json'), buildJson(), 'application/json;charset=utf-8');
+      toast('已导出 JSON');
+      return;
+    case 'import-json': {
+      const file = document.getElementById('importFile');
+      if (file) file.click();
+      return;
+    }
+    case 'export-config':
+      download('计分配置_' + fileTag() + '.json', buildConfigJson(), 'application/json;charset=utf-8');
+      toast('已导出配置');
+      return;
+    case 'import-config': {
+      const file = document.getElementById('importConfigFile');
+      if (file) file.click();
+      return;
+    }
+    case 'export-html':
+      download('定制版计分器_' + fileTag() + '.html', buildCustomHtml(), 'text/html;charset=utf-8');
+      toast('已导出定制 HTML，拷到其它设备打开即带配置');
+      return;
+    case 'print': buildPrintSheet(); window.print(); return;
+  }
+
+  const act = btn.dataset.act;
+  const secEl = btn.closest('[data-sec]');
+  if (!secEl) return;
+  const key = secEl.dataset.sec;
+
+  switch (act) {
+    case 'edit': enterEdit(key); break;
+    case 'cancel': closeEditor(secEl); break;
+    case 'reset': resetEditor(key); break;
+    case 'save': saveEdit(key); break;
+    case 'addItem': addItemRow(key); break;
+    case 'addRule': addRuleRow(key); break;
+    case 'up': moveRow(btn, -1); break;
+    case 'down': moveRow(btn, 1); break;
+    case 'del': {
+      const row = btn.closest('[data-row]');
+      if (row) row.remove();
+      break;
+    }
+    case 'delRule': {
+      const rule = btn.closest('[data-rule]');
+      if (rule) rule.remove();
+      break;
+    }
+  }
+});
+
+render();
+
+// 便于调试与后续扩展
+window.__scoring = {
+  get config() { return config; },
+  DEFAULT_CONFIG,
+  BUILTIN_CONFIG,
+  EMBEDDED_CONFIG,
+  saveConfig,
+  updateScores,
+  computeTotals,
+  collectRows,
+  buildCsv,
+  buildJson,
+  buildConfigJson,
+  buildCustomHtml,
+  buildPrintSheet,
+  applyImport,
+  applyConfigImport,
+  metaOf,
+  setMeta,
+  enterEdit,
+  saveEdit,
+  embeddedSignature,
+  resetConfig() {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(EMBED_SIG_KEY);
+    } catch (e) { }
+    config = loadConfig();
+    render();
+  }
+};
+</script>
+</body>
+</html>

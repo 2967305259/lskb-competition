@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}肉鸽管理{% endblock %}
+{% block title %}{{ labels.track }}管理{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
@@ -9,18 +9,18 @@
             <i class="fas fa-arrow-left"></i> 返回后台
         </a>
         <h2>
-            <i class="fas fa-gamepad"></i> 肉鸽管理
+            <i class="fas fa-gamepad"></i> {{ labels.track }}管理
         </h2>
-        <p class="text-muted">管理赛事中的肉鸽（Roguelike）项目</p>
+        <p class="text-muted">管理赛事中的{{ labels.track }}（Roguelike）项目</p>
     </div>
 </div>
 
 <div class="row">
-    <!-- 新增肉鸽 -->
+    <!-- 新增{{ labels.track }} -->
     <div class="col-md-5 mb-4">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-plus-circle"></i> 新增肉鸽</h5>
+                <h5 class="mb-0"><i class="fas fa-plus-circle"></i> 新增{{ labels.track }}</h5>
             </div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('admin.add_roguelike') }}">
@@ -63,18 +63,18 @@
                     </div>
                     <small class="text-muted d-block mb-3">倍率 = 1 + (难度 - 最低难度) × 难度阶级</small>
                     <button type="submit" class="btn btn-primary w-100">
-                        <i class="fas fa-plus"></i> 添加肉鸽
+                        <i class="fas fa-plus"></i> 添加{{ labels.track }}
                     </button>
                 </form>
             </div>
         </div>
     </div>
 
-    <!-- 肉鸽列表 -->
+    <!-- {{ labels.track }}列表 -->
     <div class="col-md-7 mb-4">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-list"></i> 肉鸽列表</h5>
+                <h5 class="mb-0"><i class="fas fa-list"></i> {{ labels.track }}列表</h5>
             </div>
             <div class="card-body">
                 {% if roguelikes %}
@@ -118,7 +118,7 @@
                                                   style="display: inline;">
                                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                 <button type="submit" class="btn btn-sm btn-outline-danger"
-                                                        onclick="return confirm('确定删除肉鸽「{{ rl.name }}」？');">
+                                                        onclick="return confirm('确定删除{{ labels.track }}「{{ rl.name }}」？');">
                                                     <i class="fas fa-trash"></i>
                                                 </button>
                                             </form>
@@ -130,7 +130,7 @@
                                         <div class="modal-dialog">
                                             <div class="modal-content">
                                                 <div class="modal-header">
-                                                    <h5 class="modal-title">编辑肉鸽 - {{ rl.name }}</h5>
+                                                    <h5 class="modal-title">编辑{{ labels.track }} - {{ rl.name }}</h5>
                                                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                                 </div>
                                                 <form method="POST" action="{{ url_for('admin.edit_roguelike', rl_id=rl.id) }}">
@@ -191,7 +191,7 @@
                         </table>
                     </div>
                 {% else %}
-                    <p class="text-muted text-center mb-0">暂无肉鸽数据，请添加</p>
+                    <p class="text-muted text-center mb-0">暂无{{ labels.track }}数据，请添加</p>
                 {% endif %}
             </div>
         </div>

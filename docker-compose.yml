@@ -1,0 +1,83 @@
+# 复用提示：换赛事部署时优先复制一份 .env（参考 .env.example），
+# 需要与旧实例并存时再设置 COMPOSE_PROJECT_NAME（卷/网络会自动加前缀），
+# 并改 CONTAINER_NAME / IMAGE_TAG / PORT 避免冲突。
+services:
+  # ============================================================
+  # Flask 应用
+  # ============================================================
+  app:
+    image: ${IMAGE:-sahuhh/lskb-app}:${IMAGE_TAG:-3.0}
+    container_name: ${CONTAINER_NAME:-lskb-app}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-19198}:${PORT:-19198}"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - PORT=${PORT:-19198}
+      # ---- 赛事复用配置（办新赛事时修改这里即可）----
+      - EVENT_NAME=${EVENT_NAME:-冷水坑杯}
+      - SEASON_NUMBER=${SEASON_NUMBER:-3}
+      # 不设置时自动取 "{EVENT_NAME} #{SEASON_NUMBER}"
+      # - TOURNAMENT_NAME=冷水坑杯 #4
+      - TEAM_SIZE=${TEAM_SIZE:-4}
+      # - TEAM_POSITIONS=cold,normal1,normal2,pit
+      # 领域术语文案（页面文案，模型结构不变）
+      # - TRACK_LABEL=肉鸽
+      # - MEMBER_FIELD1_LABEL=分队
+      # - MEMBER_FIELD2_LABEL=开局干员
+      # 赛制与品牌（不设置则用代码默认值）
+      - SCHEDULE_SLOT_TIMES=${SCHEDULE_SLOT_TIMES:-14:00,19:00}
+      - SCHEDULE_SLOT_MINUTES=${SCHEDULE_SLOT_MINUTES:-120}
+      - DEFAULT_BONUS_SCORE=${DEFAULT_BONUS_SCORE:-500}
+      - BRAND_PRIMARY_COLOR=${BRAND_PRIMARY_COLOR:-#0d6efd}
+      # 初始管理员（仅首次启动创建）
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      # 超级管理员（不设置则不创建）
+      # - SUPER_ADMIN_USERNAME=
+      # - SUPER_ADMIN_PASSWORD=
+      # 数据库：默认用 MySQL，没 MySQL 时注释掉用 SQLite
+      - DATABASE_URL=mysql+pymysql://lskb:${MYSQL_PASSWORD:-lskb123}@mysql:3306/lskb_signup?charset=utf8mb4
+    volumes:
+      - lskb_uploads:/app/app/static/uploads
+      - ./image:/app/image:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - lskb-network
+
+  # ============================================================
+  # MySQL 8.0（可选：如果不用 MySQL，删掉 mysql 服务 + app 的 depends_on）
+  # ============================================================
+  mysql:
+    image: mysql:8.0
+    container_name: ${MYSQL_CONTAINER_NAME:-lskb-mysql}
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-lskb_signup}
+      MYSQL_USER: ${MYSQL_USER:-lskb}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-lskb123}
+    ports:
+      - "3307:3306"
+    volumes:
+      - lskb_mysql:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${MYSQL_USER:-lskb}", "-p${MYSQL_PASSWORD:-lskb123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - lskb-network
+
+volumes:
+  lskb_uploads:
+  lskb_mysql:
+
+networks:
+  lskb-network:
+    driver: bridge

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ team.team_name }} - 冷水坑杯 #3{% endblock %}
+{% block title %}{{ team.team_name }} - {{ event_name }}{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
@@ -37,7 +37,7 @@
                 </div>
                 <div class="mb-0">
                     <strong>队伍人数</strong>
-                    <p>{{ team.get_member_count() }}/4 人</p>
+                    <p>{{ team.get_member_count() }}/{{ team_size }} 人</p>
                 </div>
             </div>
         </div>
@@ -59,9 +59,9 @@
                                 </h6>
                                 <small class="text-muted">
                                     {% if member.roguelike %}
-                                        <i class="fas fa-dragon"></i> 已选肉鸽
+                                        <i class="fas fa-dragon"></i> 已选{{ labels.track }}
                                     {% else %}
-                                        <span class="text-muted">肉鸽待选</span>
+                                        <span class="text-muted">{{ labels.track }}待选</span>
                                     {% endif %}
                                 </small>
                             </div>
@@ -74,6 +74,20 @@
                                 {% endif %}
                             </div>
                         </div>
+                        {% if member.squad or member.operator %}
+                            <div class="mt-2">
+                                {% if member.squad %}
+                                    <small class="text-muted d-block">
+                                        <i class="fas fa-shield-alt"></i> {{ labels.field1 }}：{{ member.squad }}
+                                    </small>
+                                {% endif %}
+                                {% if member.operator %}
+                                    <small class="text-muted d-block">
+                                        <i class="fas fa-user"></i> {{ labels.field2 }}：{{ member.operator }}
+                                    </small>
+                                {% endif %}
+                            </div>
+                        {% endif %}
                         {% if member.declaration %}
                             <div class="mt-2 p-2" style="background-color: #1a1a1a; border-radius: 4px;">
                                 <small class="text-muted">
@@ -100,7 +114,7 @@
                             <i class="fas fa-user-shield"></i> 队长：1人
                         </small>
                         <small class="text-muted d-block">
-                            <i class="fas fa-users"></i> 队员：{{ members|length }}/4人
+                            <i class="fas fa-users"></i> 队员：{{ members|length }}/{{ team_size }}人
                         </small>
                     </div>
                 </div>
@@ -108,7 +122,7 @@
                 <hr>
                 
                 <div class="mb-3">
-                    <strong>肉鸽选择情况</strong>
+                    <strong>{{ labels.track }}选择情况</strong>
                     <div class="mt-2">
                         {% for member in members %}
                             <small class="text-muted d-block">

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}搜索队伍 - 冷水坑杯 #3{% endblock %}
+{% block title %}搜索队伍 - {{ event_name }}{% endblock %}
 {% block content %}
 <div class="container py-4">
     <h2 class="mb-4"><i class="fas fa-search me-2"></i>搜索队伍</h2>
@@ -25,7 +25,7 @@
                     <h5 class="card-title">{{ team.team_name }}</h5>
                     <p class="card-text text-muted small">
                         <i class="fas fa-user me-1"></i>队长：{{ team.captain.nickname }}
-                        <span class="ms-3"><i class="fas fa-users me-1"></i>{{ team.get_member_count() }}/4</span>
+                        <span class="ms-3"><i class="fas fa-users me-1"></i>{{ team.get_member_count() }}/{{ team_size }}</span>
                     </p>
                     {% if team.team_slogan %}
                     <p class="card-text">{{ team.team_slogan }}</p>

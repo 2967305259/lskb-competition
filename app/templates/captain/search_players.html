@@ -72,7 +72,7 @@
             </div>
             <div class="card-body">
                 <p><strong>队伍名称</strong><br>{{ team.team_name }}</p>
-                <p><strong>队伍人数</strong><br>{{ team.get_member_count() }}/4</p>
+                <p><strong>队伍人数</strong><br>{{ team.get_member_count() }}/{{ team_size }}</p>
                 {% if team.is_full() %}
                     <div class="alert alert-warning">
                         <i class="fas fa-exclamation-circle"></i> 队伍已满员

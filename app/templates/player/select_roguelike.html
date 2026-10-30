@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}选择肉鸽{% endblock %}
+{% block title %}选择{{ labels.track }}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -8,7 +8,7 @@
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0">
-                    <i class="fas fa-dragon"></i> 选择肉鸽
+                    <i class="fas fa-dragon"></i> 选择{{ labels.track }}
                 </h5>
             </div>
             <div class="card-body">
@@ -17,11 +17,11 @@
                     
                     <div class="mb-4">
                         <p class="text-muted">
-                            请选择一个肉鸽副本进行挑战
+                            请选择一个{{ labels.track }}副本进行挑战
                         </p>
                         {% if taken_roguelikes %}
                             <div class="alert alert-warning py-2 mb-0 mt-2">
-                                <small><i class="fas fa-info-circle"></i> 以下肉鸽已被队友选择：</small>
+                                <small><i class="fas fa-info-circle"></i> 以下{{ labels.track }}已被队友选择：</small>
                                 <ul class="mb-0 mt-1 ps-3">
                                     {% for r in taken_roguelikes %}
                                         <li><small>{{ get_roguelike_name(r) }}</small></li>
@@ -32,6 +32,7 @@
                     </div>
                     
                     <div class="mb-3">
+                        <label class="form-label"><i class="fas fa-dragon"></i> {{ labels.track }}主题</label>
                         {% if form.roguelike.errors %}
                             {{ form.roguelike(class="form-select is-invalid") }}
                             <div class="invalid-feedback d-block">
@@ -42,6 +43,18 @@
                         {% else %}
                             {{ form.roguelike(class="form-select") }}
                         {% endif %}
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label"><i class="fas fa-shield-alt"></i> 所选{{ labels.field1 }}</label>
+                        {{ form.squad(class="form-control", placeholder="如：后勤" + labels.field1 + "、突击战术" + labels.field1 + "等") }}
+                        <div class="form-text text-muted">请输入你使用的{{ labels.field1 }}名称（手动输入）</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label"><i class="fas fa-user"></i> {{ labels.field2 }}</label>
+                        {{ form.operator(class="form-control", placeholder="如：维什戴尔、缄默德克萨斯等") }}
+                        <div class="form-text text-muted">请输入开局选择的干员名称（手动输入）</div>
                     </div>
                     
                     {% if roguelike %}

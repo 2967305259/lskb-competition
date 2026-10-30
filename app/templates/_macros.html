@@ -1,0 +1,99 @@
+{#
+  通用模板宏（复用点）
+
+  用法：
+    {% from '_macros.html' import render_pagination, match_status_badge with context %}
+
+  - render_pagination：上一页 / 页码 / 下一页（带 iter_pages）
+  - render_pagination_simple：1..N 纯数字页码
+  - match_status_badge：比赛状态徽章（pending/scheduled/confirmed/submitted/finished/forfeit/dispute）
+  - match_progress_badge：比赛进度徽章（已确认 / 1-2 已提交 / 2-2 已提交）
+#}
+
+{% macro render_pagination(pager, endpoint, extra=None, ul_class='justify-content-center') %}
+{% if pager and pager.pages > 1 %}
+<nav aria-label="Page navigation">
+    <ul class="pagination {{ ul_class }}">
+        {% if pager.has_prev %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for(endpoint, page=pager.prev_num, **(extra or {})) }}">上一页</a>
+            </li>
+        {% endif %}
+        {% for page_num in pager.iter_pages() %}
+            {% if page_num %}
+                {% if page_num == pager.page %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ page_num }}</span>
+                    </li>
+                {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for(endpoint, page=page_num, **(extra or {})) }}">{{ page_num }}</a>
+                    </li>
+                {% endif %}
+            {% endif %}
+        {% endfor %}
+        {% if pager.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for(endpoint, page=pager.next_num, **(extra or {})) }}">下一页</a>
+            </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+{% endmacro %}
+
+
+{% macro render_pagination_simple(pager, endpoint, extra=None, ul_class='justify-content-center') %}
+{% if pager and pager.pages > 1 %}
+<nav>
+    <ul class="pagination {{ ul_class }}">
+        {% for p in range(1, pager.pages + 1) %}
+            <li class="page-item {{ 'active' if p == pager.page }}">
+                <a class="page-link" href="{{ url_for(endpoint, page=p, **(extra or {})) }}">{{ p }}</a>
+            </li>
+        {% endfor %}
+    </ul>
+</nav>
+{% endif %}
+{% endmacro %}
+
+
+{% macro match_status_badge(status) %}
+{% if status == 'pending' %}<span class="badge bg-secondary">待处理</span>
+{% elif status == 'scheduled' %}<span class="badge bg-info">待确认</span>
+{% elif status == 'confirmed' %}<span class="badge bg-primary">已确认</span>
+{% elif status == 'submitted' %}<span class="badge bg-warning">已提交</span>
+{% elif status == 'dispute' %}<span class="badge bg-danger">争议中</span>
+{% elif status == 'finished' %}<span class="badge bg-success">已结束</span>
+{% elif status == 'forfeit_a' %}<span class="badge bg-dark">A弃权</span>
+{% elif status == 'forfeit_b' %}<span class="badge bg-dark">B弃权</span>
+{% else %}<span class="badge bg-secondary">{{ status }}</span>{% endif %}
+{% endmacro %}
+
+
+{% macro invitation_status_badge(status) %}
+{% if status == 'pending' %}<span class="badge bg-warning">待处理</span>
+{% elif status == 'accepted' %}<span class="badge bg-success">已接受</span>
+{% elif status == 'rejected' %}<span class="badge bg-danger">已拒绝</span>
+{% else %}<span class="badge bg-secondary">{{ status }}</span>{% endif %}
+{% endmacro %}
+
+
+{% macro join_request_status_badge(status) %}
+{% if status == 'pending' %}<span class="badge bg-warning">待审核</span>
+{% elif status == 'accepted' %}<span class="badge bg-success">已通过</span>
+{% else %}<span class="badge bg-danger">已拒绝</span>{% endif %}
+{% endmacro %}
+
+
+{% macro match_progress_badge(match) %}
+{% if match.status == 'confirmed' or match.status == 'submitted' %}
+    {% set a_done = match.player_a_result is not none %}
+    {% set b_done = match.player_b_result is not none %}
+    {% if a_done and b_done %}<span class="badge bg-success">2/2 已提交</span>
+    {% elif a_done or b_done %}<span class="badge bg-warning">1/2 已提交</span>
+    {% else %}<span class="badge bg-primary">已确认</span>{% endif %}
+{% else %}
+    {{ match_status_badge(match.status) }}
+{% endif %}
+{% endmacro %}

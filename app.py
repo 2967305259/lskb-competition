@@ -1,6 +1,7 @@
 """
-冷水坑杯 #3 报名管理系统 - 单文件版
+赛事报名管理系统 - 单文件版
 所有后端代码整合于此文件，适用于 Docker 打包部署
+赛事名称、端口、队伍人数、初始账号等均可用环境变量覆盖（见 Config 类）
 """
 
 import os
@@ -11,19 +12,24 @@ from functools import wraps
 from io import BytesIO
 
 from flask import (Flask, Blueprint, render_template, redirect, url_for,
-                   flash, request, abort, send_file, jsonify)
+                   flash, request, abort, send_file, jsonify, current_app)
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (LoginManager, UserMixin, login_user, logout_user,
                          current_user, login_required)
 from flask_wtf import FlaskForm
 from flask_wtf.csrf import CSRFProtect
 from wtforms import (StringField, PasswordField, SubmitField, TextAreaField,
-                     SelectField)
+                     SelectField, IntegerField, BooleanField)
 from wtforms.validators import (DataRequired, Length, EqualTo, ValidationError,
-                                Optional)
+                                Optional, NumberRange)
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from openpyxl import Workbook
+
+# 业务规则模块（积分/倍率、自动匹配）；模块内部延迟导入本文件的模型，无循环依赖
+from scoring import (calculate_multiplier, get_team_points, get_team_rankings,
+                     recalculate_all_scores, _update_team_scores)
+from matching import _auto_match
 
 # ============================================================
 # 配置
@@ -59,6 +65,36 @@ class Config:
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
     DEBUG = False
     TESTING = False
+
+    # ---- 赛事可配置项（均可用环境变量覆盖，便于复用到其他赛事）----
+    EVENT_NAME = os.environ.get('EVENT_NAME', '冷水坑杯')
+    SEASON_NUMBER = int(os.environ.get('SEASON_NUMBER', '3'))
+    TOURNAMENT_NAME = os.environ.get('TOURNAMENT_NAME') or f'{EVENT_NAME} #{SEASON_NUMBER}'
+    TEAM_SIZE = int(os.environ.get('TEAM_SIZE', '4'))
+    TEAM_POSITIONS = [p.strip() for p in os.environ.get(
+        'TEAM_POSITIONS', 'cold,normal1,normal2,pit').split(',') if p.strip()]
+    # 领域术语（模板中通过 {{ labels.track }} 等使用，便于复用到非肉鸽赛事）
+    TRACK_LABEL = os.environ.get('TRACK_LABEL', '肉鸽')
+    MEMBER_FIELD1_LABEL = os.environ.get('MEMBER_FIELD1_LABEL', '分队')
+    MEMBER_FIELD2_LABEL = os.environ.get('MEMBER_FIELD2_LABEL', '开局干员')
+    PORT = int(os.environ.get('PORT', '19198'))
+    # 初始账号（仅首次启动无对应用户时创建）
+    ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
+    ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
+    # 超级管理员：不设置环境变量则不创建
+    SUPER_ADMIN_USERNAME = os.environ.get('SUPER_ADMIN_USERNAME', '')
+    SUPER_ADMIN_PASSWORD = os.environ.get('SUPER_ADMIN_PASSWORD', '')
+
+    # ---- 赛制默认值（换赛制时改这里或环境变量，避免散落在路由里）----
+    SCHEDULE_SLOT_TIMES = [t.strip() for t in os.environ.get(
+        'SCHEDULE_SLOT_TIMES', '14:00,19:00').split(',') if t.strip()]
+    SCHEDULE_SLOT_MINUTES = int(os.environ.get('SCHEDULE_SLOT_MINUTES', '120'))
+    DEFAULT_BONUS_SCORE = int(os.environ.get('DEFAULT_BONUS_SCORE', '500'))
+    DEFAULT_DIFFICULTY_MIN = int(os.environ.get('DEFAULT_DIFFICULTY_MIN', '12'))
+    DEFAULT_DIFFICULTY_MAX = int(os.environ.get('DEFAULT_DIFFICULTY_MAX', '18'))
+    DEFAULT_DIFFICULTY_STEP = float(os.environ.get('DEFAULT_DIFFICULTY_STEP', '0.1'))
+    # 品牌主色（模板中通过 theme.brand_color 使用）
+    BRAND_PRIMARY_COLOR = os.environ.get('BRAND_PRIMARY_COLOR', '#0d6efd')
 
 
 class DevelopmentConfig(Config):
@@ -166,6 +202,64 @@ def set_registration_open(status):
     db.session.commit()
 
 
+def _resolve_config(config_key, env_key=None, default=None, db_getter=None):
+    """三级回退读取配置：数据库设置 > app.config（环境变量）> 代码默认值"""
+    if db_getter is not None:
+        try:
+            db_value = db_getter()
+        except Exception:  # 数据库尚未就绪等情况
+            db_value = None
+        if db_value not in (None, ''):
+            return db_value
+    try:
+        cfg_value = current_app.config.get(config_key)
+    except RuntimeError:  # 无应用上下文（如脚本/CLI 调用）
+        cfg_value = None
+    if cfg_value not in (None, ''):
+        return cfg_value
+    if env_key:
+        env_value = os.environ.get(env_key)
+        if env_value not in (None, ''):
+            return env_value
+    return default
+
+
+def get_event_name():
+    """赛事名称：优先数据库 Setting（后台可改），回退环境变量配置"""
+    def _from_setting():
+        s = Setting.query.first()
+        return (s.tournament_name or None) if s else None
+
+    return _resolve_config('TOURNAMENT_NAME', 'TOURNAMENT_NAME', '赛事管理系统', _from_setting)
+
+
+def get_team_size():
+    """队伍满员人数（含队长）：优先数据库 Setting.team_size，回退环境变量"""
+    def _from_setting():
+        s = Setting.query.first()
+        return (s.team_size or None) if s else None
+
+    return int(_resolve_config('TEAM_SIZE', 'TEAM_SIZE', 4, _from_setting))
+
+
+def get_team_positions():
+    """队内位置列表（环境变量为逗号分隔字符串）"""
+    value = _resolve_config('TEAM_POSITIONS', 'TEAM_POSITIONS',
+                            ['cold', 'normal1', 'normal2', 'pit'])
+    if isinstance(value, str):
+        return [p.strip() for p in value.split(',') if p.strip()]
+    return value
+
+
+def get_labels():
+    """领域术语文案（track=赛道/玩法，field1/field2=队员两个自定义字段）"""
+    return {
+        'track': _resolve_config('TRACK_LABEL', 'TRACK_LABEL', '肉鸽'),
+        'field1': _resolve_config('MEMBER_FIELD1_LABEL', 'MEMBER_FIELD1_LABEL', '分队'),
+        'field2': _resolve_config('MEMBER_FIELD2_LABEL', 'MEMBER_FIELD2_LABEL', '开局干员'),
+    }
+
+
 # ============================================================
 # 轮播媒体
 # ============================================================
@@ -175,7 +269,7 @@ VIDEO_EXTENSIONS = {'.mp4', '.webm', '.mov'}
 SUPPORTED_MEDIA_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 
 
-def natural_sort_key(filename):
+def _natural_sort_key(filename):
     """数字自然排序，使 10.png 排在 2.png 之后"""
     import re
     parts = re.split(r'(\d+)', filename)
@@ -186,23 +280,7 @@ def natural_sort_key(filename):
 
 
 def load_carousel_media():
-    """读取轮播数据——优先数据库，回退到文件扫描"""
-    tournament = Tournament.get_active()
-    db_items = []
-    if tournament:
-        db_items = CarouselItem.query.filter_by(
-            tournament_id=tournament.id, is_active=True
-        ).order_by(CarouselItem.sort_order).all()
-
-    if db_items:
-        return [{
-            'type': item.media_type,
-            'file': item.file_path,
-            'title': item.title,
-            'link_url': item.link_url,
-        } for item in db_items]
-
-    # 回退到文件扫描
+    """扫描 image/ 目录，返回排序后的媒体列表（纯文件扫描，不涉及数据库）"""
     img_dir = os.path.join(BASE_DIR, 'image')
     if not os.path.isdir(img_dir):
         return []
@@ -213,10 +291,8 @@ def load_carousel_media():
             items.append({
                 'type': 'video' if ext in VIDEO_EXTENSIONS else 'image',
                 'file': f,
-                'title': None,
-                'link_url': None,
             })
-    items.sort(key=lambda x: natural_sort_key(x['file']))
+    items.sort(key=lambda x: _natural_sort_key(x['file']))
     return items
 
 
@@ -282,13 +358,6 @@ def is_tournament_finished():
     return get_tournament_status() == 'finished'
 
 
-def create_notification(user_id, title, message):
-    """创建通知"""
-    notification = Notification(user_id=user_id, title=title, message=message)
-    db.session.add(notification)
-    db.session.commit()
-
-
 def log_system_action(action, detail=''):
     """记录系统操作审计日志"""
     try:
@@ -305,38 +374,6 @@ def log_system_action(action, detail=''):
     db.session.commit()
 
 
-def get_team_points(team_id):
-    """获取队伍积分（优先使用存储值，回退到队员积分之和）"""
-    team = Team.query.get(team_id)
-    if team and team.team_score is not None and team.team_score > 0:
-        return team.team_score, 0, 0
-    # 回退：队员 final_score 之和
-    members = TeamMember.query.filter_by(team_id=team_id).all()
-    points = sum(m.final_score or 0 for m in members)
-    return points, 0, 0
-
-
-def get_team_rankings():
-    """获取队伍排名列表"""
-    tournament = Tournament.get_active()
-    query = Team.query
-    if tournament:
-        query = query.filter_by(tournament_id=tournament.id)
-    teams = query.all()
-    rankings = []
-    for team in teams:
-        points, special, minor = get_team_points(team.id)
-        rankings.append({
-            'team': team,
-            'points': points,
-            'special': special,
-            'minor': round(minor, 1)
-        })
-    # 排序：积分 > 特殊分 > 小分
-    rankings.sort(key=lambda x: (x['points'], x['special'], x['minor']), reverse=True)
-    return rankings
-
-
 def get_advanced_teams():
     """获取晋级队伍"""
     setting = Setting.get_instance()
@@ -344,6 +381,38 @@ def get_advanced_teams():
         return []
     rankings = get_team_rankings()
     return rankings[:setting.advance_count]
+
+
+# ============================================================
+# 赛季作用域（列表/统计查询统一限定在当前赛事）
+# ============================================================
+
+
+def active_team_query():
+    """当前赛事的队伍查询；无活跃赛事时返回全部（兼容空库）"""
+    tournament = Tournament.get_active()
+    return Team.query.filter(Team.tournament_id == tournament.id) if tournament else Team.query
+
+
+def active_match_query(*criteria):
+    """当前赛事的父比赛查询；无活跃赛事时返回全部（兼容空库）"""
+    query = Match.query.filter(Match.parent_id.is_(None))
+    tournament = Tournament.get_active()
+    if tournament:
+        query = query.filter(Match.tournament_id == tournament.id)
+    for criterion in criteria:
+        query = query.filter(criterion)
+    return query
+
+
+def in_current_season(team):
+    """队伍是否属于当前赛事；tournament_id 为空的历史数据视为兼容放行"""
+    if team is None:
+        return False
+    tournament = Tournament.get_active()
+    if tournament is None:
+        return True
+    return team.tournament_id is None or team.tournament_id == tournament.id
 
 
 # ============================================================
@@ -370,7 +439,6 @@ class Tournament(db.Model):
 
     teams = db.relationship('Team', backref='tournament', lazy='dynamic')
     matches = db.relationship('Match', backref='tournament', lazy='dynamic')
-    announcements = db.relationship('Announcement', backref='tournament', lazy='dynamic', cascade='all, delete-orphan')
     carousel_items = db.relationship('CarouselItem', backref='tournament', lazy='dynamic', cascade='all, delete-orphan')
 
     @classmethod
@@ -399,9 +467,7 @@ class Roguelike(db.Model):
 
     def get_multiplier(self, difficulty):
         """根据难度计算倍率：1 + (难度 - 最低难度) × 难度阶级"""
-        if difficulty is None:
-            return 1.0
-        return 1.0 + (difficulty - self.difficulty_min) * self.difficulty_step
+        return calculate_multiplier(difficulty, self.difficulty_min, self.difficulty_step)
 
     def __repr__(self):
         return f'<Roguelike {self.name}>'
@@ -416,7 +482,6 @@ class User(UserMixin, db.Model):
     nickname = db.Column(db.String(20), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), default='player', nullable=False)
-    approval_status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
     password_changed = db.Column(db.Boolean, default=False)
     avatar = db.Column(db.String(500), nullable=True)
     status = db.Column(db.Integer, default=0)  # 0=待邀请 1=已入队 2=已选配置 3=已报时间 4=已匹配 5=比赛中 6=已提交
@@ -425,9 +490,21 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    team = db.relationship('Team', backref='captain', uselist=False, foreign_keys='Team.captain_id')
+    # 一个用户可在多个赛事中分别担任队长，故为列表；请用 team 属性取当前赛事的队伍
+    teams = db.relationship('Team', backref='captain', foreign_keys='Team.captain_id')
     team_memberships = db.relationship('TeamMember', backref='user', cascade='all, delete-orphan')
     invitations = db.relationship('Invitation', backref='user', cascade='all, delete-orphan')
+
+    @property
+    def team(self):
+        """当前赛事下该用户作为队长的队伍（跨赛季数据共存时只取本届）"""
+        tournament = Tournament.get_active()
+        if tournament is None:
+            return self.teams[0] if self.teams else None
+        for team in self.teams:
+            if team.tournament_id == tournament.id:
+                return team
+        return None
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -447,17 +524,18 @@ class User(UserMixin, db.Model):
     def is_player(self):
         return self.role == 'player'
 
-    def is_approved(self):
-        return self.approval_status == 'approved'
-
     def has_team(self):
         return self.team is not None
 
     def get_team_membership(self):
-        """获取用户的队伍成员记录（队长也是队员）"""
-        if self.team_memberships:
-            return self.team_memberships[0]
-        return None
+        """获取当前赛事的队伍成员记录（队长也是队员）"""
+        tournament = Tournament.get_active()
+        if tournament is not None:
+            for membership in self.team_memberships:
+                if membership.team and membership.team.tournament_id == tournament.id:
+                    return membership
+            return None
+        return self.team_memberships[0] if self.team_memberships else None
 
     def __repr__(self):
         return f'<User {self.username}>'
@@ -468,9 +546,9 @@ class Team(db.Model):
     __tablename__ = 'teams'
 
     id = db.Column(db.Integer, primary_key=True)
-    team_name = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    team_name = db.Column(db.String(50), nullable=False, index=True)
     team_slogan = db.Column(db.String(300), default='')
-    captain_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True)
+    captain_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     tournament_id = db.Column(db.Integer, db.ForeignKey('tournaments.id'), nullable=True)
     team_photo = db.Column(db.String(500), nullable=True)
     team_score = db.Column(db.Integer, default=0)
@@ -480,11 +558,17 @@ class Team(db.Model):
     members = db.relationship('TeamMember', backref='team', cascade='all, delete-orphan')
     invitations = db.relationship('Invitation', backref='team', cascade='all, delete-orphan')
 
+    # 队名与队长唯一性按赛事隔离，同一人/同一队名可在不同赛季重复出现
+    __table_args__ = (
+        db.UniqueConstraint('tournament_id', 'team_name', name='uq_tournament_team_name'),
+        db.UniqueConstraint('tournament_id', 'captain_id', name='uq_tournament_captain'),
+    )
+
     def get_member_count(self):
         return len(self.members)  # 队长也是 TeamMember
 
     def is_full(self):
-        return len(self.members) >= 4
+        return len(self.members) >= get_team_size()
 
     def __repr__(self):
         return f'<Team {self.team_name}>'
@@ -499,6 +583,8 @@ class TeamMember(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     position = db.Column(db.String(20), nullable=True)  # cold / normal1 / normal2 / pit
     roguelike = db.Column(db.String(20), nullable=True)
+    squad = db.Column(db.String(50), default='')  # 所选分队
+    operator = db.Column(db.String(50), default='')  # 开局干员
     declaration = db.Column(db.String(200), default='')
     final_score = db.Column(db.Integer, default=0)  # 队员个人最终积分
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -560,24 +646,13 @@ class Setting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     registration_open = db.Column(db.Boolean, default=True)
     tournament_status = db.Column(db.String(20), default='registration')
-    # 积分配置
-    win_score = db.Column(db.Integer, default=2)
-    draw_score = db.Column(db.Integer, default=1)
-    lose_score = db.Column(db.Integer, default=0)
     # 晋级数量
     advance_count = db.Column(db.Integer, default=0)
     # 新增可配置参数
-    tournament_name = db.Column(db.String(100), default='冷水坑杯 #3')
-    win_bonus = db.Column(db.Integer, default=500)
-    # 难度倍率
-    diff_mult_12 = db.Column(db.Float, default=1.0)
-    diff_mult_13 = db.Column(db.Float, default=1.1)
-    diff_mult_14 = db.Column(db.Float, default=1.2)
-    diff_mult_15 = db.Column(db.Float, default=1.3)
-    registration_start = db.Column(db.DateTime, nullable=True)
-    registration_end = db.Column(db.DateTime, nullable=True)
-    match_start = db.Column(db.DateTime, nullable=True)
-    match_end = db.Column(db.DateTime, nullable=True)
+    tournament_name = db.Column(db.String(100), default='')
+    # 队伍配置（team_size 为空时回退环境变量 TEAM_SIZE）
+    team_size = db.Column(db.Integer, nullable=True)
+    allow_incomplete_teams = db.Column(db.Boolean, default=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     @classmethod
@@ -601,22 +676,27 @@ class Match(db.Model):
     tournament_id = db.Column(db.Integer, db.ForeignKey('tournaments.id'), nullable=True)
     player_a_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     player_b_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    team_a_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=False)
-    team_b_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=False)
+    team_a_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
+    team_b_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
     roguelike = db.Column(db.String(20), nullable=False)
-    difficulty = db.Column(db.Integer, default=12)  # 旧统一难度（兼容历史数据）
-    player_a_difficulty = db.Column(db.Integer, nullable=True)  # A选手独立难度
-    player_b_difficulty = db.Column(db.Integer, nullable=True)  # B选手独立难度
+    difficulty = db.Column(db.Integer, default=12)
+    player_a_difficulty = db.Column(db.Integer, nullable=True)
+    player_b_difficulty = db.Column(db.Integer, nullable=True)
     status = db.Column(db.String(20), default='pending')
-    # pending → confirmed → submitted → reviewing → finished | dispute | forfeit_a | forfeit_b
-    player_a_result = db.Column(db.String(20), nullable=True)  # win, lose, draw, forfeit
+    # match_type: 'match'=正式比赛 'exhibition'=表演赛
+    match_type = db.Column(db.String(20), default='match')
+    # parent_id: 属于哪个主比赛的子分段（NULL=独立比赛）
+    parent_id = db.Column(db.Integer, db.ForeignKey('matches.id'), nullable=True)
+    # segment_order: 分段排序
+    segment_order = db.Column(db.Integer, default=0)
+    player_a_result = db.Column(db.String(20), nullable=True)
     player_b_result = db.Column(db.String(20), nullable=True)
-    player_a_score = db.Column(db.Integer, nullable=True)  # 选手A提交的分数
-    player_b_score = db.Column(db.Integer, nullable=True)  # 选手B提交的分数
+    player_a_score = db.Column(db.Integer, nullable=True)
+    player_b_score = db.Column(db.Integer, nullable=True)
     winner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     confirmed_a = db.Column(db.Boolean, default=False)
     confirmed_b = db.Column(db.Boolean, default=False)
-    review_status = db.Column(db.String(20), default='pending')  # pending, approved, rejected
+    review_status = db.Column(db.String(20), default='pending')
     review_reason = db.Column(db.Text, default='')
     scheduled_time = db.Column(db.DateTime, nullable=True)
     match_note = db.Column(db.Text, default='')
@@ -628,6 +708,7 @@ class Match(db.Model):
     team_a = db.relationship('Team', foreign_keys=[team_a_id], backref='matches_as_a')
     team_b = db.relationship('Team', foreign_keys=[team_b_id], backref='matches_as_b')
     winner = db.relationship('User', foreign_keys=[winner_id], backref='matches_won')
+    children = db.relationship('Match', backref=db.backref('parent', remote_side=[id]), cascade='all, delete-orphan')
 
     def get_player_a_difficulty(self):
         """获取A选手难度（优先独立难度，回退统一难度）"""
@@ -639,23 +720,6 @@ class Match(db.Model):
 
     def __repr__(self):
         return f'<Match {self.id}: {self.player_a_id} vs {self.player_b_id}>'
-
-
-class Notification(db.Model):
-    """通知模型"""
-    __tablename__ = 'notifications'
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
-    title = db.Column(db.String(100), nullable=False)
-    message = db.Column(db.Text, nullable=False)
-    read = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    user = db.relationship('User', backref='notifications')
-
-    def __repr__(self):
-        return f'<Notification {self.id} for User {self.user_id}>'
 
 
 class ScoreLog(db.Model):
@@ -694,22 +758,6 @@ class TimePreference(db.Model):
         return f'<TimePreference player={self.player_id} day={self.day_of_week}>'
 
 
-class Announcement(db.Model):
-    """公告模型"""
-    __tablename__ = 'announcements'
-
-    id = db.Column(db.Integer, primary_key=True)
-    tournament_id = db.Column(db.Integer, db.ForeignKey('tournaments.id'), nullable=True)
-    title = db.Column(db.String(200), nullable=False)
-    content = db.Column(db.Text, nullable=False)
-    image = db.Column(db.String(500), nullable=True)
-    is_pinned = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    def __repr__(self):
-        return f'<Announcement {self.title}>'
-
-
 class CarouselItem(db.Model):
     """轮播图管理模型"""
     __tablename__ = 'carousel_items'
@@ -743,6 +791,23 @@ class SystemLog(db.Model):
 
     def __repr__(self):
         return f'<SystemLog {self.action}>'
+
+
+class Rule(db.Model):
+    """赛事规则模型（支持主规则 + 各肉鸽细分规则）"""
+    __tablename__ = 'rules'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    content = db.Column(db.Text, nullable=False, default='')
+    roguelike_key = db.Column(db.String(30), nullable=True)  # NULL = 主规则, 否则为对应肉鸽的细分规则
+    sort_order = db.Column(db.Integer, default=0)
+    is_published = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<Rule {self.title}>'
 
 
 # ============================================================
@@ -825,8 +890,12 @@ class CreateTeamForm(FlaskForm):
     submit = SubmitField('创建队伍')
 
     def validate_team_name(self, field):
-        if Team.query.filter_by(team_name=field.data).first():
-            raise ValidationError('队伍名称已存在')
+        query = Team.query.filter_by(team_name=field.data)
+        tournament = Tournament.get_active()
+        if tournament:
+            query = query.filter_by(tournament_id=tournament.id)
+        if query.first():
+            raise ValidationError('本届赛事已有同名队伍')
 
 
 class EditTeamForm(FlaskForm):
@@ -856,7 +925,15 @@ class InvitationForm(FlaskForm):
 
 class RoguelikeForm(FlaskForm):
     roguelike = SelectField('选择肉鸽', choices=[], validators=[DataRequired()])
-    submit = SubmitField('选择')
+    squad = StringField('所选分队', validators=[
+        Optional(),
+        Length(max=50, message='分队名称最多50个字符'),
+    ])
+    operator = StringField('开局干员', validators=[
+        Optional(),
+        Length(max=50, message='干员名称最多50个字符'),
+    ])
+    submit = SubmitField('确认选择')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -930,9 +1007,6 @@ class MatchNoteForm(FlaskForm):
 
 class ScoreConfigForm(FlaskForm):
     """积分配置表单"""
-    win_score = StringField('胜场积分', validators=[DataRequired()])
-    draw_score = StringField('平局积分', validators=[DataRequired()])
-    lose_score = StringField('负场积分', validators=[DataRequired()])
     bonus_score = StringField('赛事加成倍率', validators=[DataRequired()])
     advance_count = StringField('晋级名额', validators=[DataRequired()])
     submit = SubmitField('更新配置')
@@ -945,12 +1019,26 @@ class AdvanceCountForm(FlaskForm):
 
 
 class TournamentSettingsForm(FlaskForm):
-    """赛事时间设置表单"""
+    """赛事设置表单"""
+    tournament_name = StringField('赛事名称', validators=[Optional(), Length(max=100)])
+    team_size = IntegerField('队伍满员人数', validators=[
+        Optional(), NumberRange(min=1, max=20, message='队伍人数需在 1~20 之间')])
+    allow_incomplete_teams = BooleanField('允许未满员队伍开赛')
     registration_start = StringField('报名开始时间', validators=[DataRequired(message='请填写报名开始时间')])
     registration_end = StringField('报名截止时间', validators=[DataRequired(message='请填写报名截止时间')])
     tournament_start = StringField('比赛开始时间', validators=[DataRequired(message='请填写比赛开始时间')])
     tournament_end = StringField('比赛结束时间', validators=[DataRequired(message='请填写比赛结束时间')])
     submit = SubmitField('保存设置')
+
+
+class RuleForm(FlaskForm):
+    """规则编辑表单"""
+    title = StringField('规则标题', validators=[DataRequired(message='标题不能为空'), Length(max=200)])
+    content = TextAreaField('规则内容（支持 HTML）', validators=[Optional()])
+    roguelike_key = SelectField('关联肉鸽', choices=[], validators=[Optional()])
+    sort_order = StringField('排序', validators=[Optional()], default='0')
+    is_published = SelectField('发布状态', choices=[('1', '发布'), ('0', '隐藏')], default='1')
+    submit = SubmitField('保存规则')
 
 
 # ============================================================
@@ -973,12 +1061,14 @@ tournament_bp = Blueprint('tournament', __name__, url_prefix='/tournament')
 def index():
     setting = Setting.get_instance()
     tournament = Tournament.get_active()
-    total_teams = Team.query.count()
-    total_members = TeamMember.query.count()
-    total_matches = Match.query.count()
-    finished_matches = Match.query.filter_by(status='finished').count()
+    team_query = active_team_query()
+    total_teams = team_query.count()
+    total_members = TeamMember.query.join(Team).filter(
+        Team.tournament_id == tournament.id).count() if tournament else TeamMember.query.count()
+    total_matches = active_match_query().count()
+    finished_matches = active_match_query(Match.status == 'finished').count()
     page = request.args.get('page', 1, type=int)
-    latest_teams = Team.query.order_by(Team.created_at.desc()).paginate(
+    latest_teams = team_query.order_by(Team.created_at.desc()).paginate(
         page=page, per_page=10)
     carousel_media = load_carousel_media()
     # TOP10 排行榜
@@ -1015,6 +1105,9 @@ def teams_list():
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '', type=str)
     query = Team.query
+    tournament = Tournament.get_active()
+    if tournament:
+        query = query.filter(Team.tournament_id == tournament.id)
     if search:
         query = query.filter(Team.team_name.ilike(f'%{search}%'))
     teams = query.order_by(Team.created_at.desc()).paginate(page=page, per_page=20)
@@ -1028,9 +1121,78 @@ def team_detail(team_id):
     return render_template('team_detail_public.html', team=team, members=members)
 
 
+@main_bp.route('/history')
+def history():
+    """往届赛事归档列表（已结束的赛季，只读）"""
+    seasons = Tournament.query.filter_by(is_active=False).order_by(
+        Tournament.season_number.desc(), Tournament.id.desc()).all()
+    items = []
+    for t in seasons:
+        rankings = get_team_rankings(t.id)
+        items.append({
+            'tournament': t,
+            'team_count': Team.query.filter_by(tournament_id=t.id).count(),
+            'match_count': Match.query.filter_by(tournament_id=t.id, parent_id=None).count(),
+            'finished_count': Match.query.filter_by(
+                tournament_id=t.id, parent_id=None, status='finished').count(),
+            'champion': rankings[0] if rankings else None,
+        })
+    return render_template('history/index.html', seasons=items)
+
+
+@main_bp.route('/history/<int:tournament_id>')
+def history_detail(tournament_id):
+    """往届赛事详情：冠亚季军、队伍积分榜、队员积分榜、比赛结果（只读）"""
+    tournament = Tournament.query.get_or_404(tournament_id)
+    if tournament.is_active:
+        # 当前赛季的数据走赛事大厅/排行榜，避免出现两个入口
+        return redirect(url_for('tournament.hall'))
+    rankings = get_team_rankings(tournament.id)
+    members = TeamMember.query.join(Team).filter(
+        Team.tournament_id == tournament.id).order_by(
+        TeamMember.final_score.desc()).all()
+    matches = Match.query.filter_by(tournament_id=tournament.id, parent_id=None).order_by(
+        Match.created_at.desc()).all()
+    return render_template('history/detail.html',
+                           tournament=tournament,
+                           rankings=rankings,
+                           members=members,
+                           matches=matches,
+                           champion=rankings[0] if len(rankings) > 0 else None,
+                           runner_up=rankings[1] if len(rankings) > 1 else None,
+                           third_place=rankings[2] if len(rankings) > 2 else None)
+
+
 @main_bp.route('/rules')
 def rules():
-    return render_template('rules.html')
+    """主规则页面 + 各肉鸽细分规则入口"""
+    main_rules = Rule.query.filter_by(roguelike_key=None, is_published=True).order_by(Rule.sort_order).all()
+
+    # 构建肉鸽细分规则导航
+    all_roguelikes = get_active_roguelikes()
+    roguelike_rules = []
+    for rl in all_roguelikes:
+        count = Rule.query.filter_by(roguelike_key=rl.key, is_published=True).count()
+        roguelike_rules.append({
+            'key': rl.key,
+            'name': rl.name,
+            'rule_count': count,
+            'difficulty_min': rl.difficulty_min,
+            'difficulty_max': rl.difficulty_max,
+        })
+
+    return render_template('rules.html', main_rules=main_rules, roguelike_rules=roguelike_rules)
+
+
+@main_bp.route('/rules/<roguelike_key>')
+def roguelike_rule(roguelike_key):
+    """单个肉鸽的细分规则页面"""
+    rl = get_roguelike_by_key(roguelike_key)
+    if not rl:
+        abort(404)
+
+    rules = Rule.query.filter_by(roguelike_key=roguelike_key, is_published=True).order_by(Rule.sort_order).all()
+    return render_template('rules_roguelike.html', roguelike=rl, rules=rules)
 
 
 @main_bp.errorhandler(404)
@@ -1081,10 +1243,6 @@ def login():
         if user is None or not user.check_password(form.password.data):
             flash('用户名或密码错误', 'danger')
             return redirect(url_for('auth.login'))
-        if user.is_admin() and not user.password_changed:
-            login_user(user)
-            flash('默认管理员密码，请立即修改密码', 'warning')
-            return redirect(url_for('auth.change_password'))
         login_user(user, remember=form.username.data)
         if user.is_admin():
             return redirect(url_for('admin.dashboard'))
@@ -1130,10 +1288,15 @@ def change_password():
 
 
 @player_bp.route('/dashboard')
-@login_required_with_role('player')
+@login_required_with_role('player', 'captain')
 def dashboard():
-    invitations = Invitation.query.filter_by(
-        user_id=current_user.id, status='pending').all()
+    tournament = Tournament.get_active()
+    invitation_query = Invitation.query.join(Team, Invitation.team_id == Team.id).filter(
+        Invitation.user_id == current_user.id, Invitation.status == 'pending')
+    if tournament:
+        invitation_query = invitation_query.filter(
+            db.or_(Team.tournament_id == tournament.id, Team.tournament_id.is_(None)))
+    invitations = invitation_query.all()
     team_membership = current_user.get_team_membership()
     team = team_membership.team if team_membership else None
     return render_template('player/dashboard.html',
@@ -1143,18 +1306,23 @@ def dashboard():
 
 
 @player_bp.route('/invitations')
-@login_required_with_role('player')
+@login_required_with_role('player', 'captain')
 def invitations():
     page = request.args.get('page', 1, type=int)
-    pagination = Invitation.query.filter_by(user_id=current_user.id).paginate(
-        page=page, per_page=20)
+    query = Invitation.query.join(Team, Invitation.team_id == Team.id).filter(
+        Invitation.user_id == current_user.id)
+    tournament = Tournament.get_active()
+    if tournament:
+        query = query.filter(
+            db.or_(Team.tournament_id == tournament.id, Team.tournament_id.is_(None)))
+    pagination = query.paginate(page=page, per_page=20)
     return render_template('player/invitations.html',
                            invitations=pagination.items,
                            pagination=pagination)
 
 
 @player_bp.route('/invitation/<int:invitation_id>/accept', methods=['POST'])
-@login_required_with_role('player')
+@login_required_with_role('player', 'captain')
 def accept_invitation(invitation_id):
     invitation = Invitation.query.get_or_404(invitation_id)
     if invitation.user_id != current_user.id:
@@ -1162,6 +1330,12 @@ def accept_invitation(invitation_id):
         return redirect(url_for('player.invitations'))
     if invitation.status != 'pending':
         flash('邀请已处理', 'warning')
+        return redirect(url_for('player.invitations'))
+    # 拒绝跨赛季写入：已归档赛事的队伍不再接受新成员
+    if not in_current_season(invitation.team):
+        invitation.status = 'rejected'
+        db.session.commit()
+        flash('该邀请属于已结束的赛事，无法接受', 'warning')
         return redirect(url_for('player.invitations'))
     # 检查是否已在其他队伍中
     if current_user.has_team() or current_user.get_team_membership():
@@ -1178,7 +1352,8 @@ def accept_invitation(invitation_id):
     invitation.status = 'accepted'
     team_member = TeamMember(team_id=team.id, user_id=current_user.id)
     db.session.add(team_member)
-    current_user.role = 'player'
+    if not current_user.is_admin():
+        current_user.role = 'player'  # 管理员入队保留原角色
     current_user.status = 1  # 已入队
     db.session.commit()
     flash(f'成功加入队伍 【{team.team_name}】', 'success')
@@ -1186,7 +1361,7 @@ def accept_invitation(invitation_id):
 
 
 @player_bp.route('/invitation/<int:invitation_id>/reject', methods=['POST'])
-@login_required_with_role('player')
+@login_required_with_role('player', 'captain')
 def reject_invitation(invitation_id):
     invitation = Invitation.query.get_or_404(invitation_id)
     if invitation.user_id != current_user.id:
@@ -1202,7 +1377,7 @@ def reject_invitation(invitation_id):
 
 
 @player_bp.route('/team/<int:team_id>')
-@login_required_with_role('player')
+@login_required_with_role('player', 'captain')
 def team_detail(team_id):
     team = Team.query.get_or_404(team_id)
     team_membership = current_user.get_team_membership()
@@ -1247,6 +1422,13 @@ def select_roguelike():
         if team_counts.get(r.key, 0) < r.max_per_team or r.key == team_membership.roguelike
     ]
 
+    # GET 请求时预填已有数据
+    if request.method == 'GET':
+        if team_membership.roguelike:
+            form.roguelike.data = team_membership.roguelike
+        form.squad.data = team_membership.squad or ''
+        form.operator.data = team_membership.operator or ''
+
     if form.validate_on_submit():
         chosen = form.roguelike.data
         # 检查 team_limit
@@ -1256,6 +1438,8 @@ def select_roguelike():
             flash(f'该肉鸽已达到队伍选择上限（{limit}人）', 'danger')
             return redirect(url_for('player.select_roguelike'))
         team_membership.roguelike = chosen
+        team_membership.squad = (form.squad.data or '').strip()
+        team_membership.operator = (form.operator.data or '').strip()
         if current_user.status < 2:
             current_user.status = 2  # 已选配置
         db.session.commit()
@@ -1264,11 +1448,15 @@ def select_roguelike():
             return redirect(url_for('captain.dashboard'))
         return redirect(url_for('player.team_detail', team_id=team_membership.team_id))
 
+    # 获取已被队友选择的肉鸽列表
+    taken_roguelikes = [k for k, v in team_counts.items() if v > 0 and k != team_membership.roguelike]
+
     return render_template('player/select_roguelike.html',
                            form=form,
                            roguelike=team_membership.roguelike,
                            roguelike_limits=roguelike_limits,
-                           team_counts=team_counts)
+                           team_counts=team_counts,
+                           taken_roguelikes=taken_roguelikes)
 
 
 @player_bp.route('/declaration', methods=['GET', 'POST'])
@@ -1293,10 +1481,21 @@ def declaration():
     return render_template('player/declaration.html', form=form)
 
 
-@player_bp.route('/profile')
-@login_required_with_role('player')
+@player_bp.route('/profile', methods=['GET', 'POST'])
+@login_required_with_role('player', 'captain')
 def profile():
     team_membership = current_user.get_team_membership()
+    form = DeclarationForm()
+    if form.validate_on_submit():
+        if not team_membership:
+            flash('加入队伍后才能填写参赛宣言', 'warning')
+            return redirect(url_for('player.profile'))
+        team_membership.declaration = (form.declaration.data or '').strip()
+        db.session.commit()
+        flash('参赛宣言已更新', 'success')
+        return redirect(url_for('player.profile'))
+    if request.method == 'GET' and team_membership:
+        form.declaration.data = team_membership.declaration or ''
     # 获取比赛历史
     my_matches = Match.query.filter(
         db.or_(Match.player_a_id == current_user.id, Match.player_b_id == current_user.id)
@@ -1306,11 +1505,12 @@ def profile():
     return render_template('player/profile.html',
                            team_membership=team_membership,
                            my_matches=my_matches,
-                           member_score=member_score)
+                           member_score=member_score,
+                           form=form)
 
 
 @player_bp.route('/upload-avatar', methods=['POST'])
-@login_required_with_role('player')
+@login_required_with_role('player', 'captain')
 def upload_avatar():
     if 'avatar' not in request.files:
         flash('请选择文件', 'warning')
@@ -1327,7 +1527,12 @@ def upload_avatar():
     # 生成唯一文件名
     filename = f'{uuid.uuid4().hex}.{ext}'
     filepath = os.path.join(UPLOAD_DIR, filename)
-    file.save(filepath)
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    try:
+        file.save(filepath)
+    except Exception as e:
+        flash(f'头像保存失败: {str(e)}', 'danger')
+        return redirect(url_for('player.profile'))
     # 删除旧头像
     if current_user.avatar:
         old_path = os.path.join(UPLOAD_DIR, current_user.avatar)
@@ -1393,7 +1598,7 @@ def time_preferences():
 
 
 @player_bp.route('/join-request/search', methods=['GET', 'POST'])
-@login_required_with_role('player')
+@login_required_with_role('player', 'captain')
 def search_teams():
     """选手搜索队伍并申请加入"""
     if current_user.has_team() or current_user.get_team_membership():
@@ -1404,6 +1609,9 @@ def search_teams():
     if form.validate_on_submit():
         keyword = form.search_keyword.data
         query = Team.query.filter(Team.team_name.ilike(f'%{keyword}%'))
+        tournament = Tournament.get_active()
+        if tournament:
+            query = query.filter(Team.tournament_id == tournament.id)
         for team in query.all():
             if not team.is_full():
                 # 检查是否已有待处理申请
@@ -1417,13 +1625,16 @@ def search_teams():
 
 
 @player_bp.route('/join-request/<int:team_id>', methods=['POST'])
-@login_required_with_role('player')
+@login_required_with_role('player', 'captain')
 def request_join(team_id):
     """选手申请加入队伍"""
     if current_user.has_team() or current_user.get_team_membership():
         flash('您已在队伍中', 'warning')
         return redirect(url_for('player.dashboard'))
     team = Team.query.get_or_404(team_id)
+    if not in_current_season(team):
+        flash('该队伍属于已结束的赛事，无法申请加入', 'danger')
+        return redirect(url_for('player.search_teams'))
     if team.is_full():
         flash('队伍已满员', 'danger')
         return redirect(url_for('player.search_teams'))
@@ -1447,7 +1658,7 @@ def request_join(team_id):
 
 
 @player_bp.route('/my-join-requests')
-@login_required_with_role('player')
+@login_required_with_role('player', 'captain')
 def my_join_requests():
     """查看我的申请记录"""
     requests = JoinRequest.query.filter_by(
@@ -1504,8 +1715,6 @@ def accept_join_request(request_id):
     db.session.add(team_member)
     player.status = 1  # 已入队
     db.session.commit()
-    create_notification(player.id, '申请通过',
-                        f'您加入队伍「{team.team_name}」的申请已通过！')
     flash(f'已接受 {player.nickname} 的加入申请', 'success')
     return redirect(url_for('captain.join_requests'))
 
@@ -1524,8 +1733,6 @@ def reject_join_request(request_id):
         return redirect(url_for('captain.join_requests'))
     join_req.status = 'rejected'
     db.session.commit()
-    create_notification(join_req.user_id, '申请被拒绝',
-                        f'您加入队伍「{team.team_name}」的申请已被拒绝。')
     flash(f'已拒绝 {join_req.user.nickname} 的加入申请', 'info')
     return redirect(url_for('captain.join_requests'))
 
@@ -1575,8 +1782,8 @@ def api_onboarding_status():
 @player_bp.route('/api/players')
 @login_required
 def api_players():
-    """获取所有选手数据（JSON）"""
-    players = User.query.filter_by(role='player').all()
+    """获取所有选手数据（JSON）—— 包括队长"""
+    players = User.query.filter(User.role.in_(['player', 'captain'])).all()
     result = []
     for p in players:
         tm = p.get_team_membership()
@@ -1588,11 +1795,13 @@ def api_players():
             'role': p.role,
             'created_at': p.created_at.isoformat() if p.created_at else None,
             'team': {
-                'id': tm.team_id,
-                'name': tm.team.team_name,
-                'team_photo': url_for('static', filename='uploads/teams/' + tm.team.team_photo, _external=True) if tm.team.team_photo else None,
-                'roguelike': tm.roguelike,
-                'final_score': tm.final_score,
+                'id': tm.team_id if tm else None,
+                'name': tm.team.team_name if tm else None,
+                'team_photo': url_for('static', filename='uploads/teams/' + tm.team.team_photo, _external=True) if (tm and tm.team and tm.team.team_photo) else None,
+                'roguelike': tm.roguelike if tm else None,
+                'squad': tm.squad or '' if tm else '',
+                'operator': tm.operator or '' if tm else '',
+                'final_score': tm.final_score if tm else 0,
             } if tm else None,
         })
     return jsonify({'players': result, 'total': len(result)})
@@ -1648,6 +1857,8 @@ def api_player_detail(user_id):
                 'name': tm.team.team_name,
                 'team_photo': url_for('static', filename='uploads/teams/' + tm.team.team_photo, _external=True) if tm.team.team_photo else None,
                 'roguelike': tm.roguelike,
+                'squad': tm.squad or '',
+                'operator': tm.operator or '',
                 'declaration': tm.declaration,
                 'final_score': tm.final_score,
             } if tm else None,
@@ -1715,6 +1926,8 @@ def api_player_by_name(name):
                 'name': tm.team.team_name,
                 'team_photo': url_for('static', filename='uploads/teams/' + tm.team.team_photo, _external=True) if tm.team.team_photo else None,
                 'roguelike': tm.roguelike,
+                'squad': tm.squad or '',
+                'operator': tm.operator or '',
                 'declaration': tm.declaration,
                 'final_score': tm.final_score,
             } if tm else None,
@@ -1790,9 +2003,10 @@ def edit_team():
     if form.validate_on_submit():
         existing = Team.query.filter(
             Team.team_name == form.team_name.data,
+            Team.tournament_id == team.tournament_id,
             Team.id != team.id).first()
         if existing:
-            flash('队伍名称已存在', 'danger')
+            flash('本届赛事已有同名队伍', 'danger')
             return redirect(url_for('captain.edit_team'))
         team.team_name = form.team_name.data
         team.team_slogan = form.team_slogan.data
@@ -1826,7 +2040,7 @@ def assign_position():
         return redirect(url_for('captain.dashboard'))
     member_id = request.form.get('member_id', type=int)
     position = request.form.get('position', '').strip()
-    valid_positions = ['cold', 'normal1', 'normal2', 'pit']
+    valid_positions = get_team_positions()
     if position not in valid_positions:
         flash('无效的位置', 'danger')
         return redirect(url_for('captain.members'))
@@ -1865,7 +2079,7 @@ def search_players():
     if form.validate_on_submit():
         keyword = form.search_keyword.data
         query = User.query.filter(
-            User.role.in_(['player', 'captain']),
+            User.role.in_(['player', 'captain', 'admin', 'super_admin']),
             db.or_(
                 User.username.ilike(f'%{keyword}%'),
                 User.nickname.ilike(f'%{keyword}%')))
@@ -2002,7 +2216,12 @@ def upload_avatar():
     # 生成唯一文件名
     filename = f'{uuid.uuid4().hex}.{ext}'
     filepath = os.path.join(UPLOAD_DIR, filename)
-    file.save(filepath)
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    try:
+        file.save(filepath)
+    except Exception as e:
+        flash(f'头像保存失败: {str(e)}', 'danger')
+        return redirect(url_for('captain.dashboard'))
     # 删除旧头像
     if current_user.avatar:
         old_path = os.path.join(UPLOAD_DIR, current_user.avatar)
@@ -2036,7 +2255,12 @@ def upload_team_avatar():
         return redirect(url_for('captain.dashboard'))
     filename = f'team_{uuid.uuid4().hex}.{ext}'
     filepath = os.path.join(TEAM_UPLOAD_DIR, filename)
-    file.save(filepath)
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    try:
+        file.save(filepath)
+    except Exception as e:
+        flash(f'头像保存失败: {str(e)}', 'danger')
+        return redirect(url_for('captain.dashboard'))
     # 删除旧队伍头像
     if team.team_photo:
         old_path = os.path.join(TEAM_UPLOAD_DIR, team.team_photo)
@@ -2049,6 +2273,67 @@ def upload_team_avatar():
 
 
 # ============================================================
+# 队伍数据 API（公开）
+# ============================================================
+
+@main_bp.route('/api/teams')
+def api_teams():
+    """获取当前赛事所有队伍数据（JSON）"""
+    teams = active_team_query().order_by(Team.created_at.desc()).all()
+    result = []
+    for t in teams:
+        members = TeamMember.query.filter_by(team_id=t.id).all()
+        result.append({
+            'id': t.id,
+            'name': t.team_name,
+            'slogan': t.team_slogan,
+            'team_photo': url_for('static', filename='uploads/teams/' + t.team_photo, _external=True) if t.team_photo else None,
+            'captain': {'id': t.captain.id, 'nickname': t.captain.nickname} if t.captain else None,
+            'member_count': len(members),
+            'score': t.team_score,
+            'created_at': t.created_at.isoformat() if t.created_at else None,
+            'members': [{
+                'id': m.user.id,
+                'nickname': m.user.nickname,
+                'avatar': url_for('static', filename='uploads/avatars/' + m.user.avatar, _external=True) if m.user.avatar else None,
+                'roguelike': m.roguelike,
+                'position': m.position,
+                'declaration': m.declaration,
+                'final_score': m.final_score,
+            } for m in members]
+        })
+    return jsonify({'teams': result, 'total': len(result)})
+
+
+@main_bp.route('/api/teams/<int:team_id>')
+def api_team_detail(team_id):
+    """获取单个队伍详细数据（JSON）"""
+    t = Team.query.get_or_404(team_id)
+    members = TeamMember.query.filter_by(team_id=t.id).all()
+    return jsonify({
+        'team': {
+            'id': t.id,
+            'name': t.team_name,
+            'slogan': t.team_slogan,
+            'team_photo': url_for('static', filename='uploads/teams/' + t.team_photo, _external=True) if t.team_photo else None,
+            'captain': {'id': t.captain.id, 'nickname': t.captain.nickname} if t.captain else None,
+            'member_count': len(members),
+            'score': t.team_score,
+            'created_at': t.created_at.isoformat() if t.created_at else None,
+            'members': [{
+                'id': m.user.id,
+                'nickname': m.user.nickname,
+                'avatar': url_for('static', filename='uploads/avatars/' + m.user.avatar, _external=True) if m.user.avatar else None,
+                'roguelike': m.roguelike,
+                'position': m.position,
+                'declaration': m.declaration,
+                'final_score': m.final_score,
+            } for m in members]
+        }
+    })
+
+
+# ============================================================
 # Admin 路由
 # ============================================================
 
@@ -2056,19 +2341,23 @@ def upload_team_avatar():
 @admin_bp.route('/dashboard')
 @login_required_with_role('admin')
 def dashboard():
+    tournament = Tournament.get_active()
+    team_query = Team.query.filter_by(tournament_id=tournament.id) if tournament else Team.query
     total_users = User.query.count()
-    total_teams = Team.query.count()
+    total_teams = team_query.count()
     total_captains = User.query.filter_by(role='captain').count()
     total_players = User.query.filter_by(role='player').count()
-    total_members = TeamMember.query.count()
-    latest_teams = Team.query.order_by(Team.created_at.desc()).limit(5).all()
+    total_members = TeamMember.query.join(Team).filter(
+        Team.tournament_id == tournament.id).count() if tournament else TeamMember.query.count()
+    latest_teams = team_query.order_by(Team.created_at.desc()).limit(5).all()
     setting = Setting.get_instance()
-    tournament = Tournament.get_active()
     # 赛事统计
-    total_matches = Match.query.count()
-    pending_matches = Match.query.filter_by(status='pending').count()
-    dispute_matches = Match.query.filter_by(status='dispute').count()
-    finished_matches = Match.query.filter_by(status='finished').count()
+    match_query = Match.query.filter(Match.parent_id.is_(None))
+    if tournament:
+        match_query = match_query.filter(Match.tournament_id == tournament.id)
+    total_matches = match_query.count()
+    pending_matches = match_query.filter(Match.status == 'pending').count()
+    finished_matches = match_query.filter(Match.status == 'finished').count()
     return render_template('admin/dashboard.html',
                            total_users=total_users,
                            total_teams=total_teams,
@@ -2081,7 +2370,6 @@ def dashboard():
                            tournament=tournament,
                            total_matches=total_matches,
                            pending_matches=pending_matches,
-                           dispute_matches=dispute_matches,
                            finished_matches=finished_matches)
 
 
@@ -2194,6 +2482,26 @@ def demote_from_admin(user_id):
     return redirect(url_for('admin.users'))
 
 
+@admin_bp.route('/user/<int:user_id>/reset-password', methods=['POST'])
+@login_required_with_role('admin')
+def reset_user_password(user_id):
+    """管理员重置用户密码为临时密码（下次登录强制修改）"""
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash('不能重置自己的密码，请使用修改密码功能', 'warning')
+        return redirect(url_for('admin.users'))
+    if user.is_admin() and not current_user.is_super_admin():
+        flash('只有超级管理员可以重置管理员账号的密码', 'danger')
+        return redirect(url_for('admin.users'))
+    temp_password = f'{user.username}1234'
+    user.set_password(temp_password)
+    user.password_changed = False
+    db.session.commit()
+    log_system_action('reset_password', f'重置 {user.nickname}({user.username}) 的密码')
+    flash(f'已重置 【{user.nickname}】 的密码，临时密码：{temp_password}（该用户下次登录将被强制修改）', 'success')
+    return redirect(url_for('admin.users'))
+
+
 @admin_bp.route('/user/<int:user_id>/delete', methods=['POST'])
 @login_required_with_role('admin')
 def delete_user(user_id):
@@ -2205,8 +2513,23 @@ def delete_user(user_id):
         flash('不能删除超级管理员', 'danger')
         return redirect(url_for('admin.users'))
     nickname = user.nickname
-    if user.team:
-        db.session.delete(user.team)
+    # 有比赛/成绩记录的用户禁止删除（外键 NOT NULL，强删会破坏赛事数据）
+    player_matches = Match.query.filter(
+        (Match.player_a_id == user.id) | (Match.player_b_id == user.id)).count()
+    if player_matches or ScoreLog.query.filter_by(modified_by=user.id).count():
+        flash(f'无法删除【{nickname}】：该用户已产生比赛或成绩记录，删除会破坏赛事数据', 'danger')
+        return redirect(url_for('admin.users'))
+    # 该用户在所有赛季担任队长且已有比赛的队伍，一律禁止删除
+    for team in user.teams:
+        team_matches = Match.query.filter(
+            (Match.team_a_id == team.id) | (Match.team_b_id == team.id)).count()
+        if team_matches:
+            flash(f'无法删除【{nickname}】：其队伍「{team.team_name}」已有比赛记录，请先删除相关比赛', 'danger')
+            return redirect(url_for('admin.users'))
+    # 清理无级联配置的关联数据（时间偏好、各赛季队伍）
+    TimePreference.query.filter_by(player_id=user.id).delete()
+    for team in list(user.teams):
+        db.session.delete(team)
     db.session.delete(user)
     db.session.commit()
     log_system_action('delete_user', f'删除用户 {nickname}({user.username})')
@@ -2220,6 +2543,9 @@ def teams():
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '', type=str)
     query = Team.query
+    tournament = Tournament.get_active()
+    if tournament:
+        query = query.filter(Team.tournament_id == tournament.id)
     if search:
         query = query.filter(Team.team_name.ilike(f'%{search}%'))
     pagination = query.order_by(Team.created_at.desc()).paginate(
@@ -2287,6 +2613,103 @@ def update_team_scores(team_id):
     db.session.commit()
     flash(f'已更新 {updated_count} 名队员的积分，队伍总积分已自动重算', 'success')
     return redirect(url_for('admin.team_detail', team_id=team.id))
+
+
+@admin_bp.route('/team/<int:team_id>/update-member/<int:member_id>', methods=['POST'])
+@login_required_with_role('admin')
+def update_member_info(team_id, member_id):
+    """管理员编辑队员信息：头像、肉鸽、干员、宣言、结算分"""
+    member = TeamMember.query.get_or_404(member_id)
+    if member.team_id != team_id:
+        flash('该成员不属于此队伍', 'danger')
+        return redirect(url_for('admin.teams'))
+
+    # 更新头像
+    if 'avatar' in request.files and request.files['avatar'].filename:
+        file = request.files['avatar']
+        allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext in allowed_ext:
+            filename = f'{uuid.uuid4().hex}.{ext}'
+            filepath = os.path.join(UPLOAD_DIR, filename)
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            try:
+                file.save(filepath)
+            except Exception as e:
+                flash(f'头像保存失败: {str(e)}', 'danger')
+                return redirect(url_for('admin.team_detail', team_id=team_id))
+            if member.user.avatar:
+                old = os.path.join(UPLOAD_DIR, member.user.avatar)
+                if os.path.exists(old):
+                    os.remove(old)
+            member.user.avatar = filename
+
+    # 更新肉鸽
+    roguelike = request.form.get('roguelike', '').strip()
+    if roguelike:
+        member.roguelike = roguelike
+
+    # 更新分队 & 干员
+    member.squad = (request.form.get('squad', '') or '').strip()
+    member.operator = (request.form.get('operator', '') or '').strip()
+
+    # 更新宣言
+    declaration = request.form.get('declaration', '').strip()
+    if declaration:
+        member.declaration = declaration
+
+    # 更新结算分（手动覆盖，最高优先级）
+    manual_score = request.form.get('final_score', '').strip()
+    if manual_score:
+        try:
+            member.final_score = int(manual_score)
+        except ValueError:
+            flash(f'结算分格式无效: {manual_score}', 'warning')
+
+    # 更新队伍宣言
+    team_slogan = request.form.get('team_slogan', '').strip()
+    if team_slogan:
+        team = Team.query.get(team_id)
+        if team:
+            team.team_slogan = team_slogan
+
+    db.session.commit()
+    log_system_action('update_member_info', f'管理员更新队员 {member.user.nickname} 的信息')
+    flash(f'队员 {member.user.nickname} 的信息已更新', 'success')
+    return redirect(url_for('admin.team_detail', team_id=team_id))
+
+
+@admin_bp.route('/team/<int:team_id>/update', methods=['POST'])
+@login_required_with_role('admin')
+def update_team_info(team_id):
+    """管理员编辑队伍信息：宣言、头像"""
+    team = Team.query.get_or_404(team_id)
+
+    team.team_slogan = (request.form.get('team_slogan', '') or '').strip()
+
+    if 'team_avatar' in request.files and request.files['team_avatar'].filename:
+        file = request.files['team_avatar']
+        allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext in allowed_ext:
+            filename = f'team_{uuid.uuid4().hex}.{ext}'
+            filepath = os.path.join(TEAM_UPLOAD_DIR, filename)
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            try:
+                file.save(filepath)
+            except Exception as e:
+                flash(f'头像保存失败: {str(e)}', 'danger')
+                return redirect(url_for('admin.team_detail', team_id=team_id))
+            if team.team_photo:
+                old = os.path.join(TEAM_UPLOAD_DIR, team.team_photo)
+                if os.path.exists(old):
+                    os.remove(old)
+            team.team_photo = filename
+
+    db.session.commit()
+    log_system_action('update_team_info', f'管理员更新队伍 {team.team_name} 信息')
+    flash('队伍信息已更新', 'success')
+    return redirect(url_for('admin.team_detail', team_id=team_id))
 
 
 # ============================================================
@@ -2478,18 +2901,22 @@ def registration_control():
 @admin_bp.route('/export')
 @login_required_with_role('admin')
 def export_excel():
-    teams = Team.query.all()
+    tournament = Tournament.get_active()
+    teams = (Team.query.filter_by(tournament_id=tournament.id).all()
+             if tournament else Team.query.all())
+    team_size = get_team_size()
     wb = Workbook()
     ws = wb.active
     ws.title = '报名信息'
-    headers = ['队伍名称', '队长昵称', '成员1', '成员2', '成员3', '成员4',
-               '肉鸽选择', '参赛宣言', '个人积分']
+    headers = (['队伍名称', '队长昵称'] +
+               [f'成员{i + 1}' for i in range(team_size)] +
+               ['肉鸽选择', '参赛宣言', '个人积分'])
     ws.append(headers)
     for team in teams:
         members = TeamMember.query.filter_by(team_id=team.id).all()
         row = [team.team_name, team.captain.nickname]
-        # 队长也是队员，显示所有4人
-        for i in range(4):
+        # 队长也是队员，显示所有队员
+        for i in range(team_size):
             row.append(members[i].user.nickname if i < len(members) else '')
         # 肉鸽选择
         roguelikes = []
@@ -2518,7 +2945,7 @@ def export_excel():
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-    filename = f'冷水坑杯报名信息_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    filename = f'{get_event_name()}报名信息_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     return send_file(output,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                      as_attachment=True, download_name=filename)
@@ -2528,9 +2955,90 @@ def export_excel():
 @login_required_with_role('admin')
 def registration_list():
     page = request.args.get('page', 1, type=int)
-    teams = Team.query.order_by(Team.created_at.desc()).paginate(
+    tournament = Tournament.get_active()
+    query = Team.query
+    if tournament:
+        query = query.filter(Team.tournament_id == tournament.id)
+    teams = query.order_by(Team.created_at.desc()).paginate(
         page=page, per_page=20)
     return render_template('admin/registration_list.html', teams=teams)
+
+
+# ============================================================
+# Admin 规则管理路由
+# ============================================================
+
+
+@admin_bp.route('/rules')
+@login_required_with_role('admin')
+def manage_rules():
+    """规则管理列表"""
+    all_rules = Rule.query.order_by(Rule.sort_order).all()
+    all_roguelikes = get_active_roguelikes()
+    form = RuleForm()
+    form.roguelike_key.choices = [('', '-- 主规则（不关联肉鸽）--')] + [(r.key, r.name) for r in all_roguelikes]
+    return render_template('admin/rules.html', rules=all_rules, form=form, all_roguelikes=all_roguelikes)
+
+
+@admin_bp.route('/rules/add', methods=['POST'])
+@login_required_with_role('admin')
+def add_rule():
+    """新增规则"""
+    form = RuleForm()
+    all_roguelikes = get_active_roguelikes()
+    form.roguelike_key.choices = [('', '-- 主规则 --')] + [(r.key, r.name) for r in all_roguelikes]
+    if form.validate_on_submit():
+        rl_key = form.roguelike_key.data.strip() if form.roguelike_key.data else None
+        rule = Rule(
+            title=form.title.data.strip(),
+            content=form.content.data,
+            roguelike_key=rl_key or None,
+            sort_order=int(form.sort_order.data or 0),
+            is_published=(form.is_published.data == '1')
+        )
+        db.session.add(rule)
+        db.session.commit()
+        log_system_action('add_rule', f'新增规则: {rule.title}')
+        flash(f'规则 "{rule.title}" 已添加', 'success')
+    else:
+        for field, errors in form.errors.items():
+            for err in errors:
+                flash(f'{field}: {err}', 'danger')
+    return redirect(url_for('admin.manage_rules'))
+
+
+@admin_bp.route('/rules/<int:rule_id>/edit', methods=['POST'])
+@login_required_with_role('admin')
+def edit_rule(rule_id):
+    """编辑规则"""
+    rule = Rule.query.get_or_404(rule_id)
+    rl_key = request.form.get('roguelike_key', '').strip()
+    rule.title = request.form.get('title', rule.title).strip()
+    rule.content = request.form.get('content', rule.content)
+    rule.roguelike_key = rl_key or None
+    try:
+        rule.sort_order = int(request.form.get('sort_order', rule.sort_order))
+    except ValueError:
+        pass
+    rule.is_published = request.form.get('is_published') == '1'
+    rule.updated_at = datetime.utcnow()
+    db.session.commit()
+    log_system_action('edit_rule', f'编辑规则: {rule.title}')
+    flash(f'规则 "{rule.title}" 已更新', 'success')
+    return redirect(url_for('admin.manage_rules'))
+
+
+@admin_bp.route('/rules/<int:rule_id>/delete', methods=['POST'])
+@login_required_with_role('admin')
+def delete_rule(rule_id):
+    """删除规则"""
+    rule = Rule.query.get_or_404(rule_id)
+    title = rule.title
+    db.session.delete(rule)
+    db.session.commit()
+    log_system_action('delete_rule', f'删除规则: {title}')
+    flash(f'规则 "{title}" 已删除', 'success')
+    return redirect(url_for('admin.manage_rules'))
 
 
 # ============================================================
@@ -2548,29 +3056,25 @@ def start_tournament():
         return redirect(url_for('admin.dashboard'))
 
     # 验证所有队伍是否满足参赛条件
+    setting = Setting.get_instance()
     teams = Team.query.filter_by(tournament_id=tournament.id).all()
+    team_size = get_team_size()
     errors = []
     for team in teams:
         members = TeamMember.query.filter_by(team_id=team.id).all()
-        # 检查队伍人数
-        if len(members) < 4:
-            errors.append(f'队伍「{team.team_name}」人数不足（{len(members)}/4）')
+        # 检查队伍人数（开启「允许未满员开赛」时跳过）
+        if len(members) < team_size and not setting.allow_incomplete_teams:
+            errors.append(f'队伍「{team.team_name}」人数不足（{len(members)}/{team_size}）')
         # 检查队员是否都选了肉鸽
         for m in members:
             if not m.roguelike:
                 errors.append(f'队伍「{team.team_name}」的 {m.user.nickname} 未选择肉鸽')
-            if not m.declaration:
-                errors.append(f'队伍「{team.team_name}」的 {m.user.nickname} 未填写宣言')
-        # 检查队伍信息完整性
-        if not team.team_slogan:
-            errors.append(f'队伍「{team.team_name}」未填写队伍口号')
 
     if errors:
         flash('以下队伍不满足参赛条件：<br>' + '<br>'.join(errors), 'danger')
         return redirect(url_for('admin.dashboard'))
 
     # 锁定报名
-    setting = Setting.get_instance()
     setting.registration_open = False
     tournament.status = 'matching'
     db.session.commit()
@@ -2608,9 +3112,6 @@ def score_config():
     form = ScoreConfigForm()
     if form.validate_on_submit():
         try:
-            setting.win_score = int(form.win_score.data)
-            setting.draw_score = int(form.draw_score.data)
-            setting.lose_score = int(form.lose_score.data)
             setting.advance_count = int(form.advance_count.data)
             if tournament:
                 tournament.bonus_score = int(form.bonus_score.data)
@@ -2620,9 +3121,6 @@ def score_config():
             flash('请输入有效的数字', 'danger')
         return redirect(url_for('admin.score_config'))
     elif request.method == 'GET':
-        form.win_score.data = str(setting.win_score)
-        form.draw_score.data = str(setting.draw_score)
-        form.lose_score.data = str(setting.lose_score)
         form.bonus_score.data = str(tournament.bonus_score if tournament else 500)
         form.advance_count.data = str(setting.advance_count if setting.advance_count else 4)
     return render_template('admin/score_config.html', form=form, setting=setting, tournament=tournament)
@@ -2640,24 +3138,39 @@ def reset_scores():
 @admin_bp.route('/tournament-settings', methods=['GET', 'POST'])
 @login_required_with_role('admin')
 def tournament_settings():
-    """赛事时间设置（报名时间 + 比赛时间）"""
+    """赛事设置（名称 + 报名/比赛时间）"""
     tournament = Tournament.get_active()
+    setting = Setting.get_instance()
     form = TournamentSettingsForm()
     if form.validate_on_submit():
         try:
             if not tournament:
-                tournament = Tournament(name='冷水坑杯 #3', season_number=3, is_active=True)
+                tournament = Tournament(
+                    name=current_app.config['TOURNAMENT_NAME'],
+                    season_number=current_app.config['SEASON_NUMBER'],
+                    is_active=True)
                 db.session.add(tournament)
+            new_name = (form.tournament_name.data or '').strip()
+            if new_name:
+                setting.tournament_name = new_name
+                tournament.name = new_name
+            # 队伍人数：留空（None）表示回退环境变量 TEAM_SIZE
+            setting.team_size = form.team_size.data
+            setting.allow_incomplete_teams = bool(form.allow_incomplete_teams.data)
             tournament.registration_start = datetime.strptime(form.registration_start.data, '%Y-%m-%dT%H:%M')
             tournament.registration_end = datetime.strptime(form.registration_end.data, '%Y-%m-%dT%H:%M')
             tournament.tournament_start = datetime.strptime(form.tournament_start.data, '%Y-%m-%dT%H:%M')
             tournament.tournament_end = datetime.strptime(form.tournament_end.data, '%Y-%m-%dT%H:%M')
             db.session.commit()
-            flash('赛事时间已更新', 'success')
+            flash('赛事设置已更新', 'success')
         except ValueError:
             flash('时间格式错误，请使用正确的日期时间格式', 'danger')
         return redirect(url_for('admin.tournament_settings'))
     elif request.method == 'GET':
+        form.tournament_name.data = setting.tournament_name or (
+            tournament.name if tournament else current_app.config['TOURNAMENT_NAME'])
+        form.team_size.data = setting.team_size
+        form.allow_incomplete_teams.data = bool(setting.allow_incomplete_teams)
         if tournament:
             if tournament.registration_start:
                 form.registration_start.data = tournament.registration_start.strftime('%Y-%m-%dT%H:%M')
@@ -2667,51 +3180,49 @@ def tournament_settings():
                 form.tournament_start.data = tournament.tournament_start.strftime('%Y-%m-%dT%H:%M')
             if tournament.tournament_end:
                 form.tournament_end.data = tournament.tournament_end.strftime('%Y-%m-%dT%H:%M')
-    return render_template('admin/tournament_settings.html', form=form, tournament=tournament)
+    return render_template('admin/tournament_settings.html', form=form, tournament=tournament,
+                           env_team_size=current_app.config['TEAM_SIZE'])
 
 
-@admin_bp.route('/disputes')
+@admin_bp.route('/new-season', methods=['POST'])
 @login_required_with_role('admin')
-def disputes():
-    """争议比赛列表"""
-    matches = Match.query.filter_by(status='dispute').order_by(Match.created_at.desc()).all()
-    return render_template('admin/disputes.html', matches=matches)
-
-
-@admin_bp.route('/dispute/<int:match_id>/resolve', methods=['POST'])
-@login_required_with_role('admin')
-def resolve_dispute(match_id):
-    """裁定争议比赛"""
-    match = Match.query.get_or_404(match_id)
-    if match.status != 'dispute':
-        flash('该比赛不在争议状态', 'warning')
-        return redirect(url_for('admin.disputes'))
-    action = request.form.get('action')
-    if action == 'win_a':
-        match.winner_id = match.player_a_id
-        match.status = 'finished'
-        match.finished_at = datetime.utcnow()
-        create_notification(match.player_a_id, '争议裁定', '管理员裁定您获胜。')
-        create_notification(match.player_b_id, '争议裁定', '管理员裁定对手获胜。')
-    elif action == 'win_b':
-        match.winner_id = match.player_b_id
-        match.status = 'finished'
-        match.finished_at = datetime.utcnow()
-        create_notification(match.player_b_id, '争议裁定', '管理员裁定您获胜。')
-        create_notification(match.player_a_id, '争议裁定', '管理员裁定对手获胜。')
-    elif action == 'draw':
-        match.winner_id = None
-        match.status = 'finished'
-        match.finished_at = datetime.utcnow()
-        create_notification(match.player_a_id, '争议裁定', '管理员裁定为平局。')
-        create_notification(match.player_b_id, '争议裁定', '管理员裁定为平局。')
-    else:
-        flash('无效操作', 'danger')
-        return redirect(url_for('admin.disputes'))
-    _update_team_scores(match)
+def new_season():
+    """归档当前赛事并开启新赛季（旧数据保留可查）"""
+    setting = Setting.get_instance()
+    current = Tournament.get_active()
+    season_number = current.season_number + 1 if current else 1
+    name = (request.form.get('season_name') or '').strip()
+    if not name:
+        name = f"{current_app.config['EVENT_NAME']} #{season_number}"
+    if current:
+        current.is_active = False
+        if current.status != 'finished':
+            current.status = 'finished'
+        # 清理上届遗留的待处理邀请/申请，避免新赛季误操作到已归档队伍
+        archived_team_ids = [t.id for t in Team.query.filter_by(tournament_id=current.id).all()]
+        if archived_team_ids:
+            Invitation.query.filter(
+                Invitation.team_id.in_(archived_team_ids),
+                Invitation.status == 'pending').delete(synchronize_session=False)
+            JoinRequest.query.filter(
+                JoinRequest.team_id.in_(archived_team_ids),
+                JoinRequest.status == 'pending').delete(synchronize_session=False)
+    new_tournament = Tournament(
+        name=name, season_number=season_number, is_active=True,
+        status='registration',
+        bonus_score=current.bonus_score if current else current_app.config['DEFAULT_BONUS_SCORE'])
+    db.session.add(new_tournament)
+    # 参赛进度随赛季归零；管理员角色与已完成的新手引导保留
+    User.query.filter(User.role.notin_(['admin', 'super_admin'])).update(
+        {'status': 0}, synchronize_session=False)
+    TimePreference.query.delete(synchronize_session=False)
+    setting.tournament_name = name
+    setting.advance_count = 0
+    setting.registration_open = True
     db.session.commit()
-    flash('争议已裁定', 'success')
-    return redirect(url_for('admin.disputes'))
+    log_system_action('new_season', f'开启新赛季：{name}')
+    flash(f'已开启新赛季【{name}】，上届数据已归档保留，用户需重新组队', 'success')
+    return redirect(url_for('admin.tournament_settings'))
 
 
 @admin_bp.route('/advance')
@@ -2763,57 +3274,6 @@ def resume_registration():
 
 
 # ============================================================
-# Admin 用户审核路由
-# ============================================================
-
-
-@admin_bp.route('/approvals')
-@login_required_with_role('admin')
-def approvals():
-    """用户审核列表"""
-    page = request.args.get('page', 1, type=int)
-    status_filter = request.args.get('status', 'pending', type=str)
-    query = User.query.filter_by(approval_status=status_filter)
-    pagination = query.order_by(User.created_at.desc()).paginate(page=page, per_page=20)
-    return render_template('admin/approvals.html',
-                           users=pagination.items,
-                           pagination=pagination,
-                           status_filter=status_filter)
-
-
-@admin_bp.route('/user/<int:user_id>/approve', methods=['POST'])
-@login_required_with_role('admin')
-def approve_user(user_id):
-    """审核通过用户"""
-    user = User.query.get_or_404(user_id)
-    if user.approval_status == 'approved':
-        flash('该用户已通过审核', 'warning')
-        return redirect(url_for('admin.approvals'))
-    user.approval_status = 'approved'
-    db.session.commit()
-    log_system_action('approve_user', f'审核通过 {user.nickname}({user.username})')
-    create_notification(user.id, '审核通过', '您的报名已通过审核，欢迎参赛！')
-    flash(f'已通过 【{user.nickname}】 的审核', 'success')
-    return redirect(url_for('admin.approvals'))
-
-
-@admin_bp.route('/user/<int:user_id>/reject', methods=['POST'])
-@login_required_with_role('admin')
-def reject_user(user_id):
-    """拒绝用户"""
-    user = User.query.get_or_404(user_id)
-    if user.approval_status == 'rejected':
-        flash('该用户已被拒绝', 'warning')
-        return redirect(url_for('admin.approvals'))
-    user.approval_status = 'rejected'
-    db.session.commit()
-    log_system_action('reject_user', f'拒绝 {user.nickname}({user.username}) 的审核')
-    create_notification(user.id, '审核未通过', '很抱歉，您的报名未通过审核。')
-    flash(f'已拒绝 【{user.nickname}】 的审核', 'info')
-    return redirect(url_for('admin.approvals'))
-
-
-# ============================================================
 # Admin 成绩修改与审核路由
 # ============================================================
 
@@ -2821,10 +3281,13 @@ def reject_user(user_id):
 @admin_bp.route('/matches')
 @login_required_with_role('admin')
 def matches():
-    """所有比赛列表"""
+    """当前赛事比赛列表"""
     page = request.args.get('page', 1, type=int)
     status_filter = request.args.get('status', '', type=str)
     query = Match.query
+    tournament = Tournament.get_active()
+    if tournament:
+        query = query.filter(Match.tournament_id == tournament.id)
     if status_filter:
         query = query.filter_by(status=status_filter)
     pagination = query.order_by(Match.created_at.desc()).paginate(page=page, per_page=20)
@@ -2919,12 +3382,6 @@ def edit_match_result(match_id):
     )
     db.session.add(log)
 
-    # 通知双方（必须在积分计算前创建，因为 recalculate_all_scores 内部会 commit）
-    create_notification(match.player_a_id, '比赛结果已修改',
-                        f'管理员修改了比赛结果，原因：{reason}')
-    create_notification(match.player_b_id, '比赛结果已修改',
-                        f'管理员修改了比赛结果，原因：{reason}')
-
     # 重新计算积分（内部会 commit）
     _update_team_scores(match)
 
@@ -2942,78 +3399,406 @@ def match_score_logs(match_id):
 
 
 # ============================================================
-# 自动匹配逻辑
+# Admin 手动匹配 & 日程管理
 # ============================================================
 
+def _parse_duration(note):
+    """从 match_note 解析时长（分钟）"""
+    if note and 'duration:' in note:
+        try:
+            # 格式: duration:120 或 duration:120|host:xxx
+            dur_part = note.split('duration:')[1].split('|')[0]
+            return int(dur_part)
+        except (ValueError, IndexError):
+            pass
+    return None
 
-def _auto_match():
-    """自动匹配：按肉鸽分组，位置优先匹配"""
+
+def _parse_slot_times(base_date):
+    """把 SCHEDULE_SLOT_TIMES（如 '14:00,19:00'）解析为当天的 datetime 列表"""
+    slots = []
+    for item in current_app.config.get('SCHEDULE_SLOT_TIMES') or []:
+        try:
+            hour, minute = (int(x) for x in str(item).split(':', 1))
+            slots.append(base_date.replace(hour=hour, minute=minute))
+        except (TypeError, ValueError):
+            continue
+    if not slots:
+        slots = [base_date.replace(hour=14), base_date.replace(hour=19)]
+    return slots
+
+
+@admin_bp.route('/schedule')
+@login_required_with_role('admin')
+def schedule():
+    """手动匹配 & 日程管理页面"""
+    from sqlalchemy.sql import text
+
     tournament = Tournament.get_active()
-    if not tournament:
-        return {'success': False, 'message': '没有活跃赛事', 'count': 0}
+    active_id = tournament.id if tournament else None
+    all_teams = active_team_query().order_by(Team.team_name).all()
+    all_matches = Match.query
+    if tournament:
+        all_matches = all_matches.filter(Match.tournament_id == active_id)
+    all_matches = all_matches.order_by(Match.created_at.desc()).all()
 
-    # 获取所有已选择肉鸽的队员（当前赛事的所有队伍）
-    members = TeamMember.query.filter(
-        TeamMember.roguelike.isnot(None),
-        TeamMember.team.has(Team.tournament_id == tournament.id)
+    # 按肉鸽分组的队员
+    roguelike_players = {}
+    for rl in get_active_roguelikes():
+        members = db.session.execute(
+            text("""
+                SELECT tm.id, tm.user_id, u.nickname, tm.team_id, t.team_name,
+                       tm.roguelike, tm.squad, tm.operator
+                FROM team_members tm
+                JOIN users u ON tm.user_id = u.id
+                JOIN teams t ON tm.team_id = t.id
+                WHERE tm.roguelike = :key
+                  AND (:tid IS NULL OR t.tournament_id = :tid)
+                ORDER BY t.team_name, u.nickname
+            """), {'key': rl.key, 'tid': active_id}
+        ).fetchall()
+        roguelike_players[rl.key] = [dict(r._mapping) for r in members]
+
+    return render_template('admin/schedule.html',
+                           tournament=tournament,
+                           teams=all_teams,
+                           matches=all_matches,
+                           roguelike_players=roguelike_players,
+                           roguelikes=get_active_roguelikes())
+
+
+@admin_bp.route('/draw')
+@login_required_with_role('admin')
+def draw():
+    """分组抽取器"""
+    from sqlalchemy.sql import text
+    tournament = Tournament.get_active()
+    active_id = tournament.id if tournament else None
+    roguelike_players = {}
+    for rl in get_active_roguelikes():
+        members = db.session.execute(
+            text("""SELECT tm.id, tm.user_id, u.nickname, tm.team_id, t.team_name, tm.roguelike
+                    FROM team_members tm JOIN users u ON tm.user_id=u.id JOIN teams t ON tm.team_id=t.id
+                    WHERE tm.roguelike=:key AND (:tid IS NULL OR t.tournament_id = :tid)
+                    ORDER BY t.team_name, u.nickname"""),
+            {'key': rl.key, 'tid': active_id}
+        ).fetchall()
+        roguelike_players[rl.key] = [dict(r._mapping) for r in members]
+    return render_template('admin/draw.html', roguelike_players=roguelike_players, roguelikes=get_active_roguelikes())
+
+
+@admin_bp.route('/schedule/api/matches')
+@login_required_with_role('admin')
+def schedule_api_matches():
+    """返回当前赛事比赛数据（JSON，供日程表前端用）—— 含子分段和表演赛"""
+    matches = active_match_query().order_by(
+        Match.scheduled_time.asc().nullslast(), Match.created_at.asc()
     ).all()
+    result = []
+    for m in matches:
+        children_data = []
+        for child in sorted(m.children, key=lambda c: c.scheduled_time or datetime.max):
+            if child.scheduled_time:
+                dur = _parse_duration(child.match_note) or current_app.config['SCHEDULE_SLOT_MINUTES']
+                children_data.append({
+                    'id': child.id,
+                    'parent_id': m.id,
+                    'start': child.scheduled_time.isoformat(),
+                    'end': (child.scheduled_time + timedelta(minutes=dur)).isoformat(),
+                    'className': m.status,
+                    'editable': True,
+                })
 
-    if len(members) < 2:
-        return {'success': False, 'message': '参赛选手不足，无法匹配', 'count': 0}
-
-    # 按肉鸽分组
-    roguelike_groups = {}
-    for member in members:
-        rl = member.roguelike
-        if rl not in roguelike_groups:
-            roguelike_groups[rl] = []
-        roguelike_groups[rl].append(member)
-
-    # 已匹配的选手ID集合
-    matched_players = set()
-    matches_created = 0
-
-    for rl, group_members in roguelike_groups.items():
-        # 过滤已匹配的选手
-        available = [m for m in group_members if m.user_id not in matched_players]
-        i = 0
-        while i < len(available) - 1:
-            p1 = available[i]
-            p2 = available[i + 1]
-            if p1.team_id != p2.team_id:
-                _create_match(p1, p2, rl, tournament.id)
-                matched_players.add(p1.user_id)
-                matched_players.add(p2.user_id)
-                matches_created += 1
-                i += 2
-            else:
-                i += 1
-
-    if matches_created == 0:
-        return {'success': False, 'message': '无法生成有效匹配（同队选手无法对战）', 'count': 0}
-
-    return {'success': True, 'count': matches_created}
+        result.append({
+            'id': m.id,
+            'player_a': m.player_a.nickname if m.player_a else '?',
+            'player_b': m.player_b.nickname if m.player_b else '?',
+            'team_a': m.team_a.team_name if m.team_a else '?',
+            'team_b': m.team_b.team_name if m.team_b else '?',
+            'roguelike': m.roguelike,
+            'roguelike_name': get_roguelike_name(m.roguelike),
+            'status': m.status,
+            'scheduled_time': m.scheduled_time.isoformat() if m.scheduled_time else None,
+            'duration_minutes': 0,
+            'is_exhibition': False,
+            'children': children_data,
+        })
+    return jsonify({'matches': result})
 
 
+@admin_bp.route('/schedule/manual-match', methods=['POST'])
+@login_required_with_role('admin')
+def manual_match():
+    """手动创建比赛——自动生成下午+晚上两段，各2小时"""
+    tournament = Tournament.get_active()
+    player_a_id = request.form.get('player_a_id', type=int)
+    player_b_id = request.form.get('player_b_id', type=int)
+    roguelike = request.form.get('roguelike', '').strip()
 
-def _create_match(member_a, member_b, roguelike, tournament_id=None):
-    """创建比赛记录"""
+    if not all([player_a_id, player_b_id, roguelike]):
+        flash('请填写所有必填项', 'danger')
+        return redirect(url_for('admin.schedule'))
+
+    if player_a_id == player_b_id:
+        flash('不能选择同一个选手', 'danger')
+        return redirect(url_for('admin.schedule'))
+
+    member_query = TeamMember.query.join(Team)
+    if tournament:
+        member_query = member_query.filter(Team.tournament_id == tournament.id)
+    ma = member_query.filter(TeamMember.user_id == player_a_id).first()
+    mb = member_query.filter(TeamMember.user_id == player_b_id).first()
+    if not ma or not mb:
+        flash('选手未加入队伍', 'danger')
+        return redirect(url_for('admin.schedule'))
+    if ma.team_id == mb.team_id:
+        flash('不能选择同一队伍的两名选手', 'danger')
+        return redirect(url_for('admin.schedule'))
+
+    # 如果用户填了日期，用它；否则默认今天
+    date_str = request.form.get('match_date', '').strip()
+    if date_str:
+        try:
+            base_date = datetime.strptime(date_str, '%Y-%m-%d')
+        except ValueError:
+            base_date = datetime.now()
+    else:
+        base_date = datetime.now()
+
+    base_date = base_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    slot_times = _parse_slot_times(base_date)
+    duration_note = f"duration:{current_app.config['SCHEDULE_SLOT_MINUTES']}"
+
+    # 主比赛（容器）
     match = Match(
-        tournament_id=tournament_id,
-        player_a_id=member_a.user_id,
-        player_b_id=member_b.user_id,
-        team_a_id=member_a.team_id,
-        team_b_id=member_b.team_id,
-        roguelike=roguelike,
-        status='pending'
+        tournament_id=tournament.id if tournament else None,
+        player_a_id=player_a_id, player_b_id=player_b_id,
+        team_a_id=ma.team_id, team_b_id=mb.team_id,
+        roguelike=roguelike, status='pending',
+        scheduled_time=None, match_note='', segment_order=0,
+    )
+    db.session.add(match)
+    db.session.flush()
+
+    # 按 SCHEDULE_SLOT_TIMES 生成分段；偶数段交换对阵方向（与原「下午+晚上」逻辑一致）
+    for index, slot_time in enumerate(slot_times, start=1):
+        swap = index % 2 == 0
+        db.session.add(Match(
+            tournament_id=match.tournament_id,
+            player_a_id=player_b_id if swap else player_a_id,
+            player_b_id=player_a_id if swap else player_b_id,
+            team_a_id=mb.team_id if swap else ma.team_id,
+            team_b_id=ma.team_id if swap else mb.team_id,
+            roguelike=roguelike, status='pending',
+            parent_id=match.id,
+            scheduled_time=slot_time,
+            match_note=duration_note,
+            segment_order=index,
+        ))
+    db.session.commit()
+
+    slot_text = ' & '.join(t.strftime('%H:%M') for t in slot_times)
+    log_system_action('manual_match',
+                      f'创建比赛 {match.id}: {ma.user.nickname} vs {mb.user.nickname}（{len(slot_times)} 个时段）')
+    flash(f'比赛已创建！{ma.user.nickname} vs {mb.user.nickname}（{slot_text}）', 'success')
+    return redirect(url_for('admin.schedule'))
+
+
+@admin_bp.route('/schedule/update-time', methods=['POST'])
+@login_required_with_role('admin')
+def schedule_update_time():
+    """更新比赛时间（拖拽日程后调用）"""
+    match_id = request.form.get('match_id', type=int)
+    scheduled_time_str = request.form.get('scheduled_time', '').strip()
+
+    match = Match.query.get_or_404(match_id)
+    if scheduled_time_str:
+        try:
+            match.scheduled_time = datetime.strptime(scheduled_time_str, '%Y-%m-%dT%H:%M')
+        except ValueError:
+            return jsonify({'error': '时间格式无效'}), 400
+    else:
+        match.scheduled_time = None
+
+    # 更新时长
+    duration = request.form.get('duration_minutes', type=int)
+    if duration:
+        match.match_note = f'duration:{duration}'
+    elif not match.match_note or not match.match_note.startswith('duration:'):
+        match.match_note = f'duration:60'
+
+    db.session.commit()
+    return jsonify({'success': True, 'match_id': match.id})
+
+
+@admin_bp.route('/schedule/split-match', methods=['POST'])
+@login_required_with_role('admin')
+def schedule_split_match():
+    """剪断比赛：把一场比赛切分成多个独立时段，每段不同主次选手"""
+    match_id = request.form.get('match_id', type=int)
+    parts = request.form.get('parts', type=int) or 2
+
+    match = Match.query.get_or_404(match_id)
+    if not match.scheduled_time:
+        return jsonify({'error': '比赛还未安排时间'}), 400
+
+    # 先删除所有旧的子分段（重新来过）
+    for old_child in match.children:
+        db.session.delete(old_child)
+    db.session.flush()
+
+    total_dur = _parse_duration(match.match_note) or 60
+    seg_dur = total_dur // parts
+    start = match.scheduled_time
+    pa_name = match.player_a.nickname if match.player_a else 'A'
+    pb_name = match.player_b.nickname if match.player_b else 'B'
+
+    for i in range(parts):
+        seg_start = start + timedelta(minutes=i * seg_dur)
+        if i == 0:
+            # 第一段保持原样（选手A主，选手B副）
+            match.scheduled_time = seg_start
+            match.match_note = f'duration:{seg_dur}|host:{pa_name}'
+            match.segment_order = 0
+        else:
+            # 后续分段：交换主次选手
+            if i % 2 == 1:
+                pa, pb = match.player_a_id, match.player_b_id
+                ta, tb = match.team_a_id, match.team_b_id
+                host_name = pa_name
+            else:
+                pa, pb = match.player_b_id, match.player_a_id
+                ta, tb = match.team_b_id, match.team_a_id
+                host_name = pb_name
+            child = Match(
+                tournament_id=match.tournament_id,
+                player_a_id=pa, player_b_id=pb,
+                team_a_id=ta, team_b_id=tb,
+                roguelike=match.roguelike,
+                status='pending',
+                match_type='match',
+                parent_id=match.id,
+                segment_order=i,
+                scheduled_time=seg_start,
+                match_note=f'duration:{seg_dur}|host:{host_name}',
+            )
+            db.session.add(child)
+
+    db.session.commit()
+    return jsonify({'success': True, 'parts': parts, 'seg_dur': seg_dur})
+
+
+@admin_bp.route('/schedule/insert-exhibition', methods=['POST'])
+@login_required_with_role('admin')
+def schedule_insert_exhibition():
+    """在两段比赛之间插入表演赛"""
+    parent_id = request.form.get('parent_id', type=int)
+    player_name = request.form.get('player_name', '').strip()
+    scheduled_time_str = request.form.get('scheduled_time', '').strip()
+    duration_minutes = request.form.get('duration_minutes', type=int) or 30
+    roguelike = request.form.get('roguelike', '').strip()
+
+    parent = Match.query.get_or_404(parent_id)
+    if not parent.scheduled_time:
+        return jsonify({'error': '父比赛未安排时间'}), 400
+
+    scheduled_time = None
+    if scheduled_time_str:
+        try:
+            scheduled_time = datetime.strptime(scheduled_time_str, '%Y-%m-%dT%H:%M')
+        except ValueError:
+            return jsonify({'error': '时间格式无效'}), 400
+
+    match = Match(
+        tournament_id=parent.tournament_id,
+        player_a_id=parent.player_a_id,
+        player_b_id=parent.player_b_id,
+        team_a_id=None,
+        team_b_id=None,
+        roguelike=roguelike or parent.roguelike,
+        status='pending',
+        match_type='exhibition',
+        parent_id=parent.id,
+        segment_order=len(parent.children) + 1,
+        scheduled_time=scheduled_time,
+        match_note=f'exhibition:{player_name}|duration:{duration_minutes}',
     )
     db.session.add(match)
     db.session.commit()
-    # 通知双方选手
-    create_notification(member_a.user_id, '新比赛',
-                        f'您有一场新的比赛（{get_roguelike_name(roguelike)}），请查看并协商时间。')
-    create_notification(member_b.user_id, '新比赛',
-                        f'您有一场新的比赛（{get_roguelike_name(roguelike)}），请查看并协商时间。')
+    return jsonify({'success': True, 'match_id': match.id})
+
+
+@admin_bp.route('/schedule/quick-exhibition', methods=['POST'])
+@login_required_with_role('admin')
+def schedule_quick_exhibition():
+    """点击日历空白区域快速创建表演赛"""
+    roguelike = request.form.get('roguelike', '').strip()
+    scheduled_time_str = request.form.get('scheduled_time', '').strip()
+    duration_minutes = request.form.get('duration_minutes', type=int) or 30
+
+    if not roguelike:
+        return jsonify({'error': '请先在左侧选择肉鸽'}), 400
+
+    scheduled_time = None
+    if scheduled_time_str:
+        try:
+            scheduled_time = datetime.strptime(scheduled_time_str, '%Y-%m-%dT%H:%M')
+        except ValueError:
+            pass
+
+    match = Match(
+        tournament_id=Tournament.get_active().id if Tournament.get_active() else None,
+        player_a_id=User.query.filter_by(role='admin').first().id if User.query.filter_by(role='admin').first() else 1,
+        player_b_id=User.query.filter_by(role='admin').first().id if User.query.filter_by(role='admin').first() else 1,
+        team_a_id=None, team_b_id=None,
+        roguelike=roguelike,
+        status='pending',
+        scheduled_time=scheduled_time,
+        match_note=f'duration:{duration_minutes}',
+    )
+    db.session.add(match)
+    db.session.commit()
+    rl_name = get_roguelike_name(roguelike)
+    return jsonify({'success': True, 'match_id': match.id, 'title': f'🎭 表演赛 - {rl_name}'})
+
+
+@admin_bp.route('/schedule/delete-match', methods=['POST'])
+@login_required_with_role('admin')
+def schedule_delete_match():
+    """删除比赛"""
+    match_id = request.form.get('match_id', type=int)
+    match = Match.query.get_or_404(match_id)
+    info = f'{match.player_a.nickname if match.player_a else "?"} vs {match.player_b.nickname if match.player_b else "?"}'
+    db.session.delete(match)
+    db.session.commit()
+    log_system_action('delete_match', f'删除比赛 {match.id}: {info}')
+    flash(f'已删除比赛: {info}', 'info')
+    return redirect(url_for('admin.schedule'))
+
+
+@admin_bp.route('/schedule/confirm-match', methods=['POST'])
+@login_required_with_role('admin')
+def schedule_confirm_match():
+    """管理员一键确认比赛（跳过 pending→scheduled→confirmed 流程）"""
+    match_id = request.form.get('match_id', type=int)
+    match = Match.query.get_or_404(match_id)
+    match.status = 'confirmed'
+    match.confirmed_a = True
+    match.confirmed_b = True
+    # 同时确认所有子分段
+    for child in match.children:
+        child.status = 'confirmed'
+        child.confirmed_a = True
+        child.confirmed_b = True
+    db.session.commit()
+    log_system_action('confirm_match', f'管理员确认比赛 {match.id} 及其子分段')
+    flash(f'比赛已确认！选手现在可以提交成绩', 'success')
+    return redirect(url_for('admin.schedule'))
+
+
+# ============================================================
+# 自动匹配逻辑（实现见 matching.py）
+# ============================================================
 
 
 # ============================================================
@@ -3026,15 +3811,15 @@ def hall():
     """赛事大厅"""
     setting = Setting.get_instance()
     tournament = Tournament.get_active()
-    total_matches = Match.query.count()
-    pending_matches = Match.query.filter_by(status='pending').count()
-    scheduled_matches = Match.query.filter_by(status='scheduled').count()
-    submitted_matches = Match.query.filter_by(status='submitted').count()
-    dispute_matches = Match.query.filter_by(status='dispute').count()
-    finished_matches = Match.query.filter_by(status='finished').count()
+    total_matches = active_match_query().count()
+    pending_matches = active_match_query(Match.status == 'pending').count()
+    scheduled_matches = active_match_query(Match.status == 'scheduled').count()
+    confirmed_matches = active_match_query(Match.status == 'confirmed').count()
+    submitted_matches = active_match_query(Match.status == 'submitted').count()
+    finished_matches = active_match_query(Match.status == 'finished').count()
     rankings = get_team_rankings()
     advanced = get_advanced_teams()
-    recent_matches = Match.query.order_by(Match.created_at.desc()).limit(30).all()
+    recent_matches = active_match_query().order_by(Match.created_at.desc()).limit(30).all()
     return render_template('tournament/hall.html',
                            setting=setting,
                            tournament=tournament,
@@ -3042,8 +3827,8 @@ def hall():
                            total_matches=total_matches,
                            pending_matches=pending_matches,
                            scheduled_matches=scheduled_matches,
+                           confirmed_matches=confirmed_matches,
                            submitted_matches=submitted_matches,
-                           dispute_matches=dispute_matches,
                            finished_matches=finished_matches,
                            rankings=rankings,
                            advanced=advanced,
@@ -3077,9 +3862,10 @@ def results():
 @tournament_bp.route('/my-matches')
 @login_required_with_role('player', 'captain')
 def my_matches():
-    """我的比赛"""
+    """我的比赛——只显示父比赛"""
     user_id = current_user.id
     matches = Match.query.filter(
+        Match.parent_id == None,
         db.or_(Match.player_a_id == user_id, Match.player_b_id == user_id)
     ).order_by(Match.created_at.desc()).all()
     return render_template('tournament/my_matches.html', matches=matches)
@@ -3103,7 +3889,7 @@ def match_detail(match_id):
 @tournament_bp.route('/match/<int:match_id>/schedule', methods=['GET', 'POST'])
 @login_required_with_role('player', 'captain')
 def schedule_match(match_id):
-    """协商比赛时间"""
+    """确认比赛时间（线下商讨后在此确定）"""
     match = Match.query.get_or_404(match_id)
     if current_user.id not in (match.player_a_id, match.player_b_id):
         flash('无权限操作', 'danger')
@@ -3111,29 +3897,39 @@ def schedule_match(match_id):
     if match.status not in ('pending', 'scheduled'):
         flash('当前状态不允许修改时间', 'warning')
         return redirect(url_for('tournament.match_detail', match_id=match_id))
+
+    is_a = current_user.id == match.player_a_id
+    already_confirmed = match.confirmed_a if is_a else match.confirmed_b
+
     form = MatchScheduleForm()
     if form.validate_on_submit():
         try:
             scheduled_time = datetime.strptime(form.scheduled_time.data, '%Y-%m-%d %H:%M')
             match.scheduled_time = scheduled_time
-            match.status = 'scheduled'
+            # 设置时间的人自动视为已确认
+            if is_a:
+                match.confirmed_a = True
+            else:
+                match.confirmed_b = True
+            # 检查是否双方都已确认
+            if match.confirmed_a and match.confirmed_b:
+                match.status = 'confirmed'
+                flash('比赛时间已确认，双方达成一致！', 'success')
+            else:
+                match.status = 'scheduled'
+                flash('比赛时间已记录，等待对手确认', 'success')
             db.session.commit()
-            # 通知对手
-            opponent_id = match.player_b_id if current_user.id == match.player_a_id else match.player_a_id
-            create_notification(opponent_id, '比赛时间已建议',
-                                f'对手建议比赛时间为 {form.scheduled_time.data}，请确认。')
-            flash('比赛时间已建议', 'success')
         except ValueError:
             flash('时间格式错误，请使用 YYYY-MM-DD HH:MM 格式', 'danger')
         return redirect(url_for('tournament.match_detail', match_id=match_id))
     return render_template('tournament/schedule_match.html',
-                           form=form, match=match)
+                           form=form, match=match, already_confirmed=already_confirmed)
 
 
 @tournament_bp.route('/match/<int:match_id>/confirm-schedule', methods=['POST'])
 @login_required_with_role('player', 'captain')
 def confirm_schedule(match_id):
-    """确认比赛时间"""
+    """确认对手设定的比赛时间"""
     match = Match.query.get_or_404(match_id)
     if current_user.id not in (match.player_a_id, match.player_b_id):
         flash('无权限操作', 'danger')
@@ -3148,12 +3944,10 @@ def confirm_schedule(match_id):
         match.confirmed_b = True
     if match.confirmed_a and match.confirmed_b:
         match.status = 'confirmed'
-        create_notification(match.player_a_id, '比赛时间已确认',
-                            f'双方已确认比赛时间：{match.scheduled_time.strftime("%Y-%m-%d %H:%M")}')
-        create_notification(match.player_b_id, '比赛时间已确认',
-                            f'双方已确认比赛时间：{match.scheduled_time.strftime("%Y-%m-%d %H:%M")}')
+        flash('比赛时间已确认，双方达成一致！', 'success')
+    else:
+        flash('已确认比赛时间', 'success')
     db.session.commit()
-    flash('已确认比赛时间', 'success')
     return redirect(url_for('tournament.match_detail', match_id=match_id))
 
 
@@ -3180,11 +3974,6 @@ def forfeit_match(match_id):
         match.player_a_result = 'win'
         match.player_b_result = 'forfeit'
     match.finished_at = datetime.utcnow()
-    # 通知双方（必须在积分计算前创建，因为 recalculate_all_scores 内部会 commit）
-    winner_id = match.winner_id
-    loser_id = match.player_a_id if is_a else match.player_b_id
-    create_notification(winner_id, '对手弃权', '对手弃权，您获得胜利！')
-    create_notification(loser_id, '已弃权', '您已弃权该场比赛。')
     # 更新队伍积分（内部会 commit）
     _update_team_scores(match)
     flash('已弃权该场比赛', 'info')
@@ -3207,10 +3996,6 @@ def send_match_note(match_id):
         else:
             match.match_note = f'[{datetime.now().strftime("%m-%d %H:%M")}] {current_user.nickname}: {note}'
         db.session.commit()
-        # 通知对手
-        opponent_id = match.player_b_id if current_user.id == match.player_a_id else match.player_a_id
-        create_notification(opponent_id, '收到比赛留言',
-                            f'{current_user.nickname} 留言：{note}')
         flash('留言已发送', 'success')
     return redirect(url_for('tournament.match_detail', match_id=match_id))
 
@@ -3218,152 +4003,72 @@ def send_match_note(match_id):
 @tournament_bp.route('/match/<int:match_id>/submit-result', methods=['GET', 'POST'])
 @login_required_with_role('player', 'captain')
 def submit_result(match_id):
-    """提交比赛结果"""
+    """提交比赛结果——上传截图 + 难度"""
     match = Match.query.get_or_404(match_id)
     if current_user.id not in (match.player_a_id, match.player_b_id):
         flash('无权限操作', 'danger')
         return redirect(url_for('tournament.my_matches'))
-    if match.status not in ('pending', 'scheduled', 'confirmed', 'submitted'):
+    if match.status not in ('confirmed', 'submitted'):
         flash('比赛已结束或存在争议', 'warning')
         return redirect(url_for('tournament.match_detail', match_id=match_id))
-    form = MatchResultForm()
-    # 根据比赛的肉鸽动态设置难度选项
-    form.set_difficulty_choices(match.roguelike)
-    if form.validate_on_submit():
-        result = form.result.data
-        difficulty = int(form.difficulty.data)
-        try:
-            score = int(form.score.data)
-        except (ValueError, TypeError):
-            flash('请输入有效的比赛分数（整数）', 'danger')
-            return render_template('tournament/submit_result.html',
-                                   form=form, match=match)
+
+    if request.method == 'POST':
+        difficulty = request.form.get('difficulty', type=int)
+        score = request.form.get('score', type=int)
+        if not difficulty:
+            flash('请选择难度', 'danger')
+            return redirect(url_for('tournament.submit_result', match_id=match_id))
+
         is_player_a = current_user.id == match.player_a_id
+
+        # 处理图片上传（支持多张）
+        if 'screenshots' in request.files:
+            files = request.files.getlist('screenshots')
+            for file in files:
+                if file and file.filename:
+                    allowed_ext = {'png', 'jpg', 'jpeg', 'webp'}
+                    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+                    if ext in allowed_ext:
+                        filename = f'screenshot_{match_id}_{current_user.id}_{uuid.uuid4().hex[:8]}.{ext}'
+                        upload_dir = os.path.join(BASE_DIR, 'app', 'static', 'uploads', 'screenshots')
+                        os.makedirs(upload_dir, exist_ok=True)
+                        filepath = os.path.join(upload_dir, filename)
+                        try:
+                            file.save(filepath)
+                        except Exception as e:
+                            flash(f'截图保存失败: {str(e)}', 'danger')
+                            return redirect(url_for('tournament.submit_result', match_id=match_id))
+                        if match.match_note:
+                            match.match_note += f'\n[截图] {current_user.nickname}: /static/uploads/screenshots/{filename}'
+                        else:
+                            match.match_note = f'[截图] {current_user.nickname}: /static/uploads/screenshots/{filename}'
+
         if is_player_a:
             if match.player_a_result is not None:
                 flash('您已提交过结果', 'warning')
                 return redirect(url_for('tournament.match_detail', match_id=match_id))
-            match.player_a_result = result
-            match.player_a_score = score
             match.player_a_difficulty = difficulty
+            if score:
+                match.player_a_score = score
+            match.player_a_result = 'submitted'
         else:
             if match.player_b_result is not None:
                 flash('您已提交过结果', 'warning')
                 return redirect(url_for('tournament.match_detail', match_id=match_id))
-            match.player_b_result = result
-            match.player_b_score = score
             match.player_b_difficulty = difficulty
-        # 兼容旧字段：取双方较高难度
-        if match.difficulty is None or difficulty > match.difficulty:
-            match.difficulty = difficulty
-        match.status = 'submitted'
-        current_user.status = 6  # 已提交成绩
+            if score:
+                match.player_b_score = score
+            match.player_b_result = 'submitted'
+
+        # 两人都提交了才变 submitted，否则 confirmed
+        if match.player_a_result is not None and match.player_b_result is not None:
+            match.status = 'submitted'
+        current_user.status = 6
         db.session.commit()
-        # 检查是否可以自动判定
-        _check_match_result(match)
-        flash('结果已提交', 'success')
+        flash('成绩已提交！', 'success')
         return redirect(url_for('tournament.match_detail', match_id=match_id))
-    return render_template('tournament/submit_result.html',
-                           form=form, match=match)
 
-
-def _check_match_result(match):
-    """自动判定比赛结果"""
-    if match.player_a_result is None or match.player_b_result is None:
-        return
-    a = match.player_a_result
-    b = match.player_b_result
-    if a == 'win' and b == 'lose':
-        match.winner_id = match.player_a_id
-        match.status = 'finished'
-        match.finished_at = datetime.utcnow()
-        create_notification(match.player_a_id, '比赛胜利', '恭喜您赢得比赛！')
-        create_notification(match.player_b_id, '比赛结果', '您的比赛已结束，对手获胜。')
-    elif a == 'lose' and b == 'win':
-        match.winner_id = match.player_b_id
-        match.status = 'finished'
-        match.finished_at = datetime.utcnow()
-        create_notification(match.player_b_id, '比赛胜利', '恭喜您赢得比赛！')
-        create_notification(match.player_a_id, '比赛结果', '您的比赛已结束，对手获胜。')
-    elif a == 'draw' and b == 'draw':
-        match.winner_id = None
-        match.status = 'finished'
-        match.finished_at = datetime.utcnow()
-        create_notification(match.player_a_id, '比赛平局', '您的比赛以平局结束。')
-        create_notification(match.player_b_id, '比赛平局', '您的比赛以平局结束。')
-    else:
-        match.status = 'dispute'
-        create_notification(match.player_a_id, '结果冲突', '双方提交结果不一致，等待管理员裁定。')
-        create_notification(match.player_b_id, '结果冲突', '双方提交结果不一致，等待管理员裁定。')
-    if match.status == 'finished':
-        _update_team_scores(match)
-    db.session.commit()
-
-
-def recalculate_all_scores():
-    """从零重算所有队伍和队员积分（基于所有已完成的比赛）
-    
-    新积分公式（v2）：
-    1. 胜负判定只看原始成绩（由 _check_match_result / edit_match_result 处理）
-    2. 最终积分 = 原始成绩 × 该选手的难度倍率
-    3. 难度倍率 = 1 + (选手难度 - 肉鸽最低难度) × 肉鸽难度阶级
-    4. 队伍积分 = 队员 final_score 之和 × 加成倍率
-    """
-    tournament = Tournament.get_active()
-    bonus = tournament.bonus_score if tournament else 500
-
-    # 1. 清零所有队员积分
-    all_members = TeamMember.query.all()
-    for m in all_members:
-        m.final_score = 0
-
-    # 2. 清零所有队伍积分
-    all_teams = Team.query.all()
-    for t in all_teams:
-        t.team_score = 0
-
-    # 3. 遍历所有已完成的比赛，重新计算积分
-    finished_matches = Match.query.filter(
-        Match.status.in_(['finished', 'forfeit_a', 'forfeit_b'])
-    ).all()
-
-    for match in finished_matches:
-        member_a = TeamMember.query.filter_by(
-            team_id=match.team_a_id, user_id=match.player_a_id).first()
-        member_b = TeamMember.query.filter_by(
-            team_id=match.team_b_id, user_id=match.player_b_id).first()
-
-        # 获取肉鸽配置，计算双方独立倍率
-        rl = Roguelike.query.filter_by(key=match.roguelike).first()
-
-        # A选手：最终积分 = 原始成绩 × 难度倍率
-        diff_a = match.get_player_a_difficulty()
-        mult_a = rl.get_multiplier(diff_a) if rl else 1.0
-        raw_a = match.player_a_score or 0
-        final_a = int(raw_a * mult_a)
-
-        # B选手：最终积分 = 原始成绩 × 难度倍率
-        diff_b = match.get_player_b_difficulty()
-        mult_b = rl.get_multiplier(diff_b) if rl else 1.0
-        raw_b = match.player_b_score or 0
-        final_b = int(raw_b * mult_b)
-
-        if member_a:
-            member_a.final_score = (member_a.final_score or 0) + final_a
-        if member_b:
-            member_b.final_score = (member_b.final_score or 0) + final_b
-
-    # 4. 重新计算所有队伍积分 = 队员 final_score 之和 × bonus
-    for team in all_teams:
-        members = TeamMember.query.filter_by(team_id=team.id).all()
-        team.team_score = sum(m.final_score or 0 for m in members) * bonus
-
-    db.session.commit()
-
-
-def _update_team_scores(match):
-    """比赛结束后重算积分（调用全量重算，避免重复累加）"""
-    recalculate_all_scores()
+    return render_template('tournament/submit_result.html', match=match)
 
 
 # ============================================================
@@ -3379,6 +4084,60 @@ def load_user(user_id):
 # ============================================================
 # 应用工厂
 # ============================================================
+
+
+def _migrate_teams_unique(cursor):
+    """把 teams 表的全局唯一约束（队名/队长）重建为「赛事内唯一」
+
+    SQLite 不支持删除表内联 UNIQUE 约束，只能建新表→copy→换名。
+    旧数据全部保留；tournament_id 为空的队伍回填到当前赛事，避免 NULL 破坏唯一性。
+    """
+    row = cursor.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='teams'").fetchone()
+    if not row or not row[0]:
+        return
+    if 'uq_tournament_captain' in row[0]:
+        return  # 已是新结构
+
+    active = cursor.execute(
+        "SELECT id FROM tournaments WHERE is_active=1 ORDER BY id LIMIT 1").fetchone()
+    if not active:
+        active = cursor.execute(
+            "SELECT id FROM tournaments ORDER BY id LIMIT 1").fetchone()
+    if active:
+        cursor.execute("UPDATE teams SET tournament_id=? WHERE tournament_id IS NULL",
+                       (active[0],))
+
+    cursor.execute("PRAGMA foreign_keys=OFF")
+    cursor.execute("DROP TABLE IF EXISTS teams_new")
+    cursor.execute("""
+        CREATE TABLE teams_new (
+            id INTEGER NOT NULL,
+            team_name VARCHAR(50) NOT NULL,
+            team_slogan VARCHAR(300),
+            captain_id INTEGER NOT NULL,
+            tournament_id INTEGER,
+            team_photo VARCHAR(500),
+            team_score INTEGER,
+            created_at DATETIME,
+            updated_at DATETIME,
+            PRIMARY KEY (id),
+            CONSTRAINT uq_tournament_team_name UNIQUE (tournament_id, team_name),
+            CONSTRAINT uq_tournament_captain UNIQUE (tournament_id, captain_id),
+            FOREIGN KEY(captain_id) REFERENCES users (id),
+            FOREIGN KEY(tournament_id) REFERENCES tournaments (id)
+        )
+    """)
+    cursor.execute("""
+        INSERT INTO teams_new (id, team_name, team_slogan, captain_id, tournament_id,
+                               team_photo, team_score, created_at, updated_at)
+        SELECT id, team_name, team_slogan, captain_id, tournament_id,
+               team_photo, team_score, created_at, updated_at FROM teams
+    """)
+    cursor.execute("DROP TABLE teams")
+    cursor.execute("ALTER TABLE teams_new RENAME TO teams")
+    cursor.execute("CREATE INDEX ix_teams_team_name ON teams (team_name)")
+    print("[Schema] teams 表已重建：队名/队长改为赛事内唯一")
 
 
 def _migrate_schema():
@@ -3397,6 +4156,13 @@ def _migrate_schema():
             ('team_members', 'position', 'VARCHAR(20)', 'NULL'),
             ('matches', 'player_a_difficulty', 'INTEGER', 'NULL'),
             ('matches', 'player_b_difficulty', 'INTEGER', 'NULL'),
+            ('team_members', 'squad', 'VARCHAR(50)', "''"),
+            ('team_members', 'operator', 'VARCHAR(50)', "''"),
+            ('matches', 'match_type', 'VARCHAR(20)', "'match'"),
+            ('matches', 'parent_id', 'INTEGER', 'NULL'),
+            ('matches', 'segment_order', 'INTEGER', '0'),
+            ('settings', 'team_size', 'INTEGER', 'NULL'),
+            ('settings', 'allow_incomplete_teams', 'BOOLEAN', '0'),
         ]
         for table, col_name, col_type, default_val in migrations:
             try:
@@ -3409,6 +4175,22 @@ def _migrate_schema():
                     f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type} DEFAULT {default_val}"
                 )
                 print(f"[Schema] 已添加缺失列: {table}.{col_name}")
+        # 清理已废弃的表（公告、通知功能已整体删除，模型不再映射）
+        for legacy_table in ('announcements', 'notifications'):
+            row = cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (legacy_table,)).fetchone()
+            if row:
+                cursor.execute(f'DROP TABLE {legacy_table}')
+                print(f'[Schema] 已删除废弃表: {legacy_table}')
+        # users.approval_status 已废弃，尽力删除（SQLite < 3.35 不支持，保留不影响运行）
+        try:
+            cursor.execute('ALTER TABLE users DROP COLUMN approval_status')
+            print('[Schema] 已删除废弃列: users.approval_status')
+        except sqlite3.OperationalError:
+            pass
+        # 队伍唯一约束由「全局唯一」改为「赛事内唯一」（需重建表）
+        _migrate_teams_unique(cursor)
         conn.commit()
     except Exception as e:
         print(f"[Schema] 迁移警告: {e}")
@@ -3448,22 +4230,49 @@ def create_app(config_name=None):
     app.jinja_env.globals['get_roguelike_name'] = get_roguelike_name
     app.jinja_env.globals['get_roguelike_by_key'] = get_roguelike_by_key
     app.jinja_env.globals['get_tournament_status'] = get_tournament_status
+    app.jinja_env.globals['get_active_roguelikes'] = get_active_roguelikes
+    app.jinja_env.globals['_parse_duration'] = _parse_duration
+    app.jinja_env.globals['timedelta'] = timedelta
+
+    # 添加 nl2br 过滤器：将纯文本换行符转换为 <br> 标签
+    @app.template_filter('nl2br')
+    def nl2br_filter(text):
+        if not text:
+            return ''
+        from markupsafe import escape, Markup
+        return Markup(escape(text).replace('\n', '<br>'))
 
     # 上下文处理器：注入未读通知数量 + 新手引导状态
     @app.context_processor
-    def inject_notifications():
+    def inject_onboarding():
         if current_user.is_authenticated:
-            count = Notification.query.filter_by(user_id=current_user.id, read=False).count()
             return {
-                'unread_notifications_count': count,
                 'show_onboarding': not current_user.has_completed_onboarding and not current_user.is_admin(),
                 'has_completed_onboarding': current_user.has_completed_onboarding,
                 'tutorial_step': current_user.tutorial_step,
             }
         return {
-            'unread_notifications_count': 0,
             'show_onboarding': False,
             'has_completed_onboarding': False,
+        }
+
+    # 上下文处理器：注入赛事名称 + 领域术语 + 品牌主题（模板中通过 {{ event_name }} / {{ labels.track }} / {{ theme.brand_color }} 使用）
+    @app.context_processor
+    def inject_event_info():
+        labels = get_labels()
+        tournament = Tournament.get_active()
+        return {
+            'event_name': get_event_name(),
+            'labels': labels,
+            'team_size': get_team_size(),
+            'theme': {
+                'brand_color': current_app.config.get('BRAND_PRIMARY_COLOR', '#0d6efd'),
+                'track_label': labels['track'],
+            },
+            'current_season': {
+                'name': tournament.name if tournament else '',
+                'number': tournament.season_number if tournament else None,
+            },
         }
 
     # 404 处理：非指定页面全部跳回主页
@@ -3480,43 +4289,54 @@ def create_app(config_name=None):
         tournament = Tournament.query.filter_by(is_active=True).first()
         if not tournament:
             tournament = Tournament(
-                name='冷水坑杯 #3', season_number=3, is_active=True,
-                bonus_score=500, status='registration'
+                name=app.config['TOURNAMENT_NAME'],
+                season_number=app.config['SEASON_NUMBER'],
+                is_active=True, bonus_score=app.config['DEFAULT_BONUS_SCORE'],
+                status='registration'
             )
             db.session.add(tournament)
 
-        # 初始化默认肉鸽
+        # 初始化默认肉鸽（难度区间与倍率阶级可用环境变量覆盖）
         default_roguelikes = [
             ('water', '水月与深蓝之树'), ('sami', '探索者的银凇止境'),
             ('sarkaz', '萨卡兹的无终奇语'), ('garden', '岁的界园志异'),
         ]
         for key, name in default_roguelikes:
             if not Roguelike.query.filter_by(key=key).first():
-                db.session.add(Roguelike(key=key, name=name, is_active=True))
+                db.session.add(Roguelike(
+                    key=key, name=name, is_active=True,
+                    difficulty_min=app.config['DEFAULT_DIFFICULTY_MIN'],
+                    difficulty_max=app.config['DEFAULT_DIFFICULTY_MAX'],
+                    difficulty_step=app.config['DEFAULT_DIFFICULTY_STEP']))
 
-        # 初始化默认设置
-        Setting.get_instance()
+        # 初始化默认设置（赛事名称为空时取环境变量配置）
+        setting = Setting.get_instance()
+        if not setting.tournament_name:
+            setting.tournament_name = app.config['TOURNAMENT_NAME']
 
         # 初始化管理员
-        admin_user = User.query.filter_by(username='admin').first()
+        admin_username = app.config['ADMIN_USERNAME']
+        admin_user = User.query.filter_by(username=admin_username).first()
         if not admin_user:
-            admin_user = User(username='admin', nickname='Admin', role='admin',
-                              approval_status='approved')
-            admin_user.set_password('admin123')
+            admin_user = User(username=admin_username, nickname='Admin', role='admin')
+            admin_user.set_password(app.config['ADMIN_PASSWORD'])
             db.session.add(admin_user)
-            print('[OK] 默认管理员已创建：admin / admin123')
+            print(f'[OK] 默认管理员已创建：{admin_username}')
 
-        super_admin = User.query.filter_by(username='sahu').first()
-        if not super_admin:
-            super_admin = User(username='sahu', nickname='sahu', role='super_admin',
-                               approval_status='approved')
-            super_admin.set_password('Hh2967305259')
-            db.session.add(super_admin)
-            print('[OK] 超级管理员已创建：sahu')
-        elif not super_admin.is_super_admin():
-            super_admin.role = 'super_admin'
-            super_admin.set_password('Hh2967305259')
-            print('[OK] sahu 已升级为超级管理员')
+        # 超级管理员：仅当配置了 SUPER_ADMIN_USERNAME 环境变量时创建/升级
+        sa_username = app.config['SUPER_ADMIN_USERNAME']
+        if sa_username:
+            super_admin = User.query.filter_by(username=sa_username).first()
+            if not super_admin:
+                super_admin = User(username=sa_username, nickname=sa_username,
+                                   role='super_admin')
+                super_admin.set_password(
+                    app.config['SUPER_ADMIN_PASSWORD'] or app.config['ADMIN_PASSWORD'])
+                db.session.add(super_admin)
+                print(f'[OK] 超级管理员已创建：{sa_username}')
+            elif not super_admin.is_super_admin():
+                super_admin.role = 'super_admin'
+                print(f'[OK] {sa_username} 已升级为超级管理员')
 
         db.session.commit()
 
@@ -3524,17 +4344,23 @@ def create_app(config_name=None):
 
 
 # ============================================================
+# 模块级 app（供 Gunicorn 使用：gunicorn app:app）
+# ============================================================
+
+env = os.environ.get('FLASK_ENV', 'development')
+app = create_app(env)
+
+
+# ============================================================
 # 直接运行入口
 # ============================================================
 
 if __name__ == '__main__':
-    env = os.environ.get('FLASK_ENV', 'development')
-    app = create_app(env)
+    port = app.config['PORT']
     print(f"\n{'='*60}")
-    print(f"  冷水坑杯 #3 报名管理系统")
+    print(f"  {app.config['TOURNAMENT_NAME']} 报名管理系统")
     print(f"{'='*60}")
-    print(f"  启动地址: http://0.0.0.0:19198")
-    print(f"  默认管理员: admin")
-    print(f"  密码: admin123")
+    print(f"  启动地址: http://0.0.0.0:{port}")
+    print(f"  默认管理员: {app.config['ADMIN_USERNAME']}")
     print(f"{'='*60}\n")
-    app.run(host='0.0.0.0', port=19198, debug=(env == 'development'))
+    app.run(host='0.0.0.0', port=port, debug=(env == 'development'))

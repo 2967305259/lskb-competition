@@ -30,12 +30,40 @@
                             {{ team.team_name }}
                         </a>
                     </p>
+                    {% if team_membership %}
+                        <p><strong>{{ labels.track }}主题</strong><br>
+                            {% if team_membership.roguelike %}
+                                <span class="text-success">{{ team_membership.roguelike }}</span>
+                            {% else %}
+                                <span class="text-muted">未选择</span>
+                            {% endif %}
+                        </p>
+                        <p><strong>所选{{ labels.field1 }}</strong><br>
+                            {% if team_membership.squad %}
+                                <span class="text-info">{{ team_membership.squad }}</span>
+                            {% else %}
+                                <span class="text-muted">未填写</span>
+                            {% endif %}
+                        </p>
+                        <p><strong>{{ labels.field2 }}</strong><br>
+                            {% if team_membership.operator %}
+                                <span class="text-warning">{{ team_membership.operator }}</span>
+                            {% else %}
+                                <span class="text-muted">未填写</span>
+                            {% endif %}
+                        </p>
+                    {% endif %}
                 {% else %}
                     <p><strong>队伍</strong><br><span class="text-muted">未加入队伍</span></p>
                 {% endif %}
                 <div class="mt-3">
                     <a href="{{ url_for('player.profile') }}" class="btn btn-sm btn-outline-primary w-100">
                         查看详情
+                    </a>
+                </div>
+                <div class="mt-2">
+                    <a href="{{ url_for('tournament.my_matches') }}" class="btn btn-sm btn-outline-warning w-100">
+                        <i class="fas fa-sword"></i> 我的比赛
                     </a>
                 </div>
             </div>
@@ -62,7 +90,7 @@
                                     </h6>
                                     <small class="text-muted">
                                         队长：<strong>{{ invitation.team.captain.nickname }}</strong><br>
-                                        队伍人数：<strong>{{ invitation.team.get_member_count() }}/4</strong>
+                                        队伍人数：<strong>{{ invitation.team.get_member_count() }}/{{ team_size }}</strong>
                                     </small>
                                 </div>
                                 <div class="col-md-4 text-end">
@@ -105,7 +133,7 @@
                         <div class="col-md-6">
                             <div class="stat-box">
                                 <h3>{{ team.get_member_count() }}</h3>
-                                <p>队伍人数 / 4</p>
+                                <p>队伍人数 / {{ team_size }}</p>
                             </div>
                         </div>
                     </div>
@@ -118,13 +146,41 @@
                             {% if team_membership and team_membership.roguelike %}
                                 <div class="mb-2">
                                     <i class="fas fa-check-circle" style="color: #90ee90;"></i>
-                                    <strong>选择肉鸽</strong>
+                                    <strong>{{ labels.track }}主题：{{ team_membership.roguelike }}</strong>
                                 </div>
                             {% else %}
                                 <div class="mb-2">
                                     <i class="fas fa-circle" style="color: #808080;"></i>
                                     <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
-                                        选择肉鸽
+                                        选择{{ labels.track }}主题
+                                    </a>
+                                </div>
+                            {% endif %}
+
+                            {% if team_membership and team_membership.squad %}
+                                <div class="mb-2">
+                                    <i class="fas fa-check-circle" style="color: #90ee90;"></i>
+                                    <strong>所选{{ labels.field1 }}：{{ team_membership.squad }}</strong>
+                                </div>
+                            {% else %}
+                                <div class="mb-2">
+                                    <i class="fas fa-circle" style="color: #808080;"></i>
+                                    <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
+                                        填写所选{{ labels.field1 }}
+                                    </a>
+                                </div>
+                            {% endif %}
+
+                            {% if team_membership and team_membership.operator %}
+                                <div class="mb-2">
+                                    <i class="fas fa-check-circle" style="color: #90ee90;"></i>
+                                    <strong>{{ labels.field2 }}：{{ team_membership.operator }}</strong>
+                                </div>
+                            {% else %}
+                                <div class="mb-2">
+                                    <i class="fas fa-circle" style="color: #808080;"></i>
+                                    <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
+                                        填写{{ labels.field2 }}
                                     </a>
                                 </div>
                             {% endif %}

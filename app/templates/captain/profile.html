@@ -60,12 +60,12 @@
                 {% endif %}
                 <div class="mb-3">
                     <strong>队伍人数</strong>
-                    <p>{{ team.get_member_count() }}/4</p>
+                    <p>{{ team.get_member_count() }}/{{ team_size }}</p>
                 </div>
                 {% if my_membership %}
                     {% if my_membership.roguelike %}
                     <div class="mb-3">
-                        <strong>肉鸽选择</strong>
+                        <strong>{{ labels.track }}选择</strong>
                         <p><span class="badge bg-primary">{{ get_roguelike_name(my_membership.roguelike) }}</span></p>
                     </div>
                     {% endif %}
@@ -97,7 +97,7 @@
                         <table class="table table-hover table-sm">
                             <thead>
                                 <tr>
-                                    <th>肉鸽</th>
+                                    <th>{{ labels.track }}</th>
                                     <th>难度</th>
                                     <th>对手</th>
                                     <th>结果</th>

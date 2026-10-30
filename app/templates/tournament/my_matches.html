@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge with context %}
 
 {% block title %}我的比赛{% endblock %}
 
@@ -28,7 +29,7 @@
                             <thead>
                                 <tr>
                                     <th>对手</th>
-                                    <th>肉鸽主题</th>
+                                    <th>{{ labels.track }}主题</th>
                                     <th>难度</th>
                                     <th>状态</th>
                                     <th>创建时间</th>
@@ -49,24 +50,17 @@
                                         <td>
                                             <span class="badge bg-info">{{ match.get_player_a_difficulty() }}难</span>/<span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span>
                                         </td>
-                                        <td>
-                                            {% if match.status == 'pending' %}
-                                                <span class="badge bg-secondary">待处理</span>
-                                            {% elif match.status == 'scheduled' %}
-                                                <span class="badge bg-info">已排期</span>
-                                            {% elif match.status == 'submitted' %}
-                                                <span class="badge bg-warning">已提交</span>
-                                            {% elif match.status == 'dispute' %}
-                                                <span class="badge bg-danger">争议中</span>
-                                            {% elif match.status == 'finished' %}
-                                                <span class="badge bg-success">已结束</span>
-                                            {% endif %}
-                                        </td>
+                                        <td>{{ match_status_badge(match.status) }}</td>
                                         <td>{{ match.created_at.strftime('%m-%d %H:%M') }}</td>
                                         <td>
                                             <a href="{{ url_for('tournament.match_detail', match_id=match.id) }}" class="btn btn-sm btn-outline-primary">
                                                 <i class="fas fa-eye"></i> 详情
                                             </a>
+                                            {% if match.status == 'confirmed' %}
+                                            <a href="{{ url_for('tournament.submit_result', match_id=match.id) }}" class="btn btn-sm btn-outline-success">
+                                                <i class="fas fa-upload"></i> 提交成绩
+                                            </a>
+                                            {% endif %}
                                         </td>
                                     </tr>
                                 {% endfor %}

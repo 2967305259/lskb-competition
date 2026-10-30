@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge with context %}
 
 {% block title %}比赛管理{% endblock %}
 
@@ -17,10 +18,9 @@
         <div class="btn-group flex-wrap">
             <a href="{{ url_for('admin.matches') }}" class="btn btn-sm {{ 'btn-primary' if not status_filter else 'btn-outline-primary' }}">全部</a>
             <a href="{{ url_for('admin.matches', status='pending') }}" class="btn btn-sm {{ 'btn-secondary' if status_filter == 'pending' else 'btn-outline-secondary' }}">待处理</a>
-            <a href="{{ url_for('admin.matches', status='scheduled') }}" class="btn btn-sm {{ 'btn-info' if status_filter == 'scheduled' else 'btn-outline-info' }}">已排期</a>
+            <a href="{{ url_for('admin.matches', status='scheduled') }}" class="btn btn-sm {{ 'btn-info' if status_filter == 'scheduled' else 'btn-outline-info' }}">待确认</a>
             <a href="{{ url_for('admin.matches', status='confirmed') }}" class="btn btn-sm {{ 'btn-primary' if status_filter == 'confirmed' else 'btn-outline-primary' }}">已确认</a>
             <a href="{{ url_for('admin.matches', status='submitted') }}" class="btn btn-sm {{ 'btn-warning' if status_filter == 'submitted' else 'btn-outline-warning' }}">已提交</a>
-            <a href="{{ url_for('admin.matches', status='dispute') }}" class="btn btn-sm {{ 'btn-danger' if status_filter == 'dispute' else 'btn-outline-danger' }}">争议中</a>
             <a href="{{ url_for('admin.matches', status='finished') }}" class="btn btn-sm {{ 'btn-success' if status_filter == 'finished' else 'btn-outline-success' }}">已结束</a>
         </div>
     </div>
@@ -37,7 +37,7 @@
                             <th>选手A</th>
                             <th>选手B</th>
                             <th>分数</th>
-                            <th>肉鸽</th>
+                            <th>{{ labels.track }}</th>
                             <th>难度</th>
                             <th>状态</th>
                             <th>审核</th>
@@ -66,17 +66,7 @@
                                     <span class="text-muted">/</span>
                                     <span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span>
                                 </td>
-                                <td>
-                                    {% if match.status == 'pending' %}<span class="badge bg-secondary">待处理</span>
-                                    {% elif match.status == 'scheduled' %}<span class="badge bg-info">已排期</span>
-                                    {% elif match.status == 'confirmed' %}<span class="badge bg-primary">已确认</span>
-                                    {% elif match.status == 'submitted' %}<span class="badge bg-warning">已提交</span>
-                                    {% elif match.status == 'dispute' %}<span class="badge bg-danger">争议中</span>
-                                    {% elif match.status == 'finished' %}<span class="badge bg-success">已结束</span>
-                                    {% elif match.status == 'forfeit_a' %}<span class="badge bg-dark">A弃权</span>
-                                    {% elif match.status == 'forfeit_b' %}<span class="badge bg-dark">B弃权</span>
-                                    {% endif %}
-                                </td>
+                                <td>{{ match_status_badge(match.status) }}</td>
                                 <td>
                                     {% if match.review_status == 'approved' %}<span class="badge bg-success">已审核</span>
                                     {% elif match.review_status == 'rejected' %}<span class="badge bg-danger">已驳回</span>
@@ -159,17 +149,7 @@
                     </tbody>
                 </table>
             </div>
-            {% if pagination.pages > 1 %}
-                <nav>
-                    <ul class="pagination justify-content-center">
-                        {% for p in range(1, pagination.pages + 1) %}
-                            <li class="page-item {{ 'active' if p == pagination.page }}">
-                                <a class="page-link" href="{{ url_for('admin.matches', page=p, status=status_filter) }}">{{ p }}</a>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                </nav>
-            {% endif %}
+            {{ render_pagination_simple(pagination, 'admin.matches', {'status': status_filter}) }}
         {% else %}
             <p class="text-muted text-center mb-0">暂无比赛记录</p>
         {% endif %}

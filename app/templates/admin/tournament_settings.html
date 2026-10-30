@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}赛事时间设置{% endblock %}
+{% block title %}赛事设置{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
@@ -9,9 +9,9 @@
             <i class="fas fa-arrow-left"></i> 返回后台
         </a>
         <h2>
-            <i class="fas fa-clock"></i> 赛事时间设置
+            <i class="fas fa-cog"></i> 赛事设置
         </h2>
-        <p class="text-muted">设置报名时间和比赛时间，将在首页展示</p>
+        <p class="text-muted">设置赛事名称、报名时间和比赛时间</p>
     </div>
 </div>
 
@@ -24,6 +24,35 @@
             <div class="card-body">
                 <form method="POST">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <h6 class="text-primary mb-3"><i class="fas fa-flag"></i> 赛事信息</h6>
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <label class="form-label">赛事名称</label>
+                            <input type="text" class="form-control" name="tournament_name"
+                                   value="{{ form.tournament_name.data or '' }}" maxlength="100">
+                            <small class="text-muted">显示在页面标题、导航栏和导出文件名中，留空则不修改</small>
+                        </div>
+                    </div>
+
+                    <h6 class="text-primary mb-3"><i class="fas fa-users"></i> 队伍配置</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">队伍满员人数（含队长）</label>
+                            <input type="number" class="form-control" name="team_size" min="1" max="20"
+                                   value="{{ form.team_size.data if form.team_size.data is not none else '' }}"
+                                   placeholder="{{ env_team_size }}">
+                            <small class="text-muted">留空则使用环境变量 TEAM_SIZE（当前：{{ env_team_size }}）；单人赛事填 1</small>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" name="allow_incomplete_teams"
+                                       id="allow_incomplete_teams" {% if form.allow_incomplete_teams.data %}checked{% endif %}>
+                                <label class="form-check-label" for="allow_incomplete_teams">允许未满员队伍开赛</label>
+                                <small class="text-muted d-block">勾选后，开赛时不再校验队伍人数是否满员</small>
+                            </div>
+                        </div>
+                    </div>
 
                     <h6 class="text-primary mb-3"><i class="fas fa-user-plus"></i> 报名时间</h6>
                     <div class="row mb-3">
@@ -71,6 +100,39 @@
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save"></i> 保存设置
                         </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-3 border-warning">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-forward"></i> 开启新赛季</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-3">
+                    上届赛事及其比赛、队伍记录会归档保留，不会删除任何数据；账号全部保留，参赛进度归零并需重新组队。
+                    同一队长、同一队名可在新赛季重复使用。
+                </p>
+                <p class="mb-3">
+                    <a href="{{ url_for('main.history') }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="fas fa-archive"></i> 查看往届赛事归档
+                    </a>
+                </p>
+                <form method="POST" action="{{ url_for('admin.new_season') }}"
+                      onsubmit="return confirm('确定开启新赛季吗？当前赛事将转入归档状态。');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-8">
+                            <label class="form-label">新赛季名称</label>
+                            <input type="text" name="season_name" class="form-control"
+                                   placeholder="留空则自动生成（当前赛事名 + 新届数）">
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-warning w-100">
+                                <i class="fas fa-forward"></i> 开启新赛季
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>

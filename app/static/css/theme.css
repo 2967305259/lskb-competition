@@ -1,0 +1,247 @@
+/*
+ * 主题样式（原 base.html 内联 <style> 抽出）
+ * 品牌主色由 :root 的 --brand-primary 提供，见 base.html / BRAND_PRIMARY_COLOR
+ */
+
+:root {
+    --bs-body-bg: #1a1a1a;
+    --bs-body-color: #e0e0e0;
+    --bs-border-color: #333;
+    /* 品牌主色由 BRAND_PRIMARY_COLOR 环境变量注入，见 create_app 的 event_info */
+    --primary-color: var(--brand-primary);
+    --secondary-color: #6c757d;
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #555 #1a1a1a;
+}
+
+body {
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+}
+
+.navbar {
+    background-color: #0f0f0f !important;
+    border-bottom: 2px solid #333;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.navbar-brand {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: var(--brand-primary) !important;
+    text-shadow: 0 0 10px rgba(13, 110, 253, 0.3);
+}
+
+.nav-link {
+    color: #b0b0b0 !important;
+    transition: color 0.3s;
+}
+
+.nav-link:hover {
+    color: var(--brand-primary) !important;
+}
+
+.card {
+    background-color: #252525;
+    border: 1px solid #333;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.card-header {
+    background-color: #1a1a1a;
+    border-bottom: 1px solid #333;
+    color: var(--brand-primary);
+}
+
+.btn-primary {
+    background-color: var(--brand-primary);
+    border-color: var(--brand-primary);
+}
+
+.btn-primary:hover {
+    background-color: #0a58ca;
+    border-color: #0a58ca;
+    box-shadow: 0 0 10px rgba(13, 110, 253, 0.5);
+}
+
+.form-control, .form-select {
+    background-color: #2a2a2a;
+    border: 1px solid #444;
+    color: #e0e0e0;
+}
+
+.form-control:focus, .form-select:focus {
+    background-color: #333;
+    border-color: var(--brand-primary);
+    color: #e0e0e0;
+    box-shadow: 0 0 10px rgba(13, 110, 253, 0.3);
+}
+
+.table {
+    color: #e0e0e0;
+    border-color: #333;
+}
+
+.table-hover tbody tr:hover {
+    background-color: #2a2a2a;
+}
+
+.table th {
+    background-color: #1a1a1a;
+    border-color: #333;
+    color: var(--brand-primary);
+}
+
+.pagination .page-link {
+    background-color: #2a2a2a;
+    border-color: #444;
+    color: #e0e0e0;
+}
+
+.pagination .page-link:hover {
+    background-color: #333;
+    border-color: #555;
+    color: var(--brand-primary);
+}
+
+.pagination .page-item.active .page-link {
+    background-color: var(--brand-primary);
+    border-color: var(--brand-primary);
+}
+
+.badge {
+    background-color: var(--brand-primary);
+}
+
+.alert {
+    border: none;
+}
+
+.alert-success {
+    background-color: #1a4d2e;
+    color: #90ee90;
+}
+
+.alert-danger {
+    background-color: #4d1a1a;
+    color: #ff6b6b;
+}
+
+.alert-warning {
+    background-color: #4d3a1a;
+    color: #ffa500;
+}
+
+.alert-info {
+    background-color: #1a3a4d;
+    color: #87ceeb;
+}
+
+.footer {
+    background-color: #0f0f0f;
+    border-top: 1px solid #333;
+    color: #808080;
+    margin-top: 40px;
+    padding: 20px 0;
+}
+
+.sidebar {
+    background-color: #1a1a1a;
+    border: 1px solid #333;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.sidebar-item {
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    transition: all 0.3s;
+}
+
+.sidebar-item:hover {
+    background-color: #2a2a2a;
+}
+
+.sidebar-item.active {
+    background-color: var(--brand-primary);
+    color: white;
+}
+
+.text-muted {
+    color: #808080 !important;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.player-card {
+    background-color: #2a2a2a;
+    border-left: 4px solid var(--brand-primary);
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 4px;
+}
+
+.team-card {
+    background-color: #2a2a2a;
+    border: 1px solid var(--brand-primary);
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    transition: all 0.3s;
+}
+
+.team-card:hover {
+    box-shadow: 0 0 20px rgba(13, 110, 253, 0.3);
+}
+
+.stat-box {
+    background-color: #2a2a2a;
+    border-left: 4px solid var(--brand-primary);
+    padding: 20px;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.stat-box h3 {
+    color: var(--brand-primary);
+    font-size: 2rem;
+    margin-bottom: 10px;
+}
+
+.stat-box p {
+    color: #a0a0a0;
+    margin: 0;
+}
+
+.link-primary {
+    color: var(--brand-primary) !important;
+}
+
+.link-primary:hover {
+    color: var(--brand-primary) !important;
+    text-decoration: underline;
+    opacity: 0.85;
+}
+
+/* 让 Bootstrap 的主色工具类跟随 BRAND_PRIMARY_COLOR */
+.bg-primary { background-color: var(--brand-primary) !important; }
+.border-primary { border-color: var(--brand-primary) !important; }
+.text-primary { color: var(--brand-primary) !important; }
+.btn-outline-primary {
+    color: var(--brand-primary);
+    border-color: var(--brand-primary);
+}
+.btn-outline-primary:hover,
+.btn-outline-primary:focus {
+    background-color: var(--brand-primary);
+    border-color: var(--brand-primary);
+    color: #fff;
+}

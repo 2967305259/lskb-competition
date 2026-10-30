@@ -1,0 +1,458 @@
+{
+  "players": [
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/94e59ab9791244a28611da77e6fa6935.jpg",
+      "created_at": "2026-07-05T05:14:32.442210",
+      "id": 4,
+      "nickname": "撒胡",
+      "role": "captain",
+      "team": {
+        "final_score": 0,
+        "id": 6,
+        "name": "三层烧水的四人",
+        "operator": "酒神",
+        "roguelike": "sarkaz",
+        "squad": "拟态学者分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_1ff85c430d7d4ad08d6dfeac478b20e4.jpg"
+      },
+      "username": "sahuhh"
+    },
+    {
+      "avatar": null,
+      "created_at": "2026-07-08T04:40:53.189138",
+      "id": 5,
+      "nickname": "认真想过的名字",
+      "role": "player",
+      "team": null,
+      "username": "。。。。"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/102cf8026fad450d9d043dc8fe4b100f.jpg",
+      "created_at": "2026-07-08T04:49:14.134092",
+      "id": 6,
+      "nickname": "想喝橙汁的莫急",
+      "role": "captain",
+      "team": {
+        "final_score": 0,
+        "id": 2,
+        "name": "I 冠军厨 I 小队",
+        "operator": "电弧",
+        "roguelike": "garden",
+        "squad": "天师府分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_080de02532f7426ca447e8ca53507221.jpg"
+      },
+      "username": "莫急。"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/3fb68602188f4cdea68d84326ea194c4.webp",
+      "created_at": "2026-07-08T05:31:18.115184",
+      "id": 7,
+      "nickname": "何呵12138",
+      "role": "captain",
+      "team": {
+        "final_score": 0,
+        "id": 1,
+        "name": "你说的都队",
+        "operator": "电弧",
+        "roguelike": "garden",
+        "squad": "天师府分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_af22826c211747d7bd7203929ddc8804.gif"
+      },
+      "username": "catt"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/166a5b9752ad4ceb93c57d78f2e3154f.jpg",
+      "created_at": "2026-07-08T06:53:58.305119",
+      "id": 9,
+      "nickname": "二阶堂絮雨",
+      "role": "captain",
+      "team": {
+        "final_score": 0,
+        "id": 3,
+        "name": "组一辈子超大杯战队",
+        "operator": "焰狐龙梓兰",
+        "roguelike": "sami",
+        "squad": "矛头分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_211ca65c892a499caf103bc8d8daa690.jpg"
+      },
+      "username": "FolwiSh"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/25c4659f9dba42f597791eae47b0ee49.jpg",
+      "created_at": "2026-07-08T07:07:04.298202",
+      "id": 10,
+      "nickname": "句号",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 6,
+        "name": "三层烧水的四人",
+        "operator": "电弧",
+        "roguelike": "garden",
+        "squad": "司岁台分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_1ff85c430d7d4ad08d6dfeac478b20e4.jpg"
+      },
+      "username": "打句号"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/de0af1bca5124086ad7fffbfacd3acf9.jpg",
+      "created_at": "2026-07-08T07:48:24.422341",
+      "id": 11,
+      "nickname": "星野爱音",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 2,
+        "name": "I 冠军厨 I 小队",
+        "operator": "维什戴尔",
+        "roguelike": "sami",
+        "squad": "科学主义分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_080de02532f7426ca447e8ca53507221.jpg"
+      },
+      "username": "星野爱音"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/6139a41d19a34287b9546103965cdc7d.jpg",
+      "created_at": "2026-07-08T08:47:23.895033",
+      "id": 12,
+      "nickname": "真是强强又度度啊",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 2,
+        "name": "I 冠军厨 I 小队",
+        "operator": "祥子",
+        "roguelike": "sarkaz",
+        "squad": "近锋",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_080de02532f7426ca447e8ca53507221.jpg"
+      },
+      "username": "coolbreathe"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/ba23e2a3f9ac4683bc5eff93f954943b.jpg",
+      "created_at": "2026-07-08T08:50:39.195077",
+      "id": 13,
+      "nickname": "认真想好的名字",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 2,
+        "name": "I 冠军厨 I 小队",
+        "operator": "米格鲁",
+        "roguelike": "hslh",
+        "squad": "后勤分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_080de02532f7426ca447e8ca53507221.jpg"
+      },
+      "username": "。。。。。。"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/c2f97f4290f04a078e63d9dfe4acfbf7.jpg",
+      "created_at": "2026-07-08T09:18:33.470123",
+      "id": 14,
+      "nickname": "欲与昔Almond爱",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 1,
+        "name": "你说的都队",
+        "operator": "赤刃明霄陈",
+        "roguelike": "sami",
+        "squad": "突击战术分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_af22826c211747d7bd7203929ddc8804.gif"
+      },
+      "username": "爱昔特蕾娅Astraea"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/e59de80d90be4d4b921a12e200e77d89.jpg",
+      "created_at": "2026-07-08T10:39:52.754555",
+      "id": 15,
+      "nickname": "除却＃1807",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 3,
+        "name": "组一辈子超大杯战队",
+        "operator": "电弧",
+        "roguelike": "garden",
+        "squad": "游客",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_211ca65c892a499caf103bc8d8daa690.jpg"
+      },
+      "username": "Aaa咖喱乌冬批发"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/418e0854af0c445ca3fdfeb1510c7132.png",
+      "created_at": "2026-07-08T11:24:32.816136",
+      "id": 16,
+      "nickname": "空白xyz",
+      "role": "captain",
+      "team": {
+        "final_score": 0,
+        "id": 4,
+        "name": "小号给你转",
+        "operator": "酒神",
+        "roguelike": "sarkaz",
+        "squad": "拟态学者分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_02e3cf4ed81848ab9c9be3340d5c1d10.jpg"
+      },
+      "username": "羽迹一抹"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/574dcb09bef14a2683de04b718308b9f.jpg",
+      "created_at": "2026-07-10T09:59:10.290911",
+      "id": 17,
+      "nickname": "泠穗",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 1,
+        "name": "你说的都队",
+        "operator": "娜仁图亚",
+        "roguelike": "hslh",
+        "squad": "远程战术分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_af22826c211747d7bd7203929ddc8804.gif"
+      },
+      "username": "LAHNA"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/bd569ac8351847caa82a69539f54eedb.jpg",
+      "created_at": "2026-07-11T02:49:18.518528",
+      "id": 19,
+      "nickname": "黎澈",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 1,
+        "name": "你说的都队",
+        "operator": "酒神",
+        "roguelike": "sarkaz",
+        "squad": "拟态学者分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_af22826c211747d7bd7203929ddc8804.gif"
+      },
+      "username": "黎澈qwq"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/54107222059a4239a0c501377747c6ba.jpg",
+      "created_at": "2026-07-12T07:25:04.673782",
+      "id": 20,
+      "nickname": "yeyubk",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 3,
+        "name": "组一辈子超大杯战队",
+        "operator": "米格鲁",
+        "roguelike": "hslh",
+        "squad": "后勤分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_211ca65c892a499caf103bc8d8daa690.jpg"
+      },
+      "username": "yeyubk"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/1cc5970e8ce14ea187df7f4e19291ac9.jpg",
+      "created_at": "2026-07-12T07:42:17.654773",
+      "id": 21,
+      "nickname": "名字就不要了吧",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 3,
+        "name": "组一辈子超大杯战队",
+        "operator": "麒麟R夜刀",
+        "roguelike": "sarkaz",
+        "squad": "魂灵护送分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_211ca65c892a499caf103bc8d8daa690.jpg"
+      },
+      "username": "温蒂厨WDC"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/43195e50358b489e8d11fce704d44924.png",
+      "created_at": "2026-07-12T12:38:26.246863",
+      "id": 23,
+      "nickname": "Rh2S",
+      "role": "captain",
+      "team": {
+        "final_score": 0,
+        "id": 5,
+        "name": "四区兄弟",
+        "operator": "酒神",
+        "roguelike": "sarkaz",
+        "squad": "点刺成锭分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_9db6f8f92a7746b6a3a992d4e51c6cfc.jpg"
+      },
+      "username": "Rh2S"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/0ed949ecd5224091aa5e37fbebe244bd.jpg",
+      "created_at": "2026-07-12T13:15:07.396954",
+      "id": 24,
+      "nickname": "cod",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 5,
+        "name": "四区兄弟",
+        "operator": "维什戴尔",
+        "roguelike": "hslh",
+        "squad": "多边贸易分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_9db6f8f92a7746b6a3a992d4e51c6cfc.jpg"
+      },
+      "username": "魔法wh目录"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/71ff09fae6104958bc03ac9e15caf9bf.jpg",
+      "created_at": "2026-07-12T13:37:45.405252",
+      "id": 26,
+      "nickname": "欠妥",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 5,
+        "name": "四区兄弟",
+        "operator": "电弧",
+        "roguelike": "garden",
+        "squad": "天师府",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_9db6f8f92a7746b6a3a992d4e51c6cfc.jpg"
+      },
+      "username": "暮东lpld"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/edf57c76d6634f33a20b7d4510ba3563.png",
+      "created_at": "2026-07-12T14:29:05.653486",
+      "id": 27,
+      "nickname": "刘谦",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 5,
+        "name": "四区兄弟",
+        "operator": "望",
+        "roguelike": "sami",
+        "squad": "破坏战术分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_9db6f8f92a7746b6a3a992d4e51c6cfc.jpg"
+      },
+      "username": "哦吼的人"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/284394899d2e4862b619bb8f80150cd5.jpg",
+      "created_at": "2026-07-12T15:42:30.733173",
+      "id": 28,
+      "nickname": "江上舟遥遥",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 4,
+        "name": "小号给你转",
+        "operator": "维什戴尔",
+        "roguelike": "garden",
+        "squad": "远程战术分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_02e3cf4ed81848ab9c9be3340d5c1d10.jpg"
+      },
+      "username": "舟遥遥"
+    },
+    {
+      "avatar": null,
+      "created_at": "2026-07-14T10:34:26.532807",
+      "id": 29,
+      "nickname": "深邃蓝天",
+      "role": "player",
+      "team": null,
+      "username": "wzdnb"
+    },
+    {
+      "avatar": null,
+      "created_at": "2026-07-14T10:47:11.960113",
+      "id": 30,
+      "nickname": "星宝ovo",
+      "role": "player",
+      "team": null,
+      "username": "星ovo"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/64acf8e9b28c4855b28e2894c01c71f5.jpg",
+      "created_at": "2026-07-14T10:59:59.694538",
+      "id": 31,
+      "nickname": "午夜梦游Zzz",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 6,
+        "name": "三层烧水的四人",
+        "operator": "米格鲁",
+        "roguelike": "hslh",
+        "squad": "后勤分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_1ff85c430d7d4ad08d6dfeac478b20e4.jpg"
+      },
+      "username": "哈基米基不基米"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/6b12c13a98ff45d590a59317c7a31951.jpg",
+      "created_at": "2026-07-14T11:12:23.359384",
+      "id": 32,
+      "nickname": "散光美竹兰",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 4,
+        "name": "小号给你转",
+        "operator": "",
+        "roguelike": "sami",
+        "squad": "",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_02e3cf4ed81848ab9c9be3340d5c1d10.jpg"
+      },
+      "username": "蝶可儿"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/1c3fcb6688ae401bb91ccb95718a524b.jpg",
+      "created_at": "2026-07-14T11:23:02.400980",
+      "id": 33,
+      "nickname": "柒璐LUNA",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 6,
+        "name": "三层烧水的四人",
+        "operator": "圣聆初雪",
+        "roguelike": "sami",
+        "squad": "破坏战术分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_1ff85c430d7d4ad08d6dfeac478b20e4.jpg"
+      },
+      "username": "柒璐LUNA"
+    },
+    {
+      "avatar": null,
+      "created_at": "2026-07-14T12:41:48.231316",
+      "id": 34,
+      "nickname": "曜黑",
+      "role": "player",
+      "team": null,
+      "username": "新能源曜黑"
+    },
+    {
+      "avatar": "http://lskb.cc.cd/static/uploads/avatars/70f2e91259414b0f814ea3ef7e5b3e2b.png",
+      "created_at": "2026-07-18T11:56:06.240206",
+      "id": 35,
+      "nickname": "QAQ",
+      "role": "player",
+      "team": {
+        "final_score": 0,
+        "id": 4,
+        "name": "小号给你转",
+        "operator": "米格鲁",
+        "roguelike": "hslh",
+        "squad": "后勤分队",
+        "team_photo": "http://lskb.cc.cd/static/uploads/teams/team_02e3cf4ed81848ab9c9be3340d5c1d10.jpg"
+      },
+      "username": "ABSQAQ"
+    },
+    {
+      "avatar": null,
+      "created_at": "2026-07-18T12:36:29.602224",
+      "id": 36,
+      "nickname": "仧白告",
+      "role": "player",
+      "team": null,
+      "username": "最不爱卷的长号先生"
+    }
+  ],
+  "total": 29
+}

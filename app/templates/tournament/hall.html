@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge with context %}
 
 {% block title %}赛事大厅{% endblock %}
 
@@ -69,7 +70,15 @@
         <div class="card text-center h-100">
             <div class="card-body">
                 <h3 class="text-info">{{ scheduled_matches }}</h3>
-                <small class="text-muted">已排期</small>
+                <small class="text-muted">待确认</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2 col-4 mb-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="text-primary">{{ confirmed_matches }}</h3>
+                <small class="text-muted">已确认</small>
             </div>
         </div>
     </div>
@@ -78,14 +87,6 @@
             <div class="card-body">
                 <h3 class="text-warning">{{ submitted_matches }}</h3>
                 <small class="text-muted">已提交</small>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-2 col-4 mb-3">
-        <div class="card text-center h-100">
-            <div class="card-body">
-                <h3 class="text-danger">{{ dispute_matches }}</h3>
-                <small class="text-muted">争议中</small>
             </div>
         </div>
     </div>
@@ -114,7 +115,7 @@
                             <tr>
                                 <th>选手A</th>
                                 <th>选手B</th>
-                                <th>肉鸽</th>
+                                <th>{{ labels.track }}</th>
                                 <th>难度</th>
                                 <th>比分</th>
                                 <th>状态</th>
@@ -149,26 +150,17 @@
                                             -
                                         {% endif %}
                                     </td>
-                                    <td>
-                                        {% if m.status == 'pending' %}
-                                            <span class="badge bg-secondary">待处理</span>
-                                        {% elif m.status == 'scheduled' %}
-                                            <span class="badge bg-info">已排期</span>
-                                        {% elif m.status == 'confirmed' %}
-                                            <span class="badge bg-primary">已确认</span>
-                                        {% elif m.status == 'submitted' %}
-                                            <span class="badge bg-warning">已提交</span>
-                                        {% elif m.status == 'dispute' %}
-                                            <span class="badge bg-danger">争议中</span>
-                                        {% elif m.status == 'finished' %}
-                                            <span class="badge bg-success">已结束</span>
-                                        {% elif m.status == 'forfeit_a' %}
-                                            <span class="badge bg-dark">A弃权</span>
-                                        {% elif m.status == 'forfeit_b' %}
-                                            <span class="badge bg-dark">B弃权</span>
+                                    <td>{{ match_progress_badge(m) }}</td>
+                                    <td style="font-size:0.78rem;">
+                                        {% set children_list = m.children|list|sort(attribute='scheduled_time') %}
+                                        {% if children_list %}
+                                            {% for ch in children_list %}{% if ch.scheduled_time %}
+                                            {{ ch.scheduled_time.strftime('%m-%d %H:%M') }}-{{ (ch.scheduled_time + timedelta(minutes=_parse_duration(ch.match_note) or 120)).strftime('%H:%M') }} {{ ch.player_a.nickname if ch.player_a else '?' }}<br>
+                                            {% endif %}{% endfor %}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
                                         {% endif %}
                                     </td>
-                                    <td><small>{{ m.created_at.strftime('%m-%d %H:%M') }}</small></td>
                                 </tr>
                             {% endfor %}
                         </tbody>

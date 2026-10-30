@@ -28,6 +28,7 @@ venv/
 ENV/
 env/
 .venv
+.venv-win/
 
 # IDE
 .vscode/
@@ -67,3 +68,13 @@ migrations/versions/
 # Uploads
 uploads/
 temp/
+
+# Node / 前端依赖（抽取/ 是可独立构建的前端目录，依赖不入库）
+node_modules/
+抽取/node_modules/
+
+# 归档包（上传文件/数据库备份，不入库）
+*.tar.gz
+
+# AI 工具本地文件（计划/缓存，不进版本库）
+.codebuddy/

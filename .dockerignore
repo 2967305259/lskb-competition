@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.egg
+
+# 虚拟环境
+venv/
+env/
+.venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# 环境变量（含密钥，禁止打进镜像；模板文件保留）
+.env
+.env.local
+
+# 虚拟环境（Windows 版）
+.venv-win/
+
+# 数据库（运行时挂载 volume）
+.db/
+*.db
+*.sqlite
+*.sqlite3
+
+# 上传文件（运行时挂载 volume）
+app/static/uploads/avatars/*
+app/static/uploads/teams/*
+!app/static/uploads/avatars/.gitkeep
+!app/static/uploads/teams/.gitkeep
+
+# 文档
+冷水坑杯3-项目需求文档-初版/
+*.md
+!README.md
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 临时文件
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# 前端源码（已编译到 static）
+frontend/

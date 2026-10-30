@@ -4,54 +4,74 @@
 
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-edit"></i> 编辑队伍
-                </h5>
-            </div>
-            <div class="card-body">
-                <form method="POST">
-                    {{ form.hidden_tag() }}
-                    
-                    <div class="mb-3">
-                        {{ form.team_name.label(class="form-label") }}
-                        {% if form.team_name.errors %}
-                            {{ form.team_name(class="form-control is-invalid") }}
-                            <div class="invalid-feedback d-block">
+    <div class="col-lg-8">
+        <a href="{{ url_for('captain.dashboard') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回
+        </a>
+
+        <div class="row g-4">
+            <!-- 左：队伍信息 -->
+            <div class="col-md-7">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-edit"></i> 编辑队伍信息</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST">
+                            {{ form.hidden_tag() }}
+                            <div class="mb-3">
+                                {{ form.team_name.label(class="form-label") }}
+                                {{ form.team_name(class="form-control" + (' is-invalid' if form.team_name.errors else '')) }}
                                 {% for error in form.team_name.errors %}
-                                    {{ error }}<br>
+                                <div class="invalid-feedback d-block">{{ error }}</div>
                                 {% endfor %}
                             </div>
-                        {% else %}
-                            {{ form.team_name(class="form-control") }}
-                        {% endif %}
-                    </div>
-                    
-                    <div class="mb-3">
-                        {{ form.team_slogan.label(class="form-label") }}
-                        <p class="text-muted small">最多300个字符</p>
-                        {% if form.team_slogan.errors %}
-                            {{ form.team_slogan(class="form-control is-invalid", rows="4") }}
-                            <div class="invalid-feedback d-block">
+                            <div class="mb-3">
+                                {{ form.team_slogan.label(class="form-label") }}
+                                <p class="text-muted small mb-1">最多 300 字符</p>
+                                {{ form.team_slogan(class="form-control" + (' is-invalid' if form.team_slogan.errors else ''), rows="4") }}
                                 {% for error in form.team_slogan.errors %}
-                                    {{ error }}<br>
+                                <div class="invalid-feedback d-block">{{ error }}</div>
                                 {% endfor %}
                             </div>
-                        {% else %}
-                            {{ form.team_slogan(class="form-control", rows="4") }}
-                        {% endif %}
+                            <div class="d-grid">
+                                {{ form.submit(class="btn btn-primary btn-lg") }}
+                            </div>
+                        </form>
                     </div>
-                    
-                    <div class="d-grid gap-2 mb-2">
-                        {{ form.submit(class="btn btn-primary btn-lg") }}
+                </div>
+            </div>
+
+            <!-- 右：队伍头像 -->
+            <div class="col-md-5">
+                <div class="card text-center h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-image"></i> 队伍头像</h5>
                     </div>
-                </form>
-                
-                <a href="{{ url_for('captain.dashboard') }}" class="btn btn-outline-secondary w-100">
-                    返回
-                </a>
+                    <div class="card-body d-flex flex-column justify-content-center">
+                        <div class="mb-3">
+                            {% if team.team_photo %}
+                            <img src="{{ url_for('static', filename='uploads/teams/' + team.team_photo) }}"
+                                 class="rounded-circle shadow"
+                                 style="width: 140px; height: 140px; object-fit: cover; border: 4px solid #0d6efd;">
+                            {% else %}
+                            <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto shadow"
+                                 style="width: 140px; height: 140px; background: linear-gradient(135deg, #1a1a2e, #16213e); border: 4px solid #444;">
+                                <i class="fas fa-users" style="font-size: 48px; color: #666;"></i>
+                            </div>
+                            {% endif %}
+                        </div>
+                        <form action="{{ url_for('captain.upload_team_avatar') }}" method="POST" enctype="multipart/form-data">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <div class="mb-3">
+                                <input type="file" name="team_avatar" accept="image/*" class="form-control form-control-sm">
+                            </div>
+                            <button type="submit" class="btn btn-outline-primary">
+                                <i class="fas fa-cloud-upload-alt"></i> 上传头像
+                            </button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}提交结果{% endblock %}
+{% block title %}提交成绩{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
@@ -8,9 +8,7 @@
         <a href="{{ url_for('tournament.match_detail', match_id=match.id) }}" class="btn btn-light rounded-pill mb-3">
             <i class="fas fa-arrow-left"></i> 返回比赛详情
         </a>
-        <h2>
-            <i class="fas fa-check-circle"></i> 提交比赛结果
-        </h2>
+        <h2><i class="fas fa-upload"></i> 提交成绩</h2>
     </div>
 </div>
 
@@ -18,14 +16,14 @@
     <div class="col-md-6 mx-auto">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-file-alt"></i> 选择结果</h5>
+                <h5 class="mb-0"><i class="fas fa-camera"></i> 上传截图 & 选择难度</h5>
             </div>
             <div class="card-body">
-                <p class="text-muted">请如实选择您的比赛结果</p>
-                <form method="POST">
+                <form method="POST" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label"><i class="fas fa-fire"></i> 您的难度选择</label>
+
+                    <div class="mb-4">
+                        <label class="form-label"><i class="fas fa-fire"></i> 难度选择</label>
                         <select class="form-select" name="difficulty" required>
                             {% set rl = get_roguelike_by_key(match.roguelike) %}
                             {% if rl %}
@@ -41,41 +39,22 @@
                                 {% endfor %}
                             {% endif %}
                         </select>
-                        <small class="text-muted">您的独立难度，双方难度可以不同。倍率 = 1 + (难度 - 最低难度) × 难度阶级</small>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label" for="scoreInput"><i class="fas fa-star"></i> 比赛分数</label>
-                        <input type="number" class="form-control" id="scoreInput" name="score"
-                               placeholder="请输入您的比赛分数" min="0" required
-                               value="{{ form.score.data if form.score.data else '' }}">
-                        <small class="text-muted">请输入您本场比赛获得的分数</small>
+
+                    <div class="mb-4">
+                        <label class="form-label"><i class="fas fa-star"></i> 比赛分数（可选）</label>
+                        <input type="number" class="form-control" name="score" placeholder="如：3200" min="0">
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">比赛结果</label>
-                        <div class="d-grid gap-2">
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="result" id="resultWin" value="win" required>
-                                <label class="form-check-label" for="resultWin">
-                                    <i class="fas fa-trophy text-success"></i> 我赢了
-                                </label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="result" id="resultLose" value="lose">
-                                <label class="form-check-label" for="resultLose">
-                                    <i class="fas fa-handshake text-danger"></i> 我输了
-                                </label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="result" id="resultDraw" value="draw">
-                                <label class="form-check-label" for="resultDraw">
-                                    <i class="fas fa-equals text-info"></i> 平局
-                                </label>
-                            </div>
-                        </div>
+
+                    <div class="mb-4">
+                        <label class="form-label"><i class="fas fa-images"></i> 截图上传（可选多张）</label>
+                        <input type="file" class="form-control" name="screenshots" accept="image/*" multiple required>
+                        <small class="text-muted">可同时选择多张成绩截图（PNG/JPG/WEBP）</small>
                     </div>
-                    <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-check"></i> 提交结果
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="fas fa-check"></i> 提交成绩
                         </button>
                     </div>
                 </form>

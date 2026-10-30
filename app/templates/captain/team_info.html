@@ -33,7 +33,7 @@
                 </div>
                 <div class="mb-0">
                     <strong>队伍人数</strong>
-                    <p>{{ team.get_member_count() }}/4 人</p>
+                    <p>{{ team.get_member_count() }}/{{ team_size }} 人</p>
                 </div>
             </div>
         </div>
@@ -55,9 +55,9 @@
                                 </h6>
                                 <small class="text-muted">
                                     {% if member.roguelike %}
-                                        <i class="fas fa-dragon"></i> 已选肉鸽
+                                        <i class="fas fa-dragon"></i> 已选{{ labels.track }}
                                     {% else %}
-                                        <span class="text-muted">肉鸽待选</span>
+                                        <span class="text-muted">{{ labels.track }}待选</span>
                                     {% endif %}
                                 </small>
                             </div>
@@ -65,13 +65,27 @@
                                 {% if member.roguelike %}
                                     <small>
                                         <i class="fas fa-dragon"></i>
-                                        已选肉鸽
+                                        {{ get_roguelike_name(member.roguelike) }}
                                     </small>
                                 {% else %}
-                                    <small class="text-muted">肉鸽待选</small>
+                                    <small class="text-muted">{{ labels.track }}待选</small>
                                 {% endif %}
                             </div>
                         </div>
+                        {% if member.squad or member.operator %}
+                            <div class="mt-2">
+                                {% if member.squad %}
+                                    <small class="text-muted d-block">
+                                        <i class="fas fa-shield-alt"></i> {{ labels.field1 }}：{{ member.squad }}
+                                    </small>
+                                {% endif %}
+                                {% if member.operator %}
+                                    <small class="text-muted d-block">
+                                        <i class="fas fa-user"></i> {{ labels.field2 }}：{{ member.operator }}
+                                    </small>
+                                {% endif %}
+                            </div>
+                        {% endif %}
                     </div>
                 {% endfor %}
             </div>
