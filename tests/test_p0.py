@@ -481,3 +481,62 @@ def test_backup_rejects_missing_database_media_references(application, client):
         db.session.remove()
         with pytest.raises(RuntimeError, match='素材引用缺失'):
             create_backup(db.engine, application.config)
+
+
+def test_player_stats_are_current_by_default_and_count_formal_outcomes_once(application, client):
+    complete(application, client)
+    ids = application.test_ids
+    with application.app_context():
+        root = db.session.get(a.Match, ids['match'])
+        # These rows must never become a second formal result for the player.
+        db.session.add(a.Match(tournament_id=root.tournament_id, player_a_id=root.player_a_id,
+                               player_b_id=root.player_b_id, team_a_id=root.team_a_id,
+                               team_b_id=root.team_b_id, roguelike=root.roguelike,
+                               parent_id=root.id, status='finished', winner_id=root.player_a_id,
+                               match_type='match'))
+        db.session.add(a.Match(tournament_id=root.tournament_id, player_a_id=root.player_a_id,
+                               player_b_id=root.player_b_id, team_a_id=None, team_b_id=None,
+                               roguelike=root.roguelike, status='finished', winner_id=root.player_a_id,
+                               match_type='exhibition'))
+        db.session.commit()
+    login(client, ids['users'][0])
+    response = client.get(f"/player/api/players/{ids['users'][0]}")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['stats']['season_scope'] == 'current'
+    assert payload['stats']['wins'] == 1
+    assert payload['stats']['total_matches'] == 1
+    assert len(payload['recent_matches']) == 1
+
+    transition = transition_data(application, client)
+    assert client.post('/admin/new-season', data=transition).status_code == 302
+    response = client.get(f"/player/api/players/{ids['users'][0]}")
+    assert response.get_json()['stats']['total_matches'] == 0
+    response = client.get(f"/player/api/players/{ids['users'][0]}?season=all")
+    assert response.get_json()['stats']['season_scope'] == 'all'
+    assert response.get_json()['stats']['wins'] == 1
+    named = client.get(f"/player/api/players/alpha?season=all")
+    assert named.get_json()['stats'] == response.get_json()['stats']
+
+
+def test_tie_rank_and_qualification_share_competition_ranking(application, client):
+    from scoring import get_team_rankings
+    ids = application.test_ids
+    with application.app_context():
+        season = a.Tournament.get_active()
+        captain = a.User(username='gamma', nickname='gamma', role='captain')
+        captain.set_password('test-password')
+        db.session.add(captain)
+        db.session.flush()
+        team = a.Team(team_name='gamma', captain_id=captain.id, tournament_id=season.id, team_score=90)
+        db.session.add(team)
+        db.session.flush()
+        db.session.get(a.Team, ids['teams'][0]).team_score = 100
+        db.session.get(a.Team, ids['teams'][1]).team_score = 100
+        setting = a.Setting.get_instance()
+        setting.advance_count = 1
+        db.session.commit()
+        rankings = get_team_rankings(season.id)
+        assert [row['rank'] for row in rankings] == [1, 1, 3]
+    with application.app_context():
+        assert len(a.get_advanced_teams()) == 2
