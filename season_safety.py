@@ -243,6 +243,12 @@ def switch_season():
         if unfinished.settlement_state == 'pending' and not unfinished.scoring_rule:
             capture_match_rule(unfinished)
     settings = a.Setting.get_instance()
+    inherit_registration = request.form.get('inherit_registration_window') == '1'
+    inherit_tournament = request.form.get('inherit_tournament_window') == '1'
+    inherit_advance = request.form.get('inherit_advance_count') == '1'
+    inherit_team_size = request.form.get('inherit_team_size') == '1'
+    inherit_incomplete = request.form.get('inherit_allow_incomplete_teams') == '1'
+    inherit_carousel = request.form.get('inherit_carousel') == '1'
     count = a.User.query.filter(a.User.role.notin_(['admin', 'super_admin'])).count()
     pending_ids = [m.id for m in unfinished_matches(old_id)]
     from sqlalchemy import update
@@ -256,6 +262,12 @@ def switch_season():
     season.status = 'finished'
     season.archived_at = datetime.utcnow()
     new = a.Tournament(name=name, season_number=number, is_active=True, status='registration', bonus_score=old_bonus)
+    if inherit_registration:
+        new.registration_start = season.registration_start
+        new.registration_end = season.registration_end
+    if inherit_tournament:
+        new.tournament_start = season.tournament_start
+        new.tournament_end = season.tournament_end
     a.db.session.add(new)
     a.db.session.flush()
     teams = [t.id for t in a.Team.query.filter_by(tournament_id=old_id).all()]
@@ -264,14 +276,56 @@ def switch_season():
         a.JoinRequest.query.filter(a.JoinRequest.team_id.in_(teams), a.JoinRequest.status == 'pending').delete(synchronize_session=False)
     a.User.query.filter(a.User.role.notin_(['admin', 'super_admin'])).update({'status': 0}, synchronize_session=False)
     a.TimePreference.query.delete(synchronize_session=False)
-    settings.advance_count = 0
+    old_advance_count = settings.advance_count
+    old_team_size = settings.team_size
+    old_allow_incomplete = settings.allow_incomplete_teams
+    settings.advance_count = old_advance_count if inherit_advance else 0
+    # These settings remain global for backward compatibility.  Reading and
+    # writing the selected values explicitly makes the inheritance decision
+    # auditable while preserving the established unchecked behavior.
+    if inherit_team_size:
+        settings.team_size = old_team_size
+    if inherit_incomplete:
+        settings.allow_incomplete_teams = old_allow_incomplete
     settings.registration_open = True
+    if inherit_carousel:
+        previous_items = a.CarouselItem.query.filter_by(tournament_id=old_id).order_by(
+            a.CarouselItem.sort_order, a.CarouselItem.id).all()
+        for item in previous_items:
+            a.db.session.add(a.CarouselItem(
+                tournament_id=new.id, media_type=item.media_type,
+                file_path=item.file_path, title=item.title, link_url=item.link_url,
+                sort_order=item.sort_order, is_active=item.is_active,
+            ))
+    inherited = ['bonus_score']
+    if inherit_registration:
+        inherited.append('registration_window')
+    if inherit_tournament:
+        inherited.append('tournament_window')
+    if inherit_advance:
+        inherited.append('advance_count')
+    if inherit_team_size:
+        inherited.append('team_size')
+    if inherit_incomplete:
+        inherited.append('allow_incomplete_teams')
+    if inherit_carousel:
+        inherited.append('carousel')
     a.db.session.add(a.SeasonTransition(request_key=payload['key'], expected_season_id=old_id,
         new_season_id=new.id, actor_id=current_user.id, backup_batch=batch.name,
         forced_reason=reason if forced else '', unfinished_ids=json_dump(pending_ids)))
     _log('new_season', {'old_id': old_id, 'new_id': new.id, 'name': name,
         'reset_users': count, 'unfinished_matches': pending_ids, 'force_reason': reason if forced else '',
-        'backup_batch': batch.name, 'inherited': ['bonus_score', 'team_size', 'allow_incomplete_teams']})
+        'backup_batch': batch.name, 'inherited': inherited,
+        'carousel_copied': a.CarouselItem.query.filter_by(tournament_id=new.id).count(),
+        'inherited_values': {
+            'registration_start': str(new.registration_start) if inherit_registration else None,
+            'registration_end': str(new.registration_end) if inherit_registration else None,
+            'tournament_start': str(new.tournament_start) if inherit_tournament else None,
+            'tournament_end': str(new.tournament_end) if inherit_tournament else None,
+            'advance_count': settings.advance_count,
+            'team_size': settings.team_size,
+            'allow_incomplete_teams': bool(settings.allow_incomplete_teams),
+        }})
     save_context(new)
     a.db.session.commit()
     # Retention is housekeeping after the atomic operation; failure cannot turn success into a retry.
