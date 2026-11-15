@@ -89,6 +89,77 @@ def get_player_stats(player_id, tournament_id=None, scope='current'):
             'matches': all_matches[:50]}
 
 
+def get_member_score_breakdown(member_id):
+    """Return the reconstructable score ledger for one member.
+
+    ``final_score`` is never treated as an independent source of truth.  The
+    displayed total is always ``settled match score + active adjustments``;
+    this helper is also used by the admin audit page before and after changes.
+    """
+    from season_safety import final_score, SeasonError
+    db, Match, TeamMember, ScoreAdjustment = _app_ns(
+        'db', 'Match', 'TeamMember', 'ScoreAdjustment')
+    member = db.session.get(TeamMember, member_id)
+    if member is None or member.team is None or member.team.tournament_id is None:
+        raise SeasonError('成员缺少有效赛季归属，不能计算调整分', 409)
+    tournament_id = member.team.tournament_id
+    match_score = 0
+    matches = Match.query.filter_by(tournament_id=tournament_id).all()
+    for match in matches:
+        if is_formal(match) and match.settlement_state == 'settled' and match.status in OUTCOME_STATUSES:
+            for side in ('a', 'b'):
+                if (getattr(match, 'team_' + side + '_id') == member.team_id and
+                        getattr(match, 'player_' + side + '_id') == member.user_id):
+                    match_score += final_score(match, side)
+        elif match.match_type == 'exhibition' and match.status in OUTCOME_STATUSES:
+            for side in ('a', 'b'):
+                if (getattr(match, 'team_' + side + '_id') == member.team_id and
+                        getattr(match, 'player_' + side + '_id') == member.user_id and
+                        getattr(match, 'player_' + side + '_score') is not None):
+                    match_score += final_score(match, side)
+    adjustment_score = sum(row.delta for row in ScoreAdjustment.query.filter_by(
+        tournament_id=tournament_id, member_id=member.id, revoked=False).all())
+    return {'member_id': member.id, 'tournament_id': tournament_id,
+            'match_score': match_score, 'adjustment_score': adjustment_score,
+            'final_score': match_score + adjustment_score}
+
+
+def create_score_adjustment(member_id, actor_id, reason, *, target_total=None, delta=None):
+    """Create one immutable adjustment row without committing the transaction."""
+    from season_safety import SeasonError
+    db, TeamMember, ScoreAdjustment = _app_ns('db', 'TeamMember', 'ScoreAdjustment')
+    reason = (reason or '').strip()
+    if not reason:
+        raise SeasonError('人工调整必须填写原因', 400)
+    if target_total is None and delta is None:
+        raise SeasonError('必须提供目标总分或调整分', 400)
+    if target_total is not None and delta is not None:
+        raise SeasonError('目标总分和调整分不能同时提供', 400)
+    member = db.session.get(TeamMember, member_id)
+    if member is None or member.team is None or member.team.tournament_id is None:
+        raise SeasonError('成员缺少有效赛季归属，不能调整积分', 409)
+    before = get_member_score_breakdown(member.id)
+    if target_total is not None:
+        try:
+            delta = int(target_total) - before['final_score']
+        except (TypeError, ValueError) as exc:
+            raise SeasonError('目标总分必须是整数', 400) from exc
+    else:
+        try:
+            delta = int(delta)
+        except (TypeError, ValueError) as exc:
+            raise SeasonError('调整分必须是整数', 400) from exc
+    if not delta:
+        return None, before, before
+    adjustment = ScoreAdjustment(tournament_id=member.team.tournament_id,
+                                 member_id=member.id, actor_id=actor_id,
+                                 delta=delta, reason=reason)
+    db.session.add(adjustment)
+    db.session.flush()
+    after = get_member_score_breakdown(member.id)
+    return adjustment, before, after
+
+
 def recalculate_all_scores(tournament_id=None):
     from season_safety import active_season, correction_allowed, final_score, historical_context, SeasonError, verify_match_ownership
     from flask import has_request_context
