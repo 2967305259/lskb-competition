@@ -50,7 +50,8 @@ def initialize_database():
 def data_report():
     import app as a
     report = {'active_ids': [t.id for t in a.Tournament.query.filter_by(is_active=True).all()],
-              'orphan_teams': [], 'matches': [], 'contexts_missing': [], 'member_totals': [], 'team_totals': [],
+              'orphan_teams': [], 'matches': [], 'contexts_missing': [], 'member_totals': [],
+              'team_totals': [], 'adjustments': [],
               'season_windows': [{'id':t.id, 'start':str(t.tournament_start), 'end':str(t.tournament_end)} for t in a.Tournament.query.order_by(a.Tournament.id)]}
     for team in a.Team.query.order_by(a.Team.id):
         report['team_totals'].append({'id': team.id, 'stored_total': team.team_score, 'tournament_id': team.tournament_id})
@@ -86,8 +87,23 @@ def data_report():
         if not season.context_snapshot:
             report['contexts_missing'].append({'id': season.id, 'name': season.name, 'active': season.is_active})
     for member in a.TeamMember.query.order_by(a.TeamMember.id):
-        report['member_totals'].append({'id': member.id, 'team_id': member.team_id, 'stored_total': member.final_score,
+        try:
+            from scoring import get_member_score_breakdown
+            breakdown = get_member_score_breakdown(member.id)
+        except Exception:
+            breakdown = None
+        report['member_totals'].append({'id': member.id, 'team_id': member.team_id,
+            'stored_total': member.final_score, 'breakdown': breakdown,
             'note': '差额不等于人工调整，须按历史规则核对'})
+    for adjustment in a.ScoreAdjustment.query.order_by(a.ScoreAdjustment.id):
+        report['adjustments'].append({
+            'id': adjustment.id, 'tournament_id': adjustment.tournament_id,
+            'member_id': adjustment.member_id, 'actor_id': adjustment.actor_id,
+            'delta': adjustment.delta, 'reason': adjustment.reason,
+            'revoked': adjustment.revoked, 'revoked_by': adjustment.revoked_by,
+            'revoke_reason': adjustment.revoke_reason,
+            'created_at': str(adjustment.created_at),
+        })
     report['digest'] = hashlib.sha256(json_dump(report).encode()).hexdigest()
     return report
 
