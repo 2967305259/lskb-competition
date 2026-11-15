@@ -2,6 +2,9 @@
 import sys
 from decimal import Decimal
 
+from formal_match import (FORMAL_MATCH_TYPE, OUTCOME_STATUSES, formal_query,
+                          is_formal, outcome_for_player)
+
 
 def _app_ns(*names):
     mod = sys.modules.get('app') or sys.modules['__main__']
@@ -48,6 +51,44 @@ def get_team_rankings(tournament_id=None):
     return rows
 
 
+def get_player_stats(player_id, tournament_id=None, scope='current'):
+    """Return full-scope record totals and the most recent formal matches.
+
+    ``scope=current`` is the default and resolves to the unique active season.
+    ``scope=all`` intentionally removes the season filter.  Segment rows and
+    exhibition rows are never included, so a split match is counted once.
+    """
+    Match, db = _app_ns('Match', 'db')
+    if scope not in ('current', 'all'):
+        raise ValueError('invalid player-stat scope')
+    season_id = None
+    if scope == 'current':
+        from season_safety import active_season
+        season = active_season(required=False)
+        if season is None:
+            return {'wins': 0, 'losses': 0, 'draws': 0, 'total_matches': 0,
+                    'season_scope': 'current', 'season_id': None, 'matches': []}
+        season_id = season.id if tournament_id is None else tournament_id
+    elif tournament_id is not None:
+        season_id = tournament_id
+    query = formal_query(Match, db, season_id).filter(
+        db.or_(Match.player_a_id == player_id, Match.player_b_id == player_id))
+    all_matches = query.order_by(Match.created_at.desc()).all()
+    wins = losses = draws = 0
+    for match in all_matches:
+        result = outcome_for_player(match, player_id)
+        if result == 'win':
+            wins += 1
+        elif result == 'loss':
+            losses += 1
+        elif result == 'draw':
+            draws += 1
+    return {'wins': wins, 'losses': losses, 'draws': draws,
+            'total_matches': wins + losses + draws,
+            'season_scope': scope, 'season_id': season_id,
+            'matches': all_matches[:50]}
+
+
 def recalculate_all_scores(tournament_id=None):
     from season_safety import active_season, correction_allowed, final_score, historical_context, SeasonError, verify_match_ownership
     from flask import has_request_context
@@ -80,7 +121,7 @@ def recalculate_all_scores(tournament_id=None):
             raise SeasonError(f'分段 {match.id} 有独立成绩，需人工核对整场归并方案')
         if match.settlement_state == 'legacy' and (match.player_a_score is not None or match.player_b_score is not None or match.status in ('finished', 'forfeit_a', 'forfeit_b')):
             raise SeasonError(f'旧比赛 {match.id} 缺少确认的历史结算基准')
-    matches = [m for m in records if m.parent_id is None and m.match_type == 'match' and m.settlement_state == 'settled']
+    matches = [m for m in records if is_formal(m) and m.settlement_state == 'settled']
     totals = {}
     for match in matches:
         verify_match_ownership(match)
