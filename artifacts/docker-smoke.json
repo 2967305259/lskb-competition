@@ -1,0 +1,9 @@
+{
+  "image": "lskb-p0-test:local",
+  "two_instances_isolated": true,
+  "recreated_container_keeps_database": true,
+  "recreated_container_keeps_media": true,
+  "recreated_container_keeps_backup": true,
+  "schema_version_count": 1,
+  "gunicorn_workers": 4
+}

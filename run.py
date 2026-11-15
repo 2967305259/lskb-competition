@@ -121,6 +121,10 @@ if __name__ == '__main__':
 
     env = os.environ.get('FLASK_ENV', 'development')
     app = create_app(env)
+    from migrations import assert_schema_current
+    from app import db
+    with app.app_context():
+        assert_schema_current(db.engine)
     port = app.config['PORT']
     print("============================================================")
     print(f"  {app.config['TOURNAMENT_NAME']} 比赛管理系统")
@@ -129,3 +133,4 @@ if __name__ == '__main__':
     print(f"  默认管理员: {app.config['ADMIN_USERNAME']}")
     print("============================================================")
     app.run(host='0.0.0.0', port=port, debug=(env == 'development'))
+

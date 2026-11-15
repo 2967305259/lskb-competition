@@ -1,138 +1,133 @@
-"""积分/倍率业务规则
-
-纯计算函数不依赖模型；涉及查询的函数在函数体内通过 _app_ns 延迟取 app 的
-模型，避免与 app.py 形成循环导入（模型仍定义在 app.py 中）。
-"""
-
+"""Season-scoped scoring. Services never commit; callers own business + audit transactions."""
 import sys
+from decimal import Decimal
 
 
 def _app_ns(*names):
-    """延迟从 app 模块取依赖
-
-    兼容两种启动方式：
-    - `from app import ...`（run.py / gunicorn）：sys.modules 中存在 'app'
-    - `python app.py` 直跑：app.py 以 __main__ 身份执行，此时必须取 __main__，
-      否则 import 'app' 会把 app.py 再执行一遍（产生第二个 db 实例）
-    """
     mod = sys.modules.get('app') or sys.modules['__main__']
     return [getattr(mod, name) for name in names]
 
 
 def calculate_multiplier(difficulty, difficulty_min, difficulty_step):
-    """难度倍率 = 1 + (难度 - 最低难度) × 难度阶级"""
     if difficulty is None:
-        return 1.0
-    return 1.0 + (difficulty - difficulty_min) * difficulty_step
+        return Decimal('1.0000')
+    return (Decimal(1) + (Decimal(difficulty) - Decimal(difficulty_min)) * Decimal(str(difficulty_step))).quantize(Decimal('.0001'))
 
 
 def calculate_final_score(raw_score, multiplier):
-    """最终积分 = 原始成绩 × 难度倍率"""
-    return int((raw_score or 0) * multiplier)
+    if raw_score is None:
+        raise ValueError('未提交成绩不能作为 0 分结算')
+    return int(Decimal(raw_score) * Decimal(str(multiplier)))
 
 
 def get_team_points(team_id):
-    """获取队伍积分（优先使用存储值，回退到队员积分之和）"""
     Team, TeamMember = _app_ns('Team', 'TeamMember')
     team = Team.query.get(team_id)
-    if team and team.team_score is not None and team.team_score > 0:
+    if team is not None and team.team_score is not None:
         return team.team_score, 0, 0
-    # 回退：队员 final_score 之和
-    members = TeamMember.query.filter_by(team_id=team_id).all()
-    points = sum(m.final_score or 0 for m in members)
-    return points, 0, 0
+    return sum(m.final_score or 0 for m in TeamMember.query.filter_by(team_id=team_id)), 0, 0
 
 
 def get_team_rankings(tournament_id=None):
-    """获取队伍排名列表；tournament_id 为空时取当前赛事"""
-    Team, Tournament = _app_ns('Team', 'Tournament')
+    from season_safety import active_season
+    Team, = _app_ns('Team')
     if tournament_id is None:
-        tournament = Tournament.get_active()
-        tournament_id = tournament.id if tournament else None
-    query = Team.query
-    if tournament_id:
-        query = query.filter_by(tournament_id=tournament_id)
-    teams = query.all()
-    rankings = []
+        season = active_season(required=False)
+        if season is None:
+            return []
+        tournament_id = season.id
+    rows = [{'team': team, 'points': get_team_points(team.id)[0], 'special': 0, 'minor': 0}
+            for team in Team.query.filter_by(tournament_id=tournament_id).all()]
+    rows.sort(key=lambda row: (-row['points'], row['team'].id))
+    last_points, rank = None, 0
+    for index, row in enumerate(rows, 1):
+        if row['points'] != last_points:
+            rank = index
+            last_points = row['points']
+        row['rank'] = rank
+    return rows
+
+
+def recalculate_all_scores(tournament_id=None):
+    from season_safety import active_season, correction_allowed, final_score, historical_context, SeasonError, verify_match_ownership
+    from flask import has_request_context
+    from flask_login import current_user
+    db, Match, Team, TeamMember, Tournament, SystemLog = _app_ns('db', 'Match', 'Team', 'TeamMember', 'Tournament', 'SystemLog')
+    active = active_season(required=False)
+    if tournament_id is None:
+        if active is None:
+            return {'teams': 0, 'matches': 0, 'tournament_id': None}
+        tournament_id = active.id
+    season = db.session.get(Tournament, tournament_id)
+    if season is None:
+        raise SeasonError('赛季不存在', 404)
+    if (active is None or active.id != tournament_id) and not correction_allowed(tournament_id):
+        raise SeasonError('往届重算仅允许超管专项纠错', 403)
+    bonus = season.bonus_score if season.is_active else historical_context(season)['bonus_score']
+    team_ids = [t.id for t in Team.query.filter_by(tournament_id=tournament_id).all()]
+    if team_ids:
+        conflicting = Match.query.filter(
+            db.or_(Match.team_a_id.in_(team_ids), Match.team_b_id.in_(team_ids)),
+            db.or_(Match.tournament_id.is_(None), Match.tournament_id != tournament_id)).first()
+        if conflicting:
+            raise SeasonError(f'比赛 {conflicting.id} 的赛季归属与本届队伍冲突/缺失，请先人工核对；原积分未改动')
+    # Validate every input before zeroing anything. Legacy outcomes and scored children require review.
+    records = Match.query.filter_by(tournament_id=tournament_id).all()
+    for match in records:
+        if match.match_type == 'exhibition':
+            continue  # Exhibition policy remains explicitly deferred; never silently invent settlement.
+        if match.parent_id and (match.player_a_score is not None or match.player_b_score is not None or match.settlement_state == 'settled'):
+            raise SeasonError(f'分段 {match.id} 有独立成绩，需人工核对整场归并方案')
+        if match.settlement_state == 'legacy' and (match.player_a_score is not None or match.player_b_score is not None or match.status in ('finished', 'forfeit_a', 'forfeit_b')):
+            raise SeasonError(f'旧比赛 {match.id} 缺少确认的历史结算基准')
+    matches = [m for m in records if m.parent_id is None and m.match_type == 'match' and m.settlement_state == 'settled']
+    totals = {}
+    for match in matches:
+        verify_match_ownership(match)
+        if match.status not in ('finished', 'forfeit_a', 'forfeit_b'):
+            raise SeasonError(f'比赛 {match.id} 结算与结果状态冲突')
+        for side in ('a', 'b'):
+            key = (getattr(match, 'team_' + side + '_id'), getattr(match, 'player_' + side + '_id'))
+            totals[key] = totals.get(key, 0) + final_score(match, side)
+    # Exhibition policy is deferred. Preserve its old finished/forfeit contribution semantics,
+    # while requiring verified snapshots for any contribution that actually has a team member.
+    # The existing exhibition creators use null teams, and therefore contribute nothing as before.
+    for match in records:
+        if match.match_type != 'exhibition' or match.status not in ('finished', 'forfeit_a', 'forfeit_b'):
+            continue
+        for side in ('a', 'b'):
+            team_id = getattr(match, 'team_' + side + '_id')
+            player_id = getattr(match, 'player_' + side + '_id')
+            member = TeamMember.query.filter_by(team_id=team_id, user_id=player_id).first() if team_id else None
+            if member is None:
+                continue
+            team = db.session.get(Team, team_id)
+            if team.tournament_id != tournament_id:
+                raise SeasonError('已有表演赛成绩存在跨届归属冲突，须先核对')
+            raw = getattr(match, 'player_' + side + '_score')
+            if raw is not None:
+                key = (team_id, player_id)
+                totals[key] = totals.get(key, 0) + final_score(match, side)
+    members = TeamMember.query.join(Team).filter(Team.tournament_id == tournament_id).all()
+    teams = Team.query.filter_by(tournament_id=tournament_id).all()
+    rebuilt = {member.id: totals.get((member.team_id, member.user_id), 0) for member in members}
+    # Adjustment rows are independent evidence and survive every rebuild.
+    Adjustment = _app_ns('ScoreAdjustment')[0]
+    for adjustment in Adjustment.query.filter_by(tournament_id=tournament_id, revoked=False).all():
+        target = next((m for m in members if m.id == adjustment.member_id), None)
+        if target is None:
+            raise SeasonError('人工调整分缺少原成员记录')
+        rebuilt[target.id] += adjustment.delta
+    for member in members:
+        member.final_score = rebuilt[member.id]
     for team in teams:
-        points, special, minor = get_team_points(team.id)
-        rankings.append({
-            'team': team,
-            'points': points,
-            'special': special,
-            'minor': round(minor, 1)
-        })
-    # 排序：积分 > 特殊分 > 小分
-    rankings.sort(key=lambda x: (x['points'], x['special'], x['minor']), reverse=True)
-    return rankings
-
-
-def recalculate_all_scores():
-    """从零重算所有队伍和队员积分（基于所有已完成的比赛）
-
-    新积分公式（v2）：
-    1. 胜负判定只看原始成绩（由 edit_match_result / 弃权流程处理）
-    2. 最终积分 = 原始成绩 × 该选手的难度倍率
-    3. 难度倍率 = 1 + (选手难度 - 肉鸽最低难度) × 肉鸽难度阶级
-    4. 队伍积分 = 队员 final_score 之和 × 加成倍率
-    """
-    db, Match, Roguelike, Team, TeamMember, Tournament = _app_ns(
-        'db', 'Match', 'Roguelike', 'Team', 'TeamMember', 'Tournament')
-    tournament = Tournament.get_active()
-    default_bonus = tournament.bonus_score if tournament else 500
-    # 各赛季队伍按其所属赛季的加成倍数计算，避免新赛季配置改写旧赛季积分
-    bonus_by_tournament = {t.id: t.bonus_score for t in Tournament.query.all()}
-
-    # 1. 清零所有队员积分
-    all_members = TeamMember.query.all()
-    for m in all_members:
-        m.final_score = 0
-
-    # 2. 清零所有队伍积分
-    all_teams = Team.query.all()
-    for t in all_teams:
-        t.team_score = 0
-
-    # 3. 遍历所有已完成的比赛，重新计算积分
-    finished_matches = Match.query.filter(
-        Match.status.in_(['finished', 'forfeit_a', 'forfeit_b'])
-    ).all()
-
-    for match in finished_matches:
-        member_a = TeamMember.query.filter_by(
-            team_id=match.team_a_id, user_id=match.player_a_id).first()
-        member_b = TeamMember.query.filter_by(
-            team_id=match.team_b_id, user_id=match.player_b_id).first()
-
-        # 获取肉鸽配置，计算双方独立倍率
-        rl = Roguelike.query.filter_by(key=match.roguelike).first()
-
-        # A选手：最终积分 = 原始成绩 × 难度倍率
-        diff_a = match.get_player_a_difficulty()
-        mult_a = rl.get_multiplier(diff_a) if rl else 1.0
-        final_a = calculate_final_score(match.player_a_score, mult_a)
-
-        # B选手：最终积分 = 原始成绩 × 难度倍率
-        diff_b = match.get_player_b_difficulty()
-        mult_b = rl.get_multiplier(diff_b) if rl else 1.0
-        final_b = calculate_final_score(match.player_b_score, mult_b)
-
-        if member_a:
-            member_a.final_score = (member_a.final_score or 0) + final_a
-        if member_b:
-            member_b.final_score = (member_b.final_score or 0) + final_b
-
-    # 4. 重新计算所有队伍积分 = 队员 final_score 之和 × 所属赛季 bonus
-    for team in all_teams:
-        members = TeamMember.query.filter_by(team_id=team.id).all()
-        bonus = bonus_by_tournament.get(team.tournament_id)
-        if bonus is None:
-            bonus = default_bonus
-        team.team_score = sum(m.final_score or 0 for m in members) * bonus
-
-    db.session.commit()
+        team.team_score = sum(m.final_score for m in members if m.team_id == team.id) * bonus
+    result = {'tournament_id': tournament_id, 'teams': len(teams), 'matches': len(matches)}
+    db.session.add(SystemLog(user_id=current_user.id if has_request_context() and current_user.is_authenticated else None,
+                             action='recalculate_scores', detail=__import__('json').dumps(result)))
+    return result
 
 
 def _update_team_scores(match):
-    """比赛结束后重算积分（调用全量重算，避免重复累加）"""
-    recalculate_all_scores()
+    from season_safety import root_match
+    return recalculate_all_scores(root_match(match).tournament_id)

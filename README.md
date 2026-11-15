@@ -1,5 +1,10 @@
 # 冷水坑杯 #3 比赛管理系统
 
+> 工作区版本：P0 v1（2026-11-14），来源 GitHub `8238f20`。已补齐按季重算、倍率/规则快照、显式迁移、换季备份与幂等、归档写保护和超管专项纠错。范围与验证见 [P0 实施与验证](docs/P0实施与验证.md)。
+>
+> 原生运行请使用 Python 3.12，先安装依赖并执行 `python -m flask --app 'app:create_app()' prepare`，再运行 `python run.py`。导入与应用工厂不初始化数据库。生产 WSGI 入口为 `wsgi:app`，Docker 启动脚本会在创建 worker 前单进程准备数据库。
+
+
 《明日方舟》冷水坑杯 #3 赛事管理系统是一个基于 Flask + SQLite/MySQL 的 Web 应用，用于管理赛事报名、队伍创建、比赛匹配、积分计算等全流程。
 
 ## 功能概览
@@ -32,7 +37,7 @@
 - ✅ 难度倍率 = 1 + (难度 - 肉鸽最低难度) × 难度阶级
 - ✅ 每个肉鸽独立配置难度范围与倍率
 - ✅ 队伍积分 = 队员积分之和 × 加成倍率
-- ✅ 积分重置与全量重算
+- ✅ 当前赛季积分重建（往届只允许超管专项纠错）
 
 ### 肉鸽系统
 - ✅ 动态肉鸽管理（增删改查）
@@ -74,7 +79,11 @@
 ## 快速启动
 
 ```bash
-# 方式一：使用 run.py（自动安装依赖，依赖清单来自 requirements.txt）
+# 先准备：原生入口不会自动读取 .env，请先导出环境变量
+python -m pip install -r requirements.txt
+python -m flask --app 'app:create_app()' prepare
+
+# 方式一：使用 run.py（依赖清单来自 requirements.txt）
 python run.py
 
 # 方式二：手动安装依赖后启动
@@ -106,7 +115,7 @@ python app.py
 | `DEFAULT_DIFFICULTY_MIN` / `_MAX` / `_STEP` | `12` / `18` / `0.1` | 新建赛道的默认难度区间与倍率阶级 |
 | `BRAND_PRIMARY_COLOR` | `#0d6efd` | 品牌主色（导航/按钮/卡片边框跟随） |
 | `PORT` | `19198` | 监听端口 |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin123` | 初始管理员（仅首次启动创建） |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `<explicitly set>` | 初始管理员（仅首次启动创建） |
 | `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` | 空（不创建） | 初始超级管理员 |
 | `DATABASE_URL` | SQLite | 生产环境 MySQL 连接串 |
 | `SECRET_KEY` | 开发默认值 | 生产环境必须修改 |
@@ -119,11 +128,11 @@ python app.py
 
 ## 默认账号
 
-系统首次启动时自动创建：
+首次显式执行 prepare、且数据库中没有赛事时创建（已有数据不会在重启时补种）：
 
 | 用户名 | 密码 | 角色 |
 |--------|------|------|
-| `admin` | `admin123` | 管理员 |
+| `admin` | `<explicitly set>` | 管理员 |
 
 > 超级管理员需通过 `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` 环境变量创建。
 >
@@ -216,3 +225,4 @@ Copyright © 2026 冷水坑杯 #3 赛事组委会
 
 有问题或建议？请联系管理员。
 "# lskb-competition" 
+

@@ -1,0 +1,11 @@
+#!/bin/bash
+# Test harness only: execute the real MySQL tools inside the disposable test container.
+set -euo pipefail
+args=()
+while (($#)); do
+  case "$1" in
+    --host|--port) shift 2 ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+exec docker exec -i -e MYSQL_PWD "${P0_MYSQL_CONTAINER:-lskb-p0-mysql-test}" "$(basename "$0")" --host 127.0.0.1 --port 3306 "${args[@]}"

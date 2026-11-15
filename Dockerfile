@@ -3,7 +3,7 @@
 # 赛事名称/届数只用于镜像标签，运行时行为由环境变量决定
 # ============================================================
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 ARG EVENT_NAME=冷水坑杯
 ARG SEASON_NUMBER=3
@@ -22,21 +22,23 @@ WORKDIR /app
 # 安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
-    netcat-openbsd \
+    default-mysql-client \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
     && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件并安装
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN --mount=type=secret,id=pip_ca \
+    if [ -s /run/secrets/pip_ca ]; then export PIP_CERT=/run/secrets/pip_ca; fi; \
+    pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir gunicorn==21.2.0
 
 # 复制项目文件
 COPY . .
 
 # 创建必要目录
-RUN mkdir -p /app/.db /app/app/static/uploads/avatars /app/app/static/uploads/teams
+RUN mkdir -p /app/.db /app/.runtime /app/backups /app/image /app/app/static/uploads/avatars /app/app/static/uploads/teams /app/app/static/uploads/screenshots
 
 # 暴露端口
 EXPOSE 19198

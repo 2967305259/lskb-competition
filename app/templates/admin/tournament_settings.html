@@ -111,7 +111,7 @@
             </div>
             <div class="card-body">
                 <p class="text-muted mb-3">
-                    上届赛事及其比赛、队伍记录会归档保留，不会删除任何数据；账号全部保留，参赛进度归零并需重新组队。
+                    上届赛事及其比赛、队伍记录会归档保留，比赛与队伍保留；上届待处理邀请/申请会清理。账号全部保留，参赛进度归零并需重新组队。
                     同一队长、同一队名可在新赛季重复使用。
                 </p>
                 <p class="mb-3">
@@ -125,6 +125,8 @@
                     <div class="row g-2 align-items-end">
                         <div class="col-md-8">
                             <label class="form-label">新赛季名称</label>
+                            <input type="hidden" name="idempotency_key" value="{{ transition.token if transition else '' }}">
+                            <input type="hidden" name="expected_current_season_id" value="{{ transition.expected if transition else '' }}">
                             <input type="text" name="season_name" class="form-control"
                                    placeholder="留空则自动生成（当前赛事名 + 新届数）">
                         </div>
@@ -134,6 +136,15 @@
                             </button>
                         </div>
                     </div>
+                    {% if transition and transition.unfinished %}
+                    <div class="alert alert-warning mt-3">
+                        <strong>未结算整场：</strong>{% for m in transition.unfinished %} #{{ m.id }}（{{ m.status }}）{% endfor %}
+                        <p>普通换季会被阻止。强制换季将保留现有成绩和状态，并冻结这些场次的普通提交。</p>
+                        <label><input type="checkbox" name="force" value="1"> 强制换季</label>
+                        <label class="d-block">强制原因<textarea name="force_reason" class="form-control"></textarea></label>
+                    </div>
+                    {% endif %}
+                    <p class="text-muted mt-3">切换前会备份数据库和素材；备份失败时不会切换。用户保留，队伍需重建。</p>
                 </form>
             </div>
         </div>

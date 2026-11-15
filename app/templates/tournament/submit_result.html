@@ -25,25 +25,20 @@
                     <div class="mb-4">
                         <label class="form-label"><i class="fas fa-fire"></i> 难度选择</label>
                         <select class="form-select" name="difficulty" required>
-                            {% set rl = get_roguelike_by_key(match.roguelike) %}
-                            {% if rl %}
-                                {% for d in range(rl.difficulty_min, rl.difficulty_max + 1) %}
-                                    {% set mult = rl.get_multiplier(d) %}
-                                    <option value="{{ d }}" {{ 'selected' if match.difficulty == d else '' }}>
-                                        {{ d }} 难 (×{{ "%.2f"|format(mult) }})
-                                    </option>
-                                {% endfor %}
+                            {% if historical_rule %}
+                            {% for d in range(historical_rule.minimum, historical_rule.maximum + 1) %}
+                            <option value="{{ d }}">{{ d }} 难（使用该整场保存的难度规则）</option>
+                            {% endfor %}
                             {% else %}
-                                {% for d in range(12, 19) %}
-                                    <option value="{{ d }}" {{ 'selected' if match.difficulty == d else '' }}>{{ d }} 难</option>
-                                {% endfor %}
+                            {% set rl = get_roguelike_by_key(match.roguelike) %}
+                            {% if rl %}{% for d in range(rl.difficulty_min, rl.difficulty_max + 1) %}<option value="{{ d }}">{{ d }} 难</option>{% endfor %}{% endif %}
                             {% endif %}
                         </select>
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label"><i class="fas fa-star"></i> 比赛分数（可选）</label>
-                        <input type="number" class="form-control" name="score" placeholder="如：3200" min="0">
+                        <label class="form-label"><i class="fas fa-star"></i> 整场原始成绩（0 分有效）</label>
+                        <input type="number" class="form-control" name="score" placeholder="如：3200" required>
                     </div>
 
                     <div class="mb-4">
@@ -63,3 +58,4 @@
     </div>
 </div>
 {% endblock %}
+

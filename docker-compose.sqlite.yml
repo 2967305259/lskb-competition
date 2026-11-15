@@ -1,0 +1,33 @@
+# Standalone SQLite deployment: docker compose -f docker-compose.sqlite.yml up --build
+services:
+  app:
+    build: .
+    image: ${IMAGE:-lskb-p0}:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-19198}:${PORT:-19198}"
+    environment:
+      FLASK_ENV: production
+      APP_VERSION: p0-v1
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY explicitly}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD explicitly}
+      SUPER_ADMIN_USERNAME: ${SUPER_ADMIN_USERNAME:-}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-}
+      DATABASE_URL: sqlite:////app/.db/lskb.db
+      PORT: ${PORT:-19198}
+      EVENT_NAME: ${EVENT_NAME:-冷水坑杯}
+      SEASON_NUMBER: ${SEASON_NUMBER:-3}
+      STATE_DIR: /app/.runtime
+      BACKUP_DIR: /app/backups
+    volumes:
+      - sqlite_data:/app/.db
+      - uploads:/app/app/static/uploads
+      - backups:/app/backups
+      - state:/app/.runtime
+      - ./image:/app/image:ro
+volumes:
+  sqlite_data:
+  uploads:
+  backups:
+  state:

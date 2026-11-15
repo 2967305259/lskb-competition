@@ -59,3 +59,8 @@ Thumbs.db
 
 # 前端源码（已编译到 static）
 frontend/
+
+# P0 runtime and complete backups must never be embedded in an image
+.runtime/
+backups/
+app/static/uploads/screenshots/

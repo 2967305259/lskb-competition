@@ -4,6 +4,12 @@
 {% block title %}比赛详情{% endblock %}
 
 {% block content %}
+<div class="alert alert-info">整场 #{{ match.id }} · {{ '已确认结算' if match.settlement_state == 'settled' else '待结算' }}；日程分段不独立记分。</div>
+{% if match.forfeit_side and match.settlement_state != 'settled' and is_participant %}
+{% set my_score = match.player_a_score if current_user.id == match.player_a_id else match.player_b_score %}
+{% if my_score is none %}<a class="btn btn-success" href="{{ url_for('tournament.submit_result', match_id=match.id) }}">补交整场成绩</a>{% endif %}
+{% endif %}
+
 <div class="row mb-4">
     <div class="col-12">
         <a href="{{ url_for('tournament.my_matches') }}" class="btn btn-light rounded-pill mb-3">
@@ -54,10 +60,10 @@
                         <p><strong>难度：</strong>
                             {% set rl = get_roguelike_by_key(match.roguelike) %}
                             <span class="badge bg-info">{{ match.get_player_a_difficulty() }}难</span>
-                            {% if rl %}(×{{ "%.2f"|format(rl.get_multiplier(match.get_player_a_difficulty())) }}){% endif %}
+                            {% if match.player_a_multiplier is not none %}(×{{ match.player_a_multiplier }}){% endif %}
                             <small class="text-muted"> / </small>
                             <span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span>
-                            {% if rl %}(×{{ "%.2f"|format(rl.get_multiplier(match.get_player_b_difficulty())) }}){% endif %}
+                            {% if match.player_b_multiplier is not none %}(×{{ match.player_b_multiplier }}){% endif %}
                         </p>
                     </div>
                     <div class="col-md-3">
@@ -71,7 +77,7 @@
                     <div class="col-md-6">
                         <p><strong>🏆 {{ match.player_a.nickname }} 分数：</strong>
                             {% if match.player_a_score is not none %}
-                                <span class="badge bg-warning" style="font-size: 1rem;">{{ match.player_a_score }}</span>
+                                <span class="badge bg-warning" style="font-size: 1rem;">{{ match.player_a_score }}</span>{% if match.player_a_multiplier is not none %}<small class="d-block">换算积分：{{ (match.player_a_score * match.player_a_multiplier)|int }}{{ '（待结算）' if match.settlement_state != 'settled' else '' }}</small>{% endif %}
                             {% else %}
                                 <span class="text-muted">未提交</span>
                             {% endif %}
@@ -80,7 +86,7 @@
                     <div class="col-md-6">
                         <p><strong>🏆 {{ match.player_b.nickname }} 分数：</strong>
                             {% if match.player_b_score is not none %}
-                                <span class="badge bg-warning" style="font-size: 1rem;">{{ match.player_b_score }}</span>
+                                <span class="badge bg-warning" style="font-size: 1rem;">{{ match.player_b_score }}</span>{% if match.player_b_multiplier is not none %}<small class="d-block">换算积分：{{ (match.player_b_score * match.player_b_multiplier)|int }}{{ '（待结算）' if match.settlement_state != 'settled' else '' }}</small>{% endif %}
                             {% else %}
                                 <span class="text-muted">未提交</span>
                             {% endif %}
