@@ -6,7 +6,7 @@
 {% if read_only %}
 <div class="alert alert-warning">往届或归属待核对数据 · 只读</div>
 <h2>{{ team.team_name }}</h2>
-{% for member in members %}<p>{{ member.user.nickname }}：{{ member.final_score or 0 }} 分</p>{% endfor %}
+{% for member in members %}{% set breakdown = score_breakdowns[member.id] %}<p>{{ member.user.nickname }}：{{ breakdown.final_score if breakdown.final_score is not none else member.final_score or 0 }} 分</p>{% endfor %}
 {% if current_user.is_super_admin() and team.tournament_id %}<a href="{{ url_for('p0_correct_history', tid=team.tournament_id) }}">往届专项纠错</a>{% endif %}
 {% else %}
 
@@ -65,7 +65,8 @@
             {{ member.user.nickname }}
             {% if member.user_id == team.captain_id %}<span class="badge bg-primary ms-1">队长</span>{% endif %}
         </h5>
-        <span class="badge bg-warning fs-6">{{ member.final_score or 0 }} 分</span>
+        {% set breakdown = score_breakdowns[member.id] %}
+        <span class="badge bg-warning fs-6">最终 {{ breakdown.final_score if breakdown.final_score is not none else member.final_score or 0 }} 分</span>
     </div>
     <div class="card-body">
         <form method="POST" action="{{ url_for('admin.update_member_info', team_id=team.id, member_id=member.id) }}" enctype="multipart/form-data">
@@ -108,13 +109,25 @@
             </div>
             <hr>
             <div class="row align-items-end g-3">
-                <!-- 结算分 -->
+                <!-- 可重建积分账本 -->
+                <div class="col-md-5">
+                    <label class="form-label small">积分账本</label>
+                    <div class="small text-muted">
+                        {% if breakdown.match_score is not none %}
+                        比赛累计：<strong>{{ breakdown.match_score }}</strong> ·
+                        有效调整：<strong>{{ breakdown.adjustment_score }}</strong> ·
+                        最终：<strong>{{ breakdown.final_score }}</strong>
+                        {% else %}历史资料待核对，暂不能重建{% endif %}
+                    </div>
+                </div>
+                <!-- 目标总分 -->
                 <div class="col-md-3">
                     <label class="form-label small">
-                        <strong style="color:#e74c3c;">结算分</strong>
-                        <span class="text-muted">(最高优先级)</span>
+                        <strong style="color:#e74c3c;">目标总分</strong>
+                        <span class="text-muted">（保存为调整记录）</span>
                     </label>
-                    <label>调整原因（修改积分时必填）<input name="reason" class="form-control"></label><input type="number" name="final_score" class="form-control form-control-sm" value="{{ member.final_score or 0 }}" min="0">
+                    <input type="number" name="final_score" class="form-control form-control-sm" value="{{ breakdown.final_score if breakdown.final_score is not none else member.final_score or 0 }}">
+                    <input name="reason" class="form-control form-control-sm mt-1" placeholder="调整原因（必填）">
                 </div>
                 <div class="col-md-9 text-end">
                     <button type="submit" class="btn btn-primary">
@@ -141,7 +154,7 @@
     </div>
 </div>
 <section class="card p-3"><h3>人工调整记录</h3>
-{% for adjustment in adjustments %}<p>#{{ adjustment.id }}：{{ adjustment.delta }} 分 · {{ adjustment.reason }} · {{ '已撤销' if adjustment.revoked else '有效' }}</p>
+{% for adjustment in adjustments %}<p>#{{ adjustment.id }}：{{ '%+d'|format(adjustment.delta) }} 分 · {{ adjustment.reason }} · 操作人 {{ adjustment.actor_id }} · {{ '已撤销：' ~ adjustment.revoke_reason if adjustment.revoked else '有效' }}</p>
 {% if not adjustment.revoked %}<form method="POST" action="{{ url_for('p0_revoke_adjustment', adjustment_id=adjustment.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input name="reason" required placeholder="撤销原因"><button class="btn btn-outline-warning">撤销调整</button></form>{% endif %}
 {% else %}<p>暂无调整</p>{% endfor %}</section>
 {% endif %}
