@@ -34,7 +34,8 @@ from openpyxl import Workbook
 
 # 业务规则模块（积分/倍率、自动匹配）；模块内部延迟导入本文件的模型，无循环依赖
 from scoring import (calculate_multiplier, get_team_points, get_team_rankings,
-                     recalculate_all_scores, _update_team_scores)
+                     recalculate_all_scores, _update_team_scores, get_player_stats)
+from formal_match import formal_query, outcome_for_player
 from matching import _auto_match
 from season_safety import transition_preview
 
@@ -428,8 +429,8 @@ def active_team_query():
 
 
 def active_match_query(*criteria):
-    """当前赛事的父比赛查询；无活跃赛事时返回全部（兼容空库）"""
-    query = Match.query.filter(Match.parent_id.is_(None))
+    """当前赛事的一条正式整场一行；日程分段和表演赛不计入场次。"""
+    query = formal_query(Match, db)
     tournament = Tournament.get_active()
     if tournament:
         query = query.filter(Match.tournament_id == tournament.id)
@@ -1156,7 +1157,7 @@ def index():
     total_members = TeamMember.query.join(Team).filter(
         Team.tournament_id == tournament.id).count() if tournament else TeamMember.query.count()
     total_matches = active_match_query().count()
-    finished_matches = active_match_query(Match.status == 'finished').count()
+    finished_matches = active_match_query(Match.settlement_state == 'settled').count()
     page = request.args.get('page', 1, type=int)
     latest_teams = team_query.order_by(Team.created_at.desc()).paginate(
         page=page, per_page=10)
@@ -1221,13 +1222,14 @@ def history():
     items = []
     for t in seasons:
         rankings = get_team_rankings(t.id)
+        champions = [row for row in rankings if row['rank'] == 1]
         items.append({
             'tournament': t,
             'team_count': Team.query.filter_by(tournament_id=t.id).count(),
-            'match_count': Match.query.filter_by(tournament_id=t.id, parent_id=None).count(),
-            'finished_count': Match.query.filter_by(
-                tournament_id=t.id, parent_id=None, status='finished').count(),
-            'champion': rankings[0] if rankings else None,
+            'match_count': formal_query(Match, db, t.id).count(),
+            'finished_count': formal_query(Match, db, t.id).filter(Match.settlement_state == 'settled').count(),
+            'champions': champions,
+            'champion': champions[0] if champions else None,
         })
     return render_template('history/index.html', seasons=items)
 
@@ -1240,10 +1242,11 @@ def history_detail(tournament_id):
         # 当前赛季的数据走赛事大厅/排行榜，避免出现两个入口
         return redirect(url_for('tournament.hall'))
     rankings = get_team_rankings(tournament.id)
+    podiums = {rank: [row for row in rankings if row['rank'] == rank] for rank in (1, 2, 3)}
     members = TeamMember.query.join(Team).filter(
         Team.tournament_id == tournament.id).order_by(
         TeamMember.final_score.desc()).all()
-    matches = Match.query.filter_by(tournament_id=tournament.id, parent_id=None).order_by(
+    matches = formal_query(Match, db, tournament.id).order_by(
         Match.created_at.desc()).all()
     return render_template('history/detail.html',
                            historical_context=getattr(g, 'historical_context', {}),
@@ -1251,9 +1254,10 @@ def history_detail(tournament_id):
                            rankings=rankings,
                            members=members,
                            matches=matches,
-                           champion=rankings[0] if len(rankings) > 0 else None,
-                           runner_up=rankings[1] if len(rankings) > 1 else None,
-                           third_place=rankings[2] if len(rankings) > 2 else None)
+                           champions=podiums[1], runner_ups=podiums[2], third_places=podiums[3],
+                           champion=podiums[1][0] if podiums[1] else None,
+                           runner_up=podiums[2][0] if podiums[2] else None,
+                           third_place=podiums[3][0] if podiums[3] else None)
 
 
 @main_bp.route('/rules')
@@ -1906,37 +1910,20 @@ def api_player_detail(user_id):
     """获取单个选手详细数据（JSON）"""
     p = User.query.get_or_404(user_id)
     tm = p.get_team_membership()
-    # 比赛记录
-    matches = Match.query.filter(
-        db.or_(Match.player_a_id == p.id, Match.player_b_id == p.id)
-    ).order_by(Match.created_at.desc()).limit(50).all()
+    scope = request.args.get('season', 'current').strip().lower()
+    if scope not in ('current', 'all'):
+        abort(400, description='season 必须是 current 或 all')
+    stats = get_player_stats(p.id, scope=scope)
     match_list = []
-    wins = 0
-    losses = 0
-    draws = 0
-    for m in matches:
-        if m.status == 'finished':
-            if m.winner_id == p.id:
-                result_text = 'win'
-                wins += 1
-            elif m.winner_id is None:
-                result_text = 'draw'
-                draws += 1
-            else:
-                result_text = 'loss'
-                losses += 1
-        else:
-            result_text = m.status
+    for m in stats.pop('matches'):
+        result_text = outcome_for_player(m, p.id) or m.status
         opponent = m.player_b if m.player_a_id == p.id else m.player_a
-        match_list.append({
-            'id': m.id,
-            'roguelike': m.roguelike,
-            'difficulty': m.difficulty,
-            'opponent': {'id': opponent.id, 'nickname': opponent.nickname} if opponent else None,
-            'result': result_text,
-            'status': m.status,
-            'created_at': m.created_at.isoformat() if m.created_at else None,
-        })
+        match_list.append({'id': m.id, 'roguelike': m.roguelike,
+                           'difficulty': m.difficulty,
+                           'opponent': {'id': opponent.id, 'nickname': opponent.nickname} if opponent else None,
+                           'result': result_text, 'status': m.status,
+                           'settlement_state': m.settlement_state,
+                           'created_at': m.created_at.isoformat() if m.created_at else None})
     return jsonify({
         'player': {
             'id': p.id,
@@ -1956,12 +1943,7 @@ def api_player_detail(user_id):
                 'final_score': tm.final_score,
             } if tm else None,
         },
-        'stats': {
-            'wins': wins,
-            'losses': losses,
-            'draws': draws,
-            'total_matches': wins + losses + draws,
-        },
+        'stats': stats,
         'recent_matches': match_list[:20],
     })
 
@@ -1975,37 +1957,20 @@ def api_player_by_name(name):
         db.or_(User.nickname == name, User.username == name)
     ).first_or_404()
     tm = p.get_team_membership()
-    # 比赛记录
-    matches = Match.query.filter(
-        db.or_(Match.player_a_id == p.id, Match.player_b_id == p.id)
-    ).order_by(Match.created_at.desc()).limit(50).all()
+    scope = request.args.get('season', 'current').strip().lower()
+    if scope not in ('current', 'all'):
+        abort(400, description='season 必须是 current 或 all')
+    stats = get_player_stats(p.id, scope=scope)
     match_list = []
-    wins = 0
-    losses = 0
-    draws = 0
-    for m in matches:
-        if m.status == 'finished':
-            if m.winner_id == p.id:
-                result_text = 'win'
-                wins += 1
-            elif m.winner_id is None:
-                result_text = 'draw'
-                draws += 1
-            else:
-                result_text = 'loss'
-                losses += 1
-        else:
-            result_text = m.status
+    for m in stats.pop('matches'):
+        result_text = outcome_for_player(m, p.id) or m.status
         opponent = m.player_b if m.player_a_id == p.id else m.player_a
-        match_list.append({
-            'id': m.id,
-            'roguelike': m.roguelike,
-            'difficulty': m.difficulty,
-            'opponent': {'id': opponent.id, 'nickname': opponent.nickname} if opponent else None,
-            'result': result_text,
-            'status': m.status,
-            'created_at': m.created_at.isoformat() if m.created_at else None,
-        })
+        match_list.append({'id': m.id, 'roguelike': m.roguelike,
+                           'difficulty': m.difficulty,
+                           'opponent': {'id': opponent.id, 'nickname': opponent.nickname} if opponent else None,
+                           'result': result_text, 'status': m.status,
+                           'settlement_state': m.settlement_state,
+                           'created_at': m.created_at.isoformat() if m.created_at else None})
     return jsonify({
         'player': {
             'id': p.id,
@@ -2025,12 +1990,7 @@ def api_player_by_name(name):
                 'final_score': tm.final_score,
             } if tm else None,
         },
-        'stats': {
-            'wins': wins,
-            'losses': losses,
-            'draws': draws,
-            'total_matches': wins + losses + draws,
-        },
+        'stats': stats,
         'recent_matches': match_list[:20],
     })
 
@@ -2449,12 +2409,12 @@ def dashboard():
     latest_teams = team_query.order_by(Team.created_at.desc()).limit(5).all()
     setting = Setting.get_instance()
     # 赛事统计
-    match_query = Match.query.filter(Match.parent_id.is_(None))
+    match_query = formal_query(Match, db)
     if tournament:
         match_query = match_query.filter(Match.tournament_id == tournament.id)
     total_matches = match_query.count()
     pending_matches = match_query.filter(Match.status == 'pending').count()
-    finished_matches = match_query.filter(Match.status == 'finished').count()
+    finished_matches = match_query.filter(Match.settlement_state == 'settled').count()
     return render_template('admin/dashboard.html',
                            total_users=total_users,
                            total_teams=total_teams,
@@ -3372,7 +3332,7 @@ def matches():
     """当前赛事比赛列表"""
     page = request.args.get('page', 1, type=int)
     status_filter = request.args.get('status', '', type=str)
-    query = Match.query
+    query = formal_query(Match, db)
     tournament = Tournament.get_active()
     if tournament:
         query = query.filter(Match.tournament_id == tournament.id)
@@ -3882,7 +3842,7 @@ def hall():
     scheduled_matches = active_match_query(Match.status == 'scheduled').count()
     confirmed_matches = active_match_query(Match.status == 'confirmed').count()
     submitted_matches = active_match_query(Match.status == 'submitted').count()
-    finished_matches = active_match_query(Match.status == 'finished').count()
+    finished_matches = active_match_query(Match.settlement_state == 'settled').count()
     rankings = get_team_rankings()
     advanced = get_advanced_teams()
     recent_matches = active_match_query().order_by(Match.created_at.desc()).limit(30).all()
@@ -3913,15 +3873,14 @@ def results():
     """赛事结果页（赛事结束后展示冠亚季军）"""
     tournament = Tournament.get_active()
     rankings = get_team_rankings()
-    champion = rankings[0] if len(rankings) > 0 else None
-    runner_up = rankings[1] if len(rankings) > 1 else None
-    third_place = rankings[2] if len(rankings) > 2 else None
+    podiums = {rank: [row for row in rankings if row['rank'] == rank] for rank in (1, 2, 3)}
     return render_template('tournament/results.html',
                            tournament=tournament,
                            tournament_status=get_tournament_status(),
-                           champion=champion,
-                           runner_up=runner_up,
-                           third_place=third_place,
+                           champions=podiums[1], runner_ups=podiums[2], third_places=podiums[3],
+                           champion=podiums[1][0] if podiums[1] else None,
+                           runner_up=podiums[2][0] if podiums[2] else None,
+                           third_place=podiums[3][0] if podiums[3] else None,
                            rankings=rankings)
 
 
@@ -3930,8 +3889,7 @@ def results():
 def my_matches():
     """我的比赛——只显示父比赛"""
     user_id = current_user.id
-    matches = Match.query.filter(
-        Match.parent_id == None,
+    matches = formal_query(Match, db).filter(
         db.or_(Match.player_a_id == user_id, Match.player_b_id == user_id)
     ).order_by(Match.created_at.desc()).all()
     return render_template('tournament/my_matches.html', matches=matches)
