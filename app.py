@@ -34,7 +34,8 @@ from openpyxl import Workbook
 
 # 业务规则模块（积分/倍率、自动匹配）；模块内部延迟导入本文件的模型，无循环依赖
 from scoring import (calculate_multiplier, get_team_points, get_team_rankings,
-                     recalculate_all_scores, _update_team_scores, get_player_stats)
+                     recalculate_all_scores, _update_team_scores, get_player_stats,
+                     create_score_adjustment, get_member_score_breakdown)
 from formal_match import formal_query, outcome_for_player
 from matching import _auto_match
 from season_safety import transition_preview
@@ -2623,7 +2624,25 @@ def teams():
 def team_detail(team_id):
     team = Team.query.get_or_404(team_id)
     members = TeamMember.query.filter_by(team_id=team.id).all()
-    return render_template('admin/team_detail.html', team=team, members=members, read_only=not in_current_season(team), adjustments=ScoreAdjustment.query.join(TeamMember, ScoreAdjustment.member_id == TeamMember.id).filter(TeamMember.team_id == team.id).all())
+    score_breakdowns = {}
+    for member in members:
+        try:
+            score_breakdowns[member.id] = get_member_score_breakdown(member.id)
+        except Exception:
+            # A legacy/orphan member remains viewable; its stored total is not
+            # silently reinterpreted as a reconstructed score.
+            score_breakdowns[member.id] = {
+                'member_id': member.id, 'tournament_id': team.tournament_id,
+                'match_score': None, 'adjustment_score': None,
+                'final_score': member.final_score,
+            }
+    adjustments = ScoreAdjustment.query.join(
+        TeamMember, ScoreAdjustment.member_id == TeamMember.id
+    ).filter(TeamMember.team_id == team.id).order_by(
+        ScoreAdjustment.created_at.desc(), ScoreAdjustment.id.desc()).all()
+    return render_template('admin/team_detail.html', team=team, members=members,
+                           read_only=not in_current_season(team), adjustments=adjustments,
+                           score_breakdowns=score_breakdowns)
 
 
 @admin_bp.route('/team/<int:team_id>/delete', methods=['POST'])
@@ -2658,14 +2677,14 @@ def update_team_scores(team_id):
     for member in TeamMember.query.filter_by(team_id=team.id).all():
         raw = request.form.get(f'score_{member.id}')
         if raw not in (None, ''):
-            try:
-                delta = int(raw) - (member.final_score or 0)
-            except ValueError:
-                raise SeasonError('积分格式无效', 400)
-            if delta:
-                db.session.add(ScoreAdjustment(tournament_id=team.tournament_id, member_id=member.id,
-                                               actor_id=current_user.id, delta=delta, reason=reason))
-                log_system_action('score_adjustment', json_dump({'member': member.id, 'delta': delta, 'reason': reason}))
+            adjustment, before, after = create_score_adjustment(
+                member.id, current_user.id, reason, target_total=raw)
+            if adjustment:
+                log_system_action('score_adjustment', json_dump({
+                    'adjustment_id': adjustment.id, 'member': member.id,
+                    'tournament': team.tournament_id, 'delta': adjustment.delta,
+                    'reason': reason, 'before': before, 'after': after,
+                }))
     db.session.flush()
     recalculate_all_scores(team.tournament_id)
     db.session.commit()
@@ -2716,23 +2735,20 @@ def update_member_info(team_id, member_id):
     if declaration:
         member.declaration = declaration
 
-    # Target total is converted into an independently auditable delta.
+    # A target total is converted into an independently auditable delta.
     manual_score = request.form.get('final_score', '').strip()
     if manual_score:
         from season_safety import SeasonError, json_dump
-        try:
-            delta = int(manual_score) - (member.final_score or 0)
-        except ValueError:
-            raise SeasonError('积分格式无效', 400)
-        if delta:
-            reason = request.form.get('reason', '').strip()
-            if not reason:
-                raise SeasonError('调整积分必须填写原因', 400)
-            db.session.add(ScoreAdjustment(tournament_id=member.team.tournament_id, member_id=member.id,
-                                          actor_id=current_user.id, delta=delta, reason=reason))
-            db.session.flush()
+        reason = request.form.get('reason', '').strip()
+        adjustment, before, after = create_score_adjustment(
+            member.id, current_user.id, reason, target_total=manual_score)
+        if adjustment:
             recalculate_all_scores(member.team.tournament_id)
-            log_system_action('score_adjustment', json_dump({'member': member.id, 'delta': delta, 'reason': reason}))
+            log_system_action('score_adjustment', json_dump({
+                'adjustment_id': adjustment.id, 'member': member.id,
+                'tournament': member.team.tournament_id, 'delta': adjustment.delta,
+                'reason': reason, 'before': before, 'after': after,
+            }))
 
     # 更新队伍宣言
     team_slogan = request.form.get('team_slogan', '').strip()
