@@ -510,14 +510,21 @@ def install_safety(app):
         if not reason:
             raise SeasonError('撤销调整必须填写原因', 400)
         if not adjustment.revoked:
+            from scoring import get_member_score_breakdown
+            before = get_member_score_breakdown(adjustment.member_id)
             adjustment.revoked = True
             adjustment.revoked_by = current_user.id
             adjustment.revoke_reason = reason
             a.db.session.flush()
             from scoring import recalculate_all_scores
             recalculate_all_scores(adjustment.tournament_id)
-            _log('revoke_adjustment', {'id': adjustment.id, 'delta': adjustment.delta,
-                                      'reason': reason, 'operator': current_user.id})
+            after = get_member_score_breakdown(adjustment.member_id)
+            _log('revoke_adjustment', {
+                'id': adjustment.id, 'delta': adjustment.delta,
+                'tournament': adjustment.tournament_id,
+                'member': adjustment.member_id, 'reason': reason,
+                'operator': current_user.id, 'before': before, 'after': after,
+            })
             a.db.session.commit()
         return jsonify({'revoked': adjustment.id})
 
@@ -567,5 +574,11 @@ def protect_audit_evidence(session, flush_context, instances):
     a = ns()
     if any(isinstance(obj, (a.ScoreLog, a.ScoreAdjustment, a.SeasonContextVersion)) for obj in session.deleted):
         raise SeasonError('成绩审计凭证不可删除')
-    if any(isinstance(obj, (a.ScoreLog, a.SeasonContextVersion)) and session.is_modified(obj) for obj in session.dirty):
-        raise SeasonError('成绩审计凭证不可改写')
+    for obj in session.dirty:
+        if isinstance(obj, a.ScoreAdjustment):
+            state = inspect(obj)
+            immutable = ('tournament_id', 'member_id', 'actor_id', 'delta', 'reason', 'created_at')
+            if any(state.attrs[name].history.has_changes() for name in immutable):
+                raise SeasonError('人工调整记录的赛季、成员、操作人、分值和原因不可改写')
+        if isinstance(obj, (a.ScoreLog, a.SeasonContextVersion)):
+            raise SeasonError('成绩审计凭证不可改写')
