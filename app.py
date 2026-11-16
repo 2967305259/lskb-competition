@@ -39,6 +39,7 @@ from scoring import (calculate_multiplier, get_team_points, get_team_rankings,
 from formal_match import formal_query, outcome_for_player
 from matching import _auto_match
 from season_safety import transition_preview
+from season_health import get_season_todos
 
 # ============================================================
 # 配置
@@ -2426,6 +2427,7 @@ def dashboard():
                            registration_open=setting.registration_open,
                            tournament_status=get_tournament_status(),
                            tournament=tournament,
+                           season_todos=get_season_todos(tournament),
                            total_matches=total_matches,
                            pending_matches=pending_matches,
                            finished_matches=finished_matches)
