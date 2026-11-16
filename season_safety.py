@@ -397,7 +397,7 @@ def _guard_request():
                          a.db.or_(a.Team.tournament_id != active_season().id, a.Team.tournament_id.is_(None))).first()
         if historical or owned:
             raise SeasonError('该账号有关联往届/待核对成员或队伍，不能删除')
-    if endpoint.startswith('admin.') and endpoint not in ('admin.new_season',):
+    if endpoint.startswith('admin.') and endpoint not in ('admin.new_season', 'admin.create_backup_batch'):
         active_season()
     if endpoint.startswith('captain.') and endpoint not in ('captain.upload_avatar',):
         team = current_user.team

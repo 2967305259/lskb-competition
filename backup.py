@@ -138,13 +138,23 @@ def create_backup(engine, config, reason='manual'):
                 for name, path in paths.items():
                     out.add(path, arcname=name)
             with engine.connect() as connection:
-                tables = inspect(connection).get_table_names()
+                inspector = inspect(connection)
+                tables = inspector.get_table_names()
                 quote = engine.dialect.identifier_preparer.quote
                 counts = {table: connection.execute(text(f'SELECT COUNT(*) FROM {quote(table)}')).scalar()
                           for table in tables}
                 schema = connection.execute(text('SELECT MAX(version) FROM schema_version')).scalar() if 'schema_version' in tables else 0
+                season_number = None
+                if 'tournaments' in tables and {'is_active', 'season_number'} <= {
+                    column['name'] for column in inspector.get_columns('tournaments')
+                }:
+                    active = connection.execute(text(
+                        'SELECT season_number FROM tournaments WHERE is_active = true LIMIT 2'
+                    )).scalars().all()
+                    if len(active) == 1:
+                        season_number = active[0]
             manifest = {'batch': batch, 'complete': True, 'created_at': datetime.now(timezone.utc).isoformat(),
-                        'timezone': 'UTC', 'reason': reason, 'database_type': dialect,
+                        'timezone': 'UTC', 'reason': reason, 'database_type': dialect, 'season_number': season_number,
                         'schema_version': schema or 0, 'code_version': config.get('APP_VERSION', 'unknown') if schema else config.get('LEGACY_APP_VERSION', 'unknown'),
                         'source_identity': hashlib.sha256(str(engine.url.set(password=None)).encode()).hexdigest(),
                         'media_roots': list(paths), 'rows': counts,
@@ -169,12 +179,15 @@ def url_database(engine):
 def verify_backup(batch):
     batch = Path(batch)
     manifest = json.loads((batch / 'manifest.json').read_text())
-    if not manifest.get('complete') or set(manifest['files']) not in (
+    files = manifest.get('files') if isinstance(manifest, dict) else None
+    if not isinstance(files, dict) or manifest.get('complete') is not True or set(files) not in (
             {'database.db', 'media.tar.gz'}, {'database.sql', 'media.tar.gz'}):
         raise RuntimeError('备份清单不完整')
-    for name, expected in manifest['files'].items():
+    for name, expected in files.items():
         path = batch / name
-        if not path.is_file() or path.stat().st_size != expected['bytes'] or digest(path) != expected['sha256']:
+        if (not isinstance(expected, dict) or type(expected.get('bytes')) is not int
+                or expected['bytes'] <= 0 or path.is_symlink() or not path.is_file()
+                or path.stat().st_size != expected['bytes'] or digest(path) != expected.get('sha256')):
             raise RuntimeError('备份校验失败: ' + name)
     return manifest
 

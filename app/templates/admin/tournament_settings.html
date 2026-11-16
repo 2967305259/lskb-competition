@@ -179,6 +179,10 @@
                     </div>
                     {% endif %}
                     <p class="text-muted mt-3">切换前会备份数据库和素材；备份失败时不会切换。用户保留，队伍需重建。</p>
+                    <p class="text-muted">
+                        最近完整备份{% if latest_backup %} {{ latest_backup.created_at }}（UTC）{% else %}暂无{% endif %}
+                        <a href="{{ url_for('admin.admin_data_tools') }}" class="ms-2">数据工具</a>
+                    </p>
                 </form>
             </div>
         </div>

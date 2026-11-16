@@ -30,7 +30,6 @@ from wtforms.validators import (DataRequired, Length, EqualTo, ValidationError,
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from sqlalchemy.dialects.mysql import LONGTEXT
-from openpyxl import Workbook
 
 # 业务规则模块（积分/倍率、自动匹配）；模块内部延迟导入本文件的模型，无循环依赖
 from scoring import (calculate_multiplier, get_team_points, get_team_rankings,
@@ -407,15 +406,16 @@ def log_system_action(action, detail=''):
     db.session.add(log)
 
 
-def get_advanced_teams():
+def get_advanced_teams(rankings=None):
     """获取晋级队伍"""
-    setting = Setting.get_instance()
-    if setting.advance_count <= 0:
+    advance_count = Setting.get_instance().advance_count or 0
+    if advance_count <= 0:
         return []
-    rankings = get_team_rankings()
-    if len(rankings) <= setting.advance_count:
+    if rankings is None:
+        rankings = get_team_rankings()
+    if len(rankings) <= advance_count:
         return rankings
-    boundary = rankings[setting.advance_count - 1]['points']
+    boundary = rankings[advance_count - 1]['points']
     return [row for row in rankings if row['points'] >= boundary]
 
 
@@ -2989,57 +2989,85 @@ def registration_control():
                            form=form, registration_open=setting.registration_open)
 
 
+@admin_bp.route('/data-tools')
+@login_required_with_role('admin')
+def admin_data_tools():
+    from data_tools import backup_inventory
+
+    batches = backup_inventory() if current_user.is_super_admin() else []
+    return render_template('admin/data_tools.html', batches=batches)
+
+
+@admin_bp.route('/data-tools/backup', methods=['POST'])
+@login_required_with_role('admin')
+def create_backup_batch():
+    from sqlite3 import Error as SQLiteError
+    from subprocess import TimeoutExpired
+
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from backup import create_backup, prune_backups
+
+    if not current_user.is_super_admin():
+        abort(403)
+    # Authentication may have opened a read transaction on the source database.
+    db.session.rollback()
+    try:
+        batch = create_backup(db.engine, current_app.config, 'manual-web')
+    except (OSError, RuntimeError, SQLiteError, SQLAlchemyError, TimeoutExpired):
+        current_app.logger.exception('后台备份失败')
+        flash('备份失败，请检查数据库与素材目录。', 'danger')
+        return redirect(url_for('admin.admin_data_tools'))
+    log_system_action('create_backup', batch.name)
+    db.session.commit()
+    try:
+        prune_backups(current_app.config)
+    except OSError:
+        current_app.logger.exception('备份已完成，旧批次清理失败')
+        flash('备份已完成，旧批次清理失败。', 'warning')
+    else:
+        flash(f'备份已完成，批次 {batch.name}。', 'success')
+    return redirect(url_for('admin.admin_data_tools'))
+
+
+@admin_bp.route('/data-tools/backup/<batch>/<path:filename>')
+@login_required_with_role('admin')
+def download_backup(batch, filename):
+    from backup import maintenance_lock
+    from data_tools import INVENTORY_ERRORS, backup_download_file
+
+    if not current_user.is_super_admin():
+        abort(403)
+    with maintenance_lock(current_app.config):
+        try:
+            path, download_name = backup_download_file(batch, filename)
+            response = send_file(path, as_attachment=True, download_name=download_name)
+        except INVENTORY_ERRORS:
+            return '备份文件不可用。', 404
+    response.cache_control.no_store = True
+    return response
+
+
 @admin_bp.route('/export')
 @login_required_with_role('admin')
 def export_excel():
-    tournament = Tournament.get_active()
-    teams = (Team.query.filter_by(tournament_id=tournament.id).all()
-             if tournament else Team.query.all())
-    team_size = get_team_size()
-    wb = Workbook()
-    ws = wb.active
-    ws.title = '报名信息'
-    headers = (['队伍名称', '队长昵称'] +
-               [f'成员{i + 1}' for i in range(team_size)] +
-               ['肉鸽选择', '参赛宣言', '个人积分'])
-    ws.append(headers)
-    for team in teams:
-        members = TeamMember.query.filter_by(team_id=team.id).all()
-        row = [team.team_name, team.captain.nickname]
-        # 队长也是队员，显示所有队员
-        for i in range(team_size):
-            row.append(members[i].user.nickname if i < len(members) else '')
-        # 肉鸽选择
-        roguelikes = []
-        for m in members:
-            if m.roguelike:
-                rl_name = get_roguelike_name(m.roguelike)
-                roguelikes.append(f'{m.user.nickname}: {rl_name}')
-        # 参赛宣言
-        declarations = [f'{m.user.nickname}: {m.declaration}' for m in members if m.declaration]
-        # 个人积分
-        scores = [f'{m.user.nickname}: {m.final_score}' for m in members]
-        row.append('\n'.join(roguelikes) if roguelikes else '')
-        row.append('\n'.join(declarations) if declarations else '')
-        row.append('\n'.join(scores) if scores else '')
-        ws.append(row)
-    for column in ws.columns:
-        max_length = 0
-        col_letter = column[0].column_letter
-        for cell in column:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except:  # noqa: E722
-                pass
-        ws.column_dimensions[col_letter].width = max_length + 2
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-    filename = f'{get_event_name()}报名信息_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
-    return send_file(output,
-                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                     as_attachment=True, download_name=filename)
+    from backup import maintenance_lock
+    from data_tools import build_season_workbook
+    from season_safety import active_season
+
+    with maintenance_lock(current_app.config):
+        tournament = active_season()
+        rankings = get_team_rankings(tournament.id)
+        workbook = build_season_workbook(tournament, rankings, get_advanced_teams(rankings))
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        filename = f'{get_event_name()}赛事数据_{datetime.now():%Y%m%d_%H%M%S}.xlsx'
+    response = send_file(output,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                         as_attachment=True, download_name=filename)
+    response.cache_control.no_store = True
+    return response
 
 
 @admin_bp.route('/registration-list')
@@ -3275,7 +3303,10 @@ def tournament_settings():
                 form.tournament_start.data = tournament.tournament_start.strftime('%Y-%m-%dT%H:%M')
             if tournament.tournament_end:
                 form.tournament_end.data = tournament.tournament_end.strftime('%Y-%m-%dT%H:%M')
+    from data_tools import backup_inventory
+    batches = backup_inventory()
     return render_template('admin/tournament_settings.html', form=form, tournament=tournament,
+                           latest_backup=batches[0] if batches else None,
                            env_team_size=current_app.config['TEAM_SIZE'],
                            transition=transition_preview(tournament))
 
