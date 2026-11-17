@@ -58,6 +58,20 @@
     {% endif %}
 {% endmacro %}
 
+{% macro player_season_switch(scope, season_id) %}
+    <nav class="nav nav-pills gap-1 mb-3" aria-label="战绩范围">
+        {% for key, label in [('current', '本届战绩'), ('all', '累计战绩')] %}
+        <a href="{{ url_for(request.endpoint, season=key) }}" class="nav-link{{ ' active' if scope == key else '' }}"
+           {% if scope == key %}aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+    </nav>
+    {% if scope == 'current' and season_id is none %}
+        <p class="text-muted">当前没有活跃赛季。</p>
+    {% elif scope == 'all' %}
+        <p class="text-muted small">累计统计覆盖已确认届次的正式比赛，往届记录只读。</p>
+    {% endif %}
+{% endmacro %}
+
 {% macro settlement_badge(match, archived=false) %}
     {% if is_settled(match) %}
         <span class="badge bg-success">已结算</span>

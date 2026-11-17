@@ -35,13 +35,13 @@ from sqlalchemy.orm import contains_eager, joinedload
 
 # 业务规则模块（积分/倍率、自动匹配）；模块内部延迟导入本文件的模型，无循环依赖
 from scoring import (calculate_multiplier, get_team_points, get_team_rankings, qualification,
-                     recalculate_all_scores, _update_team_scores, get_player_stats,
+                     recalculate_all_scores, _update_team_scores, get_player_stats, player_record_query,
                      create_score_adjustment, get_member_score_breakdown)
 from formal_match import (empty_record, formal_query, has_outcome, is_settled, outcome_for_player,
-                          player_query, summarize_formal_matches, summarize_teams)
+                          summarize_formal_matches, summarize_teams)
 from matching import _auto_match
 from season_safety import (SeasonError, match_scope_of, season_scope_of,
-                           transition_preview, use_season_read_context)
+                           transition_preview, use_season_read_context, historical_context)
 from season_health import get_season_todos
 from season_phase import (NO_TRACKS, admin_result_denial, admin_schedule_protected,
                           event_local, event_now, event_zone, format_event_time,
@@ -346,6 +346,14 @@ def get_roguelike_name(key):
         'garden': '岁的界园志异',
     }
     return fallback.get(key, key)
+
+
+def get_match_track_name(match):
+    season = match.tournament
+    if season and season.is_active is False:
+        tracks = historical_context(season).get('tracks', {}) if season.context_snapshot else {}
+        return tracks.get(match.roguelike, {}).get('name') or f'{match.roguelike}（历史名称待核对）'
+    return get_roguelike_name(match.roguelike)
 
 
 def get_roguelike_by_key(key):
@@ -1599,10 +1607,18 @@ def declaration():
     return render_template('player/declaration.html', form=form)
 
 
+def requested_record_scope():
+    scope = request.args.get('season', 'current').strip().lower()
+    if scope not in ('current', 'all'):
+        abort(400, description='season 必须是 current 或 all')
+    return scope
+
+
 @player_bp.route('/profile', methods=['GET', 'POST'])
 @login_required_with_role('player', 'captain')
 def profile():
-    team_membership = current_user.get_team_membership()
+    scope = requested_record_scope()
+    team_membership = current_user.get_team_membership() if Tournament.get_active() else None
     form = DeclarationForm()
     if form.validate_on_submit():
         if not team_membership:
@@ -1611,17 +1627,13 @@ def profile():
         team_membership.declaration = (form.declaration.data or '').strip()
         db.session.commit()
         flash('参赛宣言已更新', 'success')
-        return redirect(url_for('player.profile'))
+        return redirect(url_for('player.profile', season=scope))
     if request.method == 'GET' and team_membership:
         form.declaration.data = team_membership.declaration or ''
-    # 获取比赛历史
-    my_matches = player_query(Match, db, current_user.id).order_by(Match.created_at.desc()).limit(10).all()
-    # 获取队员积分
-    member_score = team_membership.final_score if team_membership else 0
+    stats = get_player_stats(current_user.id, scope=scope, recent_limit=10)
     return render_template('player/profile.html',
                            team_membership=team_membership,
-                           my_matches=my_matches,
-                           member_score=member_score,
+                           stats=stats,
                            form=form)
 
 
@@ -1898,95 +1910,59 @@ def api_players():
     return jsonify({'players': result, 'total': len(result)})
 
 
+def player_detail_response(player):
+    scope = requested_record_scope()
+    membership = player.get_team_membership() if Tournament.get_active() else None
+    stats = get_player_stats(player.id, scope=scope, recent_limit=20)
+    matches = []
+    for match in stats.pop('matches'):
+        opponent = match.player_b if match.player_a_id == player.id else match.player_a
+        matches.append({
+            'id': match.id, 'roguelike': match.roguelike, 'difficulty': match.difficulty,
+            'opponent': {'id': opponent.id, 'nickname': opponent.nickname} if opponent else None,
+            'result': outcome_for_player(match, player.id) or match.status,
+            'status': match.status, 'settlement_state': match.settlement_state,
+            'created_at': match.created_at.isoformat() if match.created_at else None,
+            'season_id': match.tournament_id, 'season_number': match.tournament.season_number,
+        })
+    return jsonify({
+        'player': {
+            'id': player.id,
+            'username': player.username,
+            'nickname': player.nickname,
+            'avatar': url_for('static', filename='uploads/avatars/' + player.avatar, _external=True) if player.avatar else None,
+            'role': player.role,
+            'created_at': player.created_at.isoformat() if player.created_at else None,
+            'team': {
+                'id': membership.team_id,
+                'name': membership.team.team_name,
+                'team_photo': url_for('static', filename='uploads/teams/' + membership.team.team_photo, _external=True)
+                if membership.team.team_photo else None,
+                'roguelike': membership.roguelike,
+                'squad': membership.squad or '',
+                'operator': membership.operator or '',
+                'declaration': membership.declaration,
+                'final_score': membership.final_score,
+            } if membership else None,
+        },
+        'stats': stats,
+        'recent_matches': matches,
+    })
+
+
 @player_bp.route('/api/players/<int:user_id>')
 @login_required
 def api_player_detail(user_id):
-    """获取单个选手详细数据（JSON）"""
-    p = User.query.get_or_404(user_id)
-    tm = p.get_team_membership()
-    scope = request.args.get('season', 'current').strip().lower()
-    if scope not in ('current', 'all'):
-        abort(400, description='season 必须是 current 或 all')
-    stats = get_player_stats(p.id, scope=scope)
-    match_list = []
-    for m in stats.pop('matches'):
-        result_text = outcome_for_player(m, p.id) or m.status
-        opponent = m.player_b if m.player_a_id == p.id else m.player_a
-        match_list.append({'id': m.id, 'roguelike': m.roguelike,
-                           'difficulty': m.difficulty,
-                           'opponent': {'id': opponent.id, 'nickname': opponent.nickname} if opponent else None,
-                           'result': result_text, 'status': m.status,
-                           'settlement_state': m.settlement_state,
-                           'created_at': m.created_at.isoformat() if m.created_at else None})
-    return jsonify({
-        'player': {
-            'id': p.id,
-            'username': p.username,
-            'nickname': p.nickname,
-            'avatar': url_for('static', filename='uploads/avatars/' + p.avatar, _external=True) if p.avatar else None,
-            'role': p.role,
-            'created_at': p.created_at.isoformat() if p.created_at else None,
-            'team': {
-                'id': tm.team_id,
-                'name': tm.team.team_name,
-                'team_photo': url_for('static', filename='uploads/teams/' + tm.team.team_photo, _external=True) if tm.team.team_photo else None,
-                'roguelike': tm.roguelike,
-                'squad': tm.squad or '',
-                'operator': tm.operator or '',
-                'declaration': tm.declaration,
-                'final_score': tm.final_score,
-            } if tm else None,
-        },
-        'stats': stats,
-        'recent_matches': match_list[:20],
-    })
+    return player_detail_response(User.query.get_or_404(user_id))
 
 
 @player_bp.route('/api/players/<name>')
 @login_required
 def api_player_by_name(name):
-    """通过昵称或用户名获取选手数据（JSON）"""
-    # 先尝试按昵称查找，再按用户名查找
-    p = User.query.filter(
-        db.or_(User.nickname == name, User.username == name)
-    ).first_or_404()
-    tm = p.get_team_membership()
-    scope = request.args.get('season', 'current').strip().lower()
-    if scope not in ('current', 'all'):
-        abort(400, description='season 必须是 current 或 all')
-    stats = get_player_stats(p.id, scope=scope)
-    match_list = []
-    for m in stats.pop('matches'):
-        result_text = outcome_for_player(m, p.id) or m.status
-        opponent = m.player_b if m.player_a_id == p.id else m.player_a
-        match_list.append({'id': m.id, 'roguelike': m.roguelike,
-                           'difficulty': m.difficulty,
-                           'opponent': {'id': opponent.id, 'nickname': opponent.nickname} if opponent else None,
-                           'result': result_text, 'status': m.status,
-                           'settlement_state': m.settlement_state,
-                           'created_at': m.created_at.isoformat() if m.created_at else None})
-    return jsonify({
-        'player': {
-            'id': p.id,
-            'username': p.username,
-            'nickname': p.nickname,
-            'avatar': url_for('static', filename='uploads/avatars/' + p.avatar, _external=True) if p.avatar else None,
-            'role': p.role,
-            'created_at': p.created_at.isoformat() if p.created_at else None,
-            'team': {
-                'id': tm.team_id,
-                'name': tm.team.team_name,
-                'team_photo': url_for('static', filename='uploads/teams/' + tm.team.team_photo, _external=True) if tm.team.team_photo else None,
-                'roguelike': tm.roguelike,
-                'squad': tm.squad or '',
-                'operator': tm.operator or '',
-                'declaration': tm.declaration,
-                'final_score': tm.final_score,
-            } if tm else None,
-        },
-        'stats': stats,
-        'recent_matches': match_list[:20],
-    })
+    player = User.query.filter_by(nickname=name).first()
+    if player is None:
+        player = User.query.filter_by(username=name).first_or_404()
+    return player_detail_response(player)
 
 
 # ============================================================
@@ -2216,21 +2192,12 @@ def team_info():
 @captain_bp.route('/profile')
 @login_required_with_role('captain')
 def profile():
-    """队长个人资料页面"""
-    team = current_user.team
-    my_membership = None
-    member_score = 0
-    if team:
-        my_membership = TeamMember.query.filter_by(
-            team_id=team.id, user_id=current_user.id).first()
-        member_score = my_membership.final_score if my_membership else 0
-    # 比赛记录
-    my_matches = player_query(Match, db, current_user.id).order_by(Match.created_at.desc()).limit(10).all()
-    return render_template('captain/profile.html',
-                           team=team,
-                           my_membership=my_membership,
-                           member_score=member_score,
-                           my_matches=my_matches)
+    scope = requested_record_scope()
+    team = current_user.team if Tournament.get_active() else None
+    membership = TeamMember.query.filter_by(team_id=team.id, user_id=current_user.id).first() if team else None
+    stats = get_player_stats(current_user.id, scope=scope, recent_limit=10)
+    return render_template('captain/profile.html', team=team, my_membership=membership,
+                           member_score=membership.final_score if membership else 0, stats=stats)
 
 
 @captain_bp.route('/upload-avatar', methods=['POST'])
@@ -3946,13 +3913,19 @@ def results():
 @tournament_bp.route('/my-matches')
 @login_required_with_role('player', 'captain')
 def my_matches():
-    """我的比赛——只显示父比赛"""
+    scope = requested_record_scope()
     user_id = current_user.id
-    matches = player_query(Match, db, user_id).order_by(Match.created_at.desc()).all()
+    query, season_id = player_record_query(user_id, scope=scope)
+    pager = query.order_by(Match.created_at.desc(), Match.id.desc()).paginate(
+        page=request.args.get('page', 1, type=int), per_page=20)
     season = Tournament.get_active()
-    return render_template('tournament/my_matches.html', matches=matches,
-                           match_actions={match.id: not player_match_denial('submit_result', match, user_id, season)
-                                          for match in matches})
+    return render_template('tournament/my_matches.html', matches=pager.items, pagination=pager,
+                           scope=scope, season_id=season_id,
+                           match_actions={
+                               match.id: not player_match_denial('submit_result', match, user_id, season)
+                               and match_scope_of(match) == 'current'
+                               for match in pager.items
+                           })
 
 
 @tournament_bp.route('/match/<int:match_id>')
@@ -4199,6 +4172,7 @@ def create_app(config_name=None, overrides=None):
 
     # 注册模板全局函数
     app.jinja_env.globals['get_roguelike_name'] = get_roguelike_name
+    app.jinja_env.globals['get_match_track_name'] = get_match_track_name
     app.jinja_env.globals['get_roguelike_by_key'] = get_roguelike_by_key
     app.jinja_env.globals['get_tournament_status'] = get_tournament_status
     app.jinja_env.filters['event_time'] = format_event_time

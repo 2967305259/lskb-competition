@@ -2,8 +2,8 @@
 import sys
 from decimal import Decimal
 
-from formal_match import (FORMAL_MATCH_TYPE, OUTCOME_STATUSES, formal_query, has_outcome,
-                          is_formal, is_settled, outcome_for_player)
+from formal_match import (FORMAL_MATCH_TYPE, OUTCOME_STATUSES, has_outcome, is_formal,
+                          is_settled, player_query, summarize_formal_matches)
 
 
 def _app_ns(*names):
@@ -62,45 +62,35 @@ def qualification(rankings, quota):
             'team_ids': {row['team'].id for row in advanced}}
 
 
-def get_player_stats(player_id, tournament_id=None, scope='current'):
-    """Return full-scope record totals and the most recent formal matches.
-
-    ``scope=current`` is the default and resolves to the unique active season.
-    ``scope=all`` intentionally removes the season filter.  Segment rows and
-    exhibition rows are never included, so a split match is counted once.
-    """
-    Match, db = _app_ns('Match', 'db')
+def player_record_query(player_id, tournament_id=None, scope='current'):
+    """Use the same season and formal-match filters for totals and lists."""
+    Match, Tournament, db = _app_ns('Match', 'Tournament', 'db')
     if scope not in ('current', 'all'):
         raise ValueError('invalid player-stat scope')
-    season_id = None
     if scope == 'current':
         from season_safety import active_season
         season = active_season(required=False)
         if season is None:
-            return {'wins': 0, 'losses': 0, 'draws': 0, 'total_matches': 0,
-                    'formal_matches': 0, 'decided_matches': 0, 'settled_matches': 0,
-                    'season_scope': 'current', 'season_id': None, 'matches': []}
-        season_id = season.id if tournament_id is None else tournament_id
-    elif tournament_id is not None:
-        season_id = tournament_id
-    query = formal_query(Match, db, season_id).filter(
-        db.or_(Match.player_a_id == player_id, Match.player_b_id == player_id))
-    all_matches = query.order_by(Match.created_at.desc()).all()
-    wins = losses = draws = 0
-    for match in all_matches:
-        result = outcome_for_player(match, player_id)
-        if result == 'win':
-            wins += 1
-        elif result == 'loss':
-            losses += 1
-        elif result == 'draw':
-            draws += 1
-    return {'wins': wins, 'losses': losses, 'draws': draws,
-            'total_matches': wins + losses + draws,
-            'formal_matches': len(all_matches), 'decided_matches': wins + losses + draws,
-            'settled_matches': sum(is_settled(match) for match in all_matches),
+            return player_query(Match, db, player_id).filter(db.false()), None
+        tournament_id = season.id if tournament_id is None else tournament_id
+    query = player_query(Match, db, player_id, tournament_id)
+    if scope == 'all':
+        query = query.join(Tournament, Match.tournament_id == Tournament.id).filter(Tournament.is_active.is_not(None))
+    return query, tournament_id
+
+
+def get_player_stats(player_id, tournament_id=None, scope='current', *, recent_limit=50):
+    """Aggregate all formal results before applying the separate recent-list limit."""
+    Match, = _app_ns('Match')
+    query, season_id = player_record_query(player_id, tournament_id, scope)
+    counts = summarize_formal_matches(query, Match, player_id=player_id)
+    matches = query.order_by(Match.created_at.desc(), Match.id.desc()).limit(recent_limit).all()
+    return {'wins': counts['wins'], 'losses': counts['losses'], 'draws': counts['draws'],
+            'total_matches': counts['decided'],
+            'formal_matches': counts['formal'], 'decided_matches': counts['decided'],
+            'settled_matches': counts['settled'],
             'season_scope': scope, 'season_id': season_id,
-            'matches': all_matches[:50]}
+            'matches': matches}
 
 
 def get_member_score_breakdown(member_id):

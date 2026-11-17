@@ -1,0 +1,55 @@
+{% from "_macros.html" import match_status_badge, player_season_switch, settlement_badge with context %}
+<div class="col-md-7 mb-4">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">比赛战绩</h5>
+        </div>
+        <div class="card-body">
+            {{ player_season_switch(stats.season_scope, stats.season_id) }}
+            <p class="mb-1">{{ stats.wins }} 胜 · {{ stats.losses }} 负 · {{ stats.draws }} 平</p>
+            <p class="text-muted small mb-3">正式整场 {{ stats.formal_matches }} · 已判胜负 {{ stats.decided_matches }} · 已结算 {{ stats.settled_matches }}</p>
+            {% if stats.matches %}
+            <div class="table-responsive">
+                <table class="table table-hover table-sm">
+                    <thead>
+                        <tr>
+                            {% if stats.season_scope == 'all' %}<th scope="col">届次</th>{% endif %}
+                            <th scope="col">{{ labels.track }}</th>
+                            <th scope="col">难度</th>
+                            <th scope="col">对手</th>
+                            <th scope="col">结果</th>
+                            <th scope="col">时间</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for match in stats.matches %}
+                        {% set opponent = match.player_b if match.player_a_id == current_user.id else match.player_a %}
+                        <tr>
+                            {% if stats.season_scope == 'all' %}
+                            <td>第 {{ match.tournament.season_number }} 届{% if not match.tournament.is_active %} · 往届{% endif %}</td>
+                            {% endif %}
+                            <td>{{ get_match_track_name(match) }}</td>
+                            <td>{{ match.get_player_a_difficulty() }} / {{ match.get_player_b_difficulty() }}</td>
+                            <td><a href="{{ url_for('tournament.match_detail', match_id=match.id) }}">{{ opponent.nickname if opponent else '—' }}</a></td>
+                            <td>
+                                {% set outcome = outcome_for_player(match, current_user.id) %}
+                                {% if outcome %}
+                                    <strong>{{ {'win': '胜', 'loss': '负', 'draw': '平'}[outcome] }}</strong>
+                                {% else %}
+                                    {{ match_status_badge(match.status) }}
+                                {% endif %}
+                                {{ settlement_badge(match, archived=not match.tournament.is_active) }}
+                            </td>
+                            <td><small>{{ match.created_at|event_time(fmt='%m/%d %H:%M') or '—' }}</small></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">该范围暂无正式比赛。</p>
+            {% endif %}
+            <a href="{{ url_for('tournament.my_matches', season=stats.season_scope) }}">查看该范围的全部比赛</a>
+        </div>
+    </div>
+</div>

@@ -40,13 +40,17 @@ def outcome_for_player(match, player_id):
     return 'win' if match.winner_id == player_id else 'loss'
 
 
-def summarize_formal_matches(query, Match):
+def summarize_formal_matches(query, Match, player_id=None):
     """Count three independent facts over a formal-match query."""
     decided = Match.status.in_(OUTCOME_STATUSES)
     settled = and_(decided, Match.settlement_state == 'settled',
                    Match.player_a_score.is_not(None), Match.player_b_score.is_not(None))
     criteria = {'decided': decided, 'settled': settled}
     criteria.update({state: Match.status == state for state in ('pending', 'scheduled', 'confirmed', 'submitted')})
+    if player_id is not None:
+        criteria.update(wins=and_(decided, Match.winner_id == player_id),
+                        losses=and_(decided, Match.winner_id != player_id),
+                        draws=and_(decided, Match.winner_id.is_(None)))
     row = query.order_by(None).with_entities(
         func.count(Match.id), *(func.count(case((test, 1))) for test in criteria.values())).one()
     return dict(zip(('formal', *criteria), row))

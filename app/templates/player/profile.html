@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_macros.html" import match_status_badge, settlement_badge %}
 
 {% block title %}个人资料{% endblock %}
 
@@ -46,7 +45,7 @@
                 <h5 class="mb-0"><i class="fas fa-quote-left"></i> 参赛宣言</h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('player.profile') }}">
+                <form method="POST" action="{{ url_for('player.profile', season=stats.season_scope) }}">
                     {{ form.hidden_tag() }}
                     <div class="mb-3">
                         {{ form.declaration.label(class="form-label") }}
@@ -83,58 +82,7 @@
         {% endif %}
     </div>
 
-    <!-- 右侧：比赛历史 -->
-    <div class="col-md-7 mb-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-history"></i> 最近正式比赛</h5>
-            </div>
-            <div class="card-body">
-                {% if my_matches %}
-                    <div class="table-responsive">
-                        <table class="table table-hover table-sm">
-                            <thead>
-                                <tr>
-                                    <th>{{ labels.track }}</th>
-                                    <th>难度</th>
-                                    <th>对手</th>
-                                    <th>结果</th>
-                                    <th>时间</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for match in my_matches %}
-                                    <tr>
-                                        <td><span class="badge bg-secondary">{{ get_roguelike_name(match.roguelike) }}</span></td>
-                                        <td><span class="badge bg-info">{{ match.get_player_a_difficulty() }}难</span>/<span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span></td>
-                                        <td>
-                                            {% if match.player_a_id == current_user.id %}
-                                                {{ match.player_b.nickname }}
-                                            {% else %}
-                                                {{ match.player_a.nickname }}
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            {% set outcome = outcome_for_player(match, current_user.id) %}
-                                            {% if outcome %}
-                                                <strong>{{ {'win': '胜', 'loss': '负', 'draw': '平'}[outcome] }}</strong>
-                                            {% else %}
-                                                {{ match_status_badge(match.status) }}
-                                            {% endif %}
-                                            {{ settlement_badge(match, archived=match.tournament_id != active_season_id) }}
-                                        </td>
-                                        <td><small>{{ match.created_at.strftime('%m/%d %H:%M') }}</small></td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <p class="text-muted text-center mb-0">暂无比赛记录</p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
+    {% include 'player/record_summary.html' %}
 </div>
 
 <div class="row">
