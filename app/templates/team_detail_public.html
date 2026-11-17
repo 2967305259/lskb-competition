@@ -1,8 +1,10 @@
 {% extends "base.html" %}
+{% from "_macros.html" import read_only_notice %}
 
 {% block title %}{{ team.team_name }} - {{ event_name }}{% endblock %}
 
 {% block content %}
+{{ read_only_notice(season_scope) }}
 <div class="row mb-4">
     <div class="col-12">
         <a href="{{ url_for('main.teams_list') }}" class="btn btn-light rounded-pill mb-3">
@@ -37,7 +39,7 @@
                 </div>
                 <div class="mb-0">
                     <strong>队伍人数</strong>
-                    <p>{{ team.get_member_count() }}/{{ team_size }} 人</p>
+                    <p>{{ team.get_member_count() }}{% if season_scope == 'current' %}/{{ team_size }}{% endif %} 人</p>
                 </div>
             </div>
         </div>

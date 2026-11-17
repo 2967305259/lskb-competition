@@ -50,6 +50,14 @@
     {% endif %}
 {% endmacro %}
 
+{% macro read_only_notice(season_scope, season=none) %}
+    {% if season_scope == 'archived' %}
+        <div class="alert alert-warning">往届数据（第 {{ season.season_number }} 届）· 只读</div>
+    {% elif season_scope == 'orphan' %}
+        <div class="alert alert-warning">赛季归属待核对 · 只读</div>
+    {% endif %}
+{% endmacro %}
+
 {% macro settlement_badge(match, archived=false) %}
     {% if is_settled(match) %}
         <span class="badge bg-success">已结算</span>

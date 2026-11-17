@@ -42,6 +42,15 @@ def active_season(required=True):
     return season
 
 
+def season_scope_of(record):
+    season = record.tournament
+    if season is None or season.is_active is None:
+        return 'orphan'
+    if not season.is_active:
+        return 'archived'
+    return 'current' if active_season().id == season.id else 'archived'
+
+
 def require_writable(tournament_id):
     season = active_season()
     if tournament_id is None or tournament_id != season.id:
@@ -79,6 +88,16 @@ def verify_match_ownership(match):
         if member is None:
             raise SeasonError('比赛选手不在该届队伍成员记录中')
     return match
+
+
+def match_scope_of(match):
+    scope = season_scope_of(match)
+    if scope != 'orphan':
+        try:
+            verify_match_ownership(match)
+        except SeasonError:
+            return 'orphan'
+    return scope
 
 
 def scoring_rule(roguelike):
@@ -177,6 +196,19 @@ def historical_context(season):
     if not season.context_snapshot:
         raise SeasonError(f'第 {season.season_number} 届历史规则尚未核对，禁止使用当前配置替代')
     return json.loads(season.context_snapshot)
+
+
+def use_season_read_context(season):
+    """Use the season snapshot or neutral labels for an unverified read."""
+    if season is not None and season.context_snapshot:
+        g.historical_context = historical_context(season)
+    else:
+        g.historical_context = {
+            'name': season.name if season is not None else '归属待核对',
+            'season_number': season.season_number if season is not None else None,
+            'labels': {'track': '赛道', 'field1': '字段一', 'field2': '字段二'},
+            'team_size': 0, 'tracks': {}, 'rules': [], 'unverified': True,
+        }
 
 
 def unfinished_matches(tid):
@@ -476,23 +508,6 @@ def _freeze_context_on_config_edit(session):
 
 def install_safety(app):
     app.before_request(_guard_request)
-
-    @app.before_request
-    def read_history_context():
-        season = None
-        if request.endpoint == 'main.history_detail':
-            season = ns().db.session.get(ns().Tournament, request.view_args['tournament_id'])
-        elif request.endpoint == 'tournament.match_detail':
-            match = ns().db.session.get(ns().Match, request.view_args['match_id'])
-            season = match.tournament if match else None
-        if season:
-            if season and not season.is_active:
-                if season.context_snapshot:
-                    g.historical_context = historical_context(season)
-                else:
-                    # Preserve access to known old results, and clearly identify missing provenance.
-                    g.historical_context = {'name': season.name, 'labels': {'track': '赛道', 'field1': '字段一', 'field2': '字段二'},
-                                            'team_size': 0, 'tracks': {}, 'rules': [], 'unverified': True}
 
     @app.errorhandler(SeasonError)
     def invalid_season(error):

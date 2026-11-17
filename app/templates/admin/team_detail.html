@@ -1,16 +1,20 @@
 {% extends "base.html" %}
+{% from "_macros.html" import read_only_notice %}
 
 {% block title %}队伍管理 - {{ team.team_name }}{% endblock %}
 
 {% block content %}
 {% if read_only %}
-<div class="alert alert-warning">往届或归属待核对数据 · 只读</div>
+{{ read_only_notice(season_scope, team.tournament) }}
 <h2>{{ team.team_name }}</h2>
 {% for member in members %}
     <p>{{ member.user.nickname }}：{{ member.final_score if member.final_score is not none else '—' }} 分
     {% if score_breakdowns[member.id].match_score is none or score_breakdowns[member.id].final_score != member.final_score %} · 待核对{% endif %}</p>
 {% endfor %}
-{% if current_user.is_super_admin() and team.tournament_id %}<a href="{{ url_for('p0_correct_history', tid=team.tournament_id) }}">往届专项纠错</a>{% endif %}
+{% if season_scope == 'archived' %}
+    <a href="{{ url_for('main.history_detail', tournament_id=team.tournament_id, _anchor='team-' ~ team.id) }}">查看该届归档</a>
+    {% if current_user.is_super_admin() %}<a class="ms-2" href="{{ url_for('p0_correct_history', tid=team.tournament_id) }}">往届专项纠错</a>{% endif %}
+{% endif %}
 {% else %}
 
 <a href="{{ url_for('admin.teams') }}" class="btn btn-light rounded-pill mb-3">

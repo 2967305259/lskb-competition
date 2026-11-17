@@ -1,19 +1,16 @@
 {% extends "base.html" %}
-{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge with context %}
+{% from '_macros.html' import match_status_badge, read_only_notice, settlement_badge with context %}
 
 {% block title %}比赛详情{% endblock %}
 
 {% block content %}
-<div class="alert alert-info">整场 #{{ match.id }} · {{ '已确认结算' if match.settlement_state == 'settled' else '待结算' }}；日程分段不独立记分。</div>
-{% if match.forfeit_side and match.settlement_state != 'settled' and is_participant %}
-{% set my_score = match.player_a_score if current_user.id == match.player_a_id else match.player_b_score %}
-{% if my_score is none %}<a class="btn btn-success" href="{{ url_for('tournament.submit_result', match_id=match.id) }}">补交整场成绩</a>{% endif %}
-{% endif %}
+{{ read_only_notice(season_scope, match.tournament) }}
+<div class="alert alert-info">整场 #{{ match.id }} · {{ settlement_badge(match, archived=season_scope == 'archived') }}</div>
 
 <div class="row mb-4">
     <div class="col-12">
-        <a href="{{ url_for('tournament.my_matches') }}" class="btn btn-light rounded-pill mb-3">
-            <i class="fas fa-arrow-left"></i> 返回我的比赛
+        <a href="{{ url_for('main.history_detail', tournament_id=match.tournament_id) if season_scope == 'archived' else url_for('tournament.my_matches') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> {{ '查看该届归档' if season_scope == 'archived' else '返回我的比赛' }}
         </a>
         <h2>
             <i class="fas fa-sword"></i> 比赛详情
@@ -131,8 +128,8 @@
             </div>
             <div class="card-body">
                 {% if is_participant %}
-                    {% if not is_current_match %}
-                        <p class="text-muted">往届或归属待核对的比赛仅供查看。</p>
+                    {% if season_scope != 'current' %}
+                        <p class="text-muted">本场比赛仅供查看。</p>
                     {% elif allowed.schedule_match and match.status == 'pending' %}
                         <div class="alert alert-light border mb-3">
                             <i class="fas fa-comments"></i> <strong>请先与对手线下商讨比赛时间</strong>，达成一致后在此确认。

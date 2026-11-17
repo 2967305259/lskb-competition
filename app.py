@@ -40,7 +40,8 @@ from scoring import (calculate_multiplier, get_team_points, get_team_rankings, q
 from formal_match import (empty_record, formal_query, has_outcome, is_settled, outcome_for_player,
                           player_query, summarize_formal_matches, summarize_teams)
 from matching import _auto_match
-from season_safety import SeasonError, transition_preview
+from season_safety import (SeasonError, match_scope_of, season_scope_of,
+                           transition_preview, use_season_read_context)
 from season_health import get_season_todos
 from season_phase import (NO_TRACKS, admin_result_denial, admin_schedule_protected,
                           event_local, event_now, event_zone, format_event_time,
@@ -1236,10 +1237,13 @@ def teams_list():
 @main_bp.route('/team/<int:team_id>')
 def team_detail(team_id):
     team = Team.query.get_or_404(team_id)
-    if team.tournament_id and not team.tournament.is_active:
+    scope = season_scope_of(team)
+    if scope == 'archived':
         return redirect(url_for('main.history_detail', tournament_id=team.tournament_id))
+    if scope == 'orphan':
+        use_season_read_context(None)
     members = TeamMember.query.filter_by(team_id=team.id).all()
-    return render_template('team_detail_public.html', team=team, members=members)
+    return render_template('team_detail_public.html', team=team, members=members, season_scope=scope)
 
 
 @main_bp.route('/history')
@@ -1268,6 +1272,9 @@ def history_detail(tournament_id):
     if tournament.is_active:
         # 当前赛季的数据走赛事大厅/排行榜，避免出现两个入口
         return redirect(url_for('tournament.hall'))
+    if tournament.is_active is None:
+        raise SeasonError('该届归档状态待核对')
+    use_season_read_context(tournament)
     rankings = get_team_rankings(tournament.id)
     podiums = {rank: [row for row in rankings if row['rank'] == rank] for rank in (1, 2, 3)}
     members = TeamMember.query.join(Team).filter(
@@ -1482,6 +1489,11 @@ def reject_invitation(invitation_id):
 @login_required_with_role('player', 'captain')
 def team_detail(team_id):
     team = Team.query.get_or_404(team_id)
+    scope = season_scope_of(team)
+    if scope == 'archived':
+        return redirect(url_for('main.history_detail', tournament_id=team.tournament_id))
+    if scope == 'orphan':
+        return redirect(url_for('main.team_detail', team_id=team.id))
     team_membership = current_user.get_team_membership()
     if not team_membership or team_membership.team_id != team_id:
         flash('您不在此队伍中', 'warning')
@@ -2334,12 +2346,15 @@ def api_teams():
 def api_team_detail(team_id):
     """获取单个队伍详细数据（JSON）"""
     t = Team.query.get_or_404(team_id)
+    scope = season_scope_of(t)
     members = TeamMember.query.filter_by(team_id=t.id).all()
     return jsonify({
         'team': {
             'id': t.id,
-            'archived': bool(t.tournament and not t.tournament.is_active),
-            'season_number': t.tournament.season_number if t.tournament else None,
+            'archived': scope == 'archived',
+            'season_scope': scope,
+            'read_only': scope != 'current',
+            'season_number': t.tournament.season_number if scope != 'orphan' else None,
             'name': t.team_name,
             'slogan': t.team_slogan,
             'team_photo': url_for('static', filename='uploads/teams/' + t.team_photo, _external=True) if t.team_photo else None,
@@ -2584,6 +2599,9 @@ def teams():
 @login_required_with_role('admin')
 def team_detail(team_id):
     team = Team.query.get_or_404(team_id)
+    scope = season_scope_of(team)
+    if scope != 'current':
+        use_season_read_context(team.tournament if scope == 'archived' else None)
     members = TeamMember.query.filter_by(team_id=team.id).all()
     score_breakdowns = {}
     for member in members:
@@ -2602,7 +2620,7 @@ def team_detail(team_id):
     ).filter(TeamMember.team_id == team.id).order_by(
         ScoreAdjustment.created_at.desc(), ScoreAdjustment.id.desc()).all()
     return render_template('admin/team_detail.html', team=team, members=members,
-                           read_only=not in_current_season(team), adjustments=adjustments,
+                           season_scope=scope, read_only=scope != 'current', adjustments=adjustments,
                            score_breakdowns=score_breakdowns)
 
 
@@ -3460,8 +3478,11 @@ def edit_match_result(match_id):
 def match_score_logs(match_id):
     """查看比赛成绩修改日志"""
     match = Match.query.get_or_404(match_id)
+    scope = match_scope_of(match)
+    if scope != 'current':
+        use_season_read_context(match.tournament if scope == 'archived' else None)
     logs = ScoreLog.query.filter_by(match_id=match_id).order_by(ScoreLog.created_at.desc()).all()
-    return render_template('admin/score_logs.html', match=match, logs=logs)
+    return render_template('admin/score_logs.html', match=match, logs=logs, season_scope=scope)
 
 
 # ============================================================
@@ -3945,21 +3966,25 @@ def match_detail(match_id):
     if not current_user.is_admin() and not is_participant:
         flash('您没有权限查看此比赛', 'danger')
         return redirect(url_for('tournament.my_matches'))
-    season = Tournament.get_active()
+    scope = match_scope_of(match)
+    if scope != 'current':
+        use_season_read_context(match.tournament if scope == 'archived' else None)
+    season = match.tournament if scope == 'current' else None
     allowed = {action: player_match_denial(action, match, current_user.id, season) is None
                for action in ('schedule_match', 'confirm_schedule', 'submit_result', 'forfeit_match', 'send_match_note')}
     return render_template('tournament/match_detail.html', match=match,
-                           is_participant=is_participant, allowed=allowed,
-                           is_current_match=season is not None and season.id == match.tournament_id)
+                           is_participant=is_participant, allowed=allowed, season_scope=scope)
 
 
 def require_player_match_action(match_id, action):
-    from season_safety import root_match, SeasonError
+    from season_safety import root_match, verify_match_ownership
 
     match = root_match(Match.query.get_or_404(match_id))
     denial = player_match_denial(action, match, current_user.id, Tournament.get_active())
     if denial:
         raise SeasonError(*denial)
+    if request.method == 'GET':
+        verify_match_ownership(match)
     return match
 
 

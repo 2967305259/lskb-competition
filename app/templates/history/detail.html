@@ -44,7 +44,7 @@
             </div>
             <div class="card-body">
                 {% for runner_up in runner_ups %}
-                <h4 class="mb-2"><a href="{{ url_for('main.team_detail', team_id=runner_up.team.id) }}" class="link-secondary">{{ runner_up.team.team_name }}</a></h4>
+                <h4 class="mb-2"><a href="#team-{{ runner_up.team.id }}" class="link-secondary">{{ runner_up.team.team_name }}</a></h4>
                 <p class="text-muted small mb-2">队长：{{ runner_up.team.captain.nickname if runner_up.team.captain else '—' }}</p>
                 <span class="badge bg-secondary">{{ runner_up.points }} 分</span>
                 {% endfor %}
@@ -64,7 +64,7 @@
                     <i class="fas fa-crown" style="font-size: 3rem; color: #ffc107;"></i>
                 </div>
                 {% for champion in champions %}
-                <h3 class="mb-2"><a href="{{ url_for('main.team_detail', team_id=champion.team.id) }}" class="link-warning">{{ champion.team.team_name }}</a></h3>
+                <h3 class="mb-2"><a href="#team-{{ champion.team.id }}" class="link-warning">{{ champion.team.team_name }}</a></h3>
                 <p class="text-muted small mb-2">队长：{{ champion.team.captain.nickname if champion.team.captain else '—' }}</p>
                 <span class="badge bg-warning text-dark" style="font-size: 1.1rem;">{{ champion.points }} 分</span>
                 {% endfor %}
@@ -81,7 +81,7 @@
             </div>
             <div class="card-body">
                 {% for third_place in third_places %}
-                <h4 class="mb-2"><a href="{{ url_for('main.team_detail', team_id=third_place.team.id) }}" class="link-danger">{{ third_place.team.team_name }}</a></h4>
+                <h4 class="mb-2"><a href="#team-{{ third_place.team.id }}" class="link-danger">{{ third_place.team.team_name }}</a></h4>
                 <p class="text-muted small mb-2">队长：{{ third_place.team.captain.nickname if third_place.team.captain else '—' }}</p>
                 <span class="badge bg-danger">{{ third_place.points }} 分</span>
                 {% endfor %}
@@ -115,7 +115,7 @@
                         </thead>
                         <tbody>
                             {% for r in rankings %}
-                            <tr>
+                            <tr id="team-{{ r.team.id }}">
                                 <td>
                                     {% if r.rank == 1 %}
                                         <span class="badge bg-warning text-dark">1</span>
@@ -128,9 +128,7 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <a href="#team-{{ r.team.id }}">
-                                        {{ r.team.team_name }}
-                                    </a>
+                                    {{ r.team.team_name }}
                                 </td>
                                 <td class="text-muted small">
                                     {{ r.team.captain.nickname if r.team.captain else '—' }}
