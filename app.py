@@ -33,12 +33,13 @@ from flask_migrate import Migrate
 from sqlalchemy.dialects.mysql import LONGTEXT
 
 # 业务规则模块（积分/倍率、自动匹配）；模块内部延迟导入本文件的模型，无循环依赖
-from scoring import (calculate_multiplier, get_team_points, get_team_rankings,
+from scoring import (calculate_multiplier, get_team_points, get_team_rankings, qualification,
                      recalculate_all_scores, _update_team_scores, get_player_stats,
                      create_score_adjustment, get_member_score_breakdown)
-from formal_match import formal_query, outcome_for_player
+from formal_match import (empty_record, formal_query, has_outcome, is_settled, outcome_for_player,
+                          player_query, summarize_formal_matches, summarize_teams)
 from matching import _auto_match
-from season_safety import transition_preview
+from season_safety import SeasonError, transition_preview
 from season_health import get_season_todos
 from season_phase import (NO_TRACKS, admin_result_denial, admin_schedule_protected,
                           event_local, event_now, event_zone, format_event_time,
@@ -408,16 +409,10 @@ def log_system_action(action, detail=''):
 
 
 def get_advanced_teams(rankings=None):
-    """获取晋级队伍"""
-    advance_count = Setting.get_instance().advance_count or 0
-    if advance_count <= 0:
-        return []
+    """返回本届晋级队伍，包括晋级线同分队伍。"""
     if rankings is None:
         rankings = get_team_rankings()
-    if len(rankings) <= advance_count:
-        return rankings
-    boundary = rankings[advance_count - 1]['points']
-    return [row for row in rankings if row['points'] >= boundary]
+    return qualification(rankings, Setting.get_instance().advance_count or 0)['rows']
 
 
 # ============================================================
@@ -1161,8 +1156,7 @@ def index():
     total_teams = team_query.count()
     total_members = TeamMember.query.join(Team).filter(
         Team.tournament_id == tournament.id).count() if tournament else TeamMember.query.count()
-    total_matches = active_match_query().count()
-    finished_matches = active_match_query(Match.settlement_state == 'settled').count()
+    match_counts = summarize_formal_matches(active_match_query(), Match)
     page = request.args.get('page', 1, type=int)
     latest_teams = team_query.order_by(Team.created_at.desc()).paginate(
         page=page, per_page=10)
@@ -1175,8 +1169,7 @@ def index():
                            tournament=tournament,
                            total_teams=total_teams,
                            total_members=total_members,
-                           total_matches=total_matches,
-                           finished_matches=finished_matches,
+                           match_counts=match_counts,
                            latest_teams=latest_teams,
                            rankings=rankings,
                            carousel_media=carousel_media)
@@ -1231,8 +1224,7 @@ def history():
         items.append({
             'tournament': t,
             'team_count': Team.query.filter_by(tournament_id=t.id).count(),
-            'match_count': formal_query(Match, db, t.id).count(),
-            'finished_count': formal_query(Match, db, t.id).filter(Match.settlement_state == 'settled').count(),
+            'match_counts': summarize_formal_matches(formal_query(Match, db, t.id), Match),
             'champions': champions,
             'champion': champions[0] if champions else None,
         })
@@ -1251,9 +1243,12 @@ def history_detail(tournament_id):
     members = TeamMember.query.join(Team).filter(
         Team.tournament_id == tournament.id).order_by(
         TeamMember.final_score.desc()).all()
-    matches = formal_query(Match, db, tournament.id).order_by(
-        Match.created_at.desc()).all()
+    match_query = formal_query(Match, db, tournament.id)
+    matches = match_query.order_by(Match.created_at.desc()).all()
+    quota = getattr(g, 'historical_context', {}).get('advance_count')
     return render_template('history/detail.html',
+                           qualification=qualification(rankings, quota),
+                           match_counts=summarize_formal_matches(match_query, Match),
                            historical_context=getattr(g, 'historical_context', {}),
                            tournament=tournament,
                            rankings=rankings,
@@ -1604,9 +1599,7 @@ def profile():
     if request.method == 'GET' and team_membership:
         form.declaration.data = team_membership.declaration or ''
     # 获取比赛历史
-    my_matches = Match.query.filter(
-        db.or_(Match.player_a_id == current_user.id, Match.player_b_id == current_user.id)
-    ).order_by(Match.created_at.desc()).limit(10).all()
+    my_matches = player_query(Match, db, current_user.id).order_by(Match.created_at.desc()).limit(10).all()
     # 获取队员积分
     member_score = team_membership.final_score if team_membership else 0
     return render_template('player/profile.html',
@@ -2252,10 +2245,7 @@ def profile():
             team_id=team.id, user_id=current_user.id).first()
         member_score = my_membership.final_score if my_membership else 0
     # 比赛记录
-    my_matches = Match.query.filter(
-        db.or_(Match.player_a_id == current_user.id,
-               Match.player_b_id == current_user.id)
-    ).order_by(Match.created_at.desc()).limit(10).all()
+    my_matches = player_query(Match, db, current_user.id).order_by(Match.created_at.desc()).limit(10).all()
     return render_template('captain/profile.html',
                            team=team,
                            my_membership=my_membership,
@@ -2420,12 +2410,7 @@ def dashboard():
         Team.tournament_id == tournament.id).count() if tournament else TeamMember.query.count()
     latest_teams = team_query.order_by(Team.created_at.desc()).limit(5).all()
     # 赛事统计
-    match_query = formal_query(Match, db)
-    if tournament:
-        match_query = match_query.filter(Match.tournament_id == tournament.id)
-    total_matches = match_query.count()
-    pending_matches = match_query.filter(Match.status == 'pending').count()
-    finished_matches = match_query.filter(Match.settlement_state == 'settled').count()
+    match_counts = summarize_formal_matches(active_match_query(), Match)
     return render_template('admin/dashboard.html',
                            total_users=total_users,
                            total_teams=total_teams,
@@ -2436,9 +2421,7 @@ def dashboard():
                            tournament_status=get_tournament_status(),
                            tournament=tournament,
                            season_todos=get_season_todos(tournament),
-                           total_matches=total_matches,
-                           pending_matches=pending_matches,
-                           finished_matches=finished_matches)
+                           match_counts=match_counts)
 
 
 @admin_bp.route('/users')
@@ -2638,7 +2621,7 @@ def team_detail(team_id):
     for member in members:
         try:
             score_breakdowns[member.id] = get_member_score_breakdown(member.id)
-        except Exception:
+        except SeasonError:
             # A legacy/orphan member remains viewable; its stored total is not
             # silently reinterpreted as a reconstructed score.
             score_breakdowns[member.id] = {
@@ -3070,7 +3053,8 @@ def export_excel():
     with maintenance_lock(current_app.config):
         tournament = active_season()
         rankings = get_team_rankings(tournament.id)
-        workbook = build_season_workbook(tournament, rankings, get_advanced_teams(rankings))
+        advancement = qualification(rankings, Setting.get_instance().advance_count or 0)
+        workbook = build_season_workbook(tournament, rankings, advancement)
         output = BytesIO()
         workbook.save(output)
         output.seek(0)
@@ -3254,17 +3238,21 @@ def score_config():
     form = ScoreConfigForm()
     if form.validate_on_submit():
         try:
-            setting.advance_count = int(form.advance_count.data)
-            if tournament:
-                tournament.bonus_score = int(form.bonus_score.data)
+            advance_count = int(form.advance_count.data)
+            bonus = int(form.bonus_score.data)
+        except ValueError:
+            flash('晋级名额和加成倍率须为整数', 'danger')
+        else:
+            setting.advance_count = advance_count
+            if tournament and tournament.bonus_score != bonus:
+                tournament.bonus_score = bonus
+                recalculate_all_scores(tournament.id)
             db.session.commit()
             flash('积分配置已更新', 'success')
-        except ValueError:
-            flash('请输入有效的数字', 'danger')
         return redirect(url_for('admin.score_config'))
     elif request.method == 'GET':
         form.bonus_score.data = str(tournament.bonus_score if tournament else 500)
-        form.advance_count.data = str(setting.advance_count if setting.advance_count else 4)
+        form.advance_count.data = str(setting.advance_count or 0)
     return render_template('admin/score_config.html', form=form, setting=setting, tournament=tournament)
 
 
@@ -3362,12 +3350,12 @@ def new_season():
 @login_required_with_role('admin')
 def advance():
     """晋级管理"""
-    setting = Setting.get_instance()
     rankings = get_team_rankings()
-    advanced = get_advanced_teams()
-    return render_template('admin/advance.html',
-                           setting=setting,
-                           rankings=rankings, advanced=advanced)
+    advancement = qualification(rankings, Setting.get_instance().advance_count or 0)
+    records = summarize_teams(active_match_query())
+    for row in rankings:
+        row['record'] = records.get(row['team'].id, empty_record())
+    return render_template('admin/advance.html', rankings=rankings, qualification=advancement)
 
 
 @admin_bp.route('/finish-tournament', methods=['POST'])
@@ -3930,30 +3918,17 @@ def schedule_confirm_match():
 @tournament_bp.route('/')
 def hall():
     """赛事大厅"""
-    setting = Setting.get_instance()
     tournament = Tournament.get_active()
-    total_matches = active_match_query().count()
-    pending_matches = active_match_query(Match.status == 'pending').count()
-    scheduled_matches = active_match_query(Match.status == 'scheduled').count()
-    confirmed_matches = active_match_query(Match.status == 'confirmed').count()
-    submitted_matches = active_match_query(Match.status == 'submitted').count()
-    finished_matches = active_match_query(Match.settlement_state == 'settled').count()
+    matches = active_match_query()
     rankings = get_team_rankings()
-    advanced = get_advanced_teams()
-    recent_matches = active_match_query().order_by(Match.created_at.desc()).limit(30).all()
+    quota = (Setting.get_instance().advance_count or 0) if tournament else 0
+    advancement = qualification(rankings, quota)
     return render_template('tournament/hall.html',
-                           setting=setting,
                            tournament=tournament,
                            tournament_status=get_tournament_status(),
-                           total_matches=total_matches,
-                           pending_matches=pending_matches,
-                           scheduled_matches=scheduled_matches,
-                           confirmed_matches=confirmed_matches,
-                           submitted_matches=submitted_matches,
-                           finished_matches=finished_matches,
-                           rankings=rankings,
-                           advanced=advanced,
-                           recent_matches=recent_matches)
+                           match_counts=summarize_formal_matches(matches, Match),
+                           rankings=rankings, qualification=advancement,
+                           recent_matches=matches.order_by(Match.created_at.desc()).limit(30).all())
 
 
 @tournament_bp.route('/rankings')
@@ -3984,10 +3959,11 @@ def results():
 def my_matches():
     """我的比赛——只显示父比赛"""
     user_id = current_user.id
-    matches = formal_query(Match, db).filter(
-        db.or_(Match.player_a_id == user_id, Match.player_b_id == user_id)
-    ).order_by(Match.created_at.desc()).all()
-    return render_template('tournament/my_matches.html', matches=matches)
+    matches = player_query(Match, db, user_id).order_by(Match.created_at.desc()).all()
+    season = Tournament.get_active()
+    return render_template('tournament/my_matches.html', matches=matches,
+                           match_actions={match.id: not player_match_denial('submit_result', match, user_id, season)
+                                          for match in matches})
 
 
 @tournament_bp.route('/match/<int:match_id>')
@@ -4234,6 +4210,9 @@ def create_app(config_name=None, overrides=None):
     app.jinja_env.globals['get_tournament_status'] = get_tournament_status
     app.jinja_env.filters['event_time'] = format_event_time
     app.jinja_env.globals['admin_result_denial'] = admin_result_denial
+    app.jinja_env.globals['has_outcome'] = has_outcome
+    app.jinja_env.globals['is_settled'] = is_settled
+    app.jinja_env.globals['outcome_for_player'] = outcome_for_player
     app.jinja_env.globals['admin_schedule_protected'] = admin_schedule_protected
     app.jinja_env.globals['get_active_roguelikes'] = get_active_roguelikes
     app.jinja_env.globals['_parse_duration'] = _parse_duration

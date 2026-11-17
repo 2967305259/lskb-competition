@@ -2,8 +2,8 @@
 import sys
 from decimal import Decimal
 
-from formal_match import (FORMAL_MATCH_TYPE, OUTCOME_STATUSES, formal_query,
-                          is_formal, outcome_for_player)
+from formal_match import (FORMAL_MATCH_TYPE, OUTCOME_STATUSES, formal_query, has_outcome,
+                          is_formal, is_settled, outcome_for_player)
 
 
 def _app_ns(*names):
@@ -51,6 +51,17 @@ def get_team_rankings(tournament_id=None):
     return rows
 
 
+def qualification(rankings, quota):
+    """Use the score at the configured boundary, including every tie."""
+    if not rankings or quota is None or quota <= 0:
+        advanced = []
+    else:
+        boundary = rankings[min(quota, len(rankings)) - 1]['points']
+        advanced = [row for row in rankings if row['points'] >= boundary]
+    return {'quota': quota, 'count': len(advanced), 'rows': advanced,
+            'team_ids': {row['team'].id for row in advanced}}
+
+
 def get_player_stats(player_id, tournament_id=None, scope='current'):
     """Return full-scope record totals and the most recent formal matches.
 
@@ -67,6 +78,7 @@ def get_player_stats(player_id, tournament_id=None, scope='current'):
         season = active_season(required=False)
         if season is None:
             return {'wins': 0, 'losses': 0, 'draws': 0, 'total_matches': 0,
+                    'formal_matches': 0, 'decided_matches': 0, 'settled_matches': 0,
                     'season_scope': 'current', 'season_id': None, 'matches': []}
         season_id = season.id if tournament_id is None else tournament_id
     elif tournament_id is not None:
@@ -85,6 +97,8 @@ def get_player_stats(player_id, tournament_id=None, scope='current'):
             draws += 1
     return {'wins': wins, 'losses': losses, 'draws': draws,
             'total_matches': wins + losses + draws,
+            'formal_matches': len(all_matches), 'decided_matches': wins + losses + draws,
+            'settled_matches': sum(is_settled(match) for match in all_matches),
             'season_scope': scope, 'season_id': season_id,
             'matches': all_matches[:50]}
 
@@ -104,9 +118,20 @@ def get_member_score_breakdown(member_id):
         raise SeasonError('成员缺少有效赛季归属，不能计算调整分', 409)
     tournament_id = member.team.tournament_id
     match_score = 0
-    matches = Match.query.filter_by(tournament_id=tournament_id).all()
+    matches = Match.query.filter_by(tournament_id=tournament_id).filter(db.or_(
+        db.and_(Match.team_a_id == member.team_id, Match.player_a_id == member.user_id),
+        db.and_(Match.team_b_id == member.team_id, Match.player_b_id == member.user_id),
+    ))
     for match in matches:
-        if is_formal(match) and match.settlement_state == 'settled' and match.status in OUTCOME_STATUSES:
+        has_score = match.player_a_score is not None or match.player_b_score is not None
+        if match.match_type != 'exhibition' and (
+            (match.parent_id and (has_score or match.settlement_state == 'settled'))
+            or (match.settlement_state == 'legacy' and (has_score or has_outcome(match)))
+        ):
+            raise SeasonError(f'比赛 {match.id} 的旧结算资料待核对')
+        if is_formal(match) and match.settlement_state == 'settled':
+            if not is_settled(match):
+                raise SeasonError(f'比赛 {match.id} 结算与成绩状态冲突')
             for side in ('a', 'b'):
                 if (getattr(match, 'team_' + side + '_id') == member.team_id and
                         getattr(match, 'player_' + side + '_id') == member.user_id):

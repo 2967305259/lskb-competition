@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge with context %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, settlement_badge, match_progress_badge with context %}
 
 {% block title %}比赛管理{% endblock %}
 
@@ -66,7 +66,7 @@
                                     <span class="text-muted">/</span>
                                     <span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span>
                                 </td>
-                                <td>{{ match_status_badge(match.status) }}<small class="d-block">{{ "已结算" if match.settlement_state == "settled" else "待结算" }}</small></td>
+                                <td>{{ match_status_badge(match.status) }}{{ settlement_badge(match, archived=match.tournament_id != active_season_id) }}</td>
                                 <td>
                                     {% if match.review_status == 'approved' %}<span class="badge bg-success">已审核</span>
                                     {% elif match.review_status == 'rejected' %}<span class="badge bg-danger">已驳回</span>

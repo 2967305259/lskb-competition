@@ -42,6 +42,26 @@
 {% endif %}
 {% endmacro %}
 
+{% macro qualification_summary(qualification) %}
+    {% if qualification.quota is none %}
+        <p class="text-muted small">该届晋级配置待核对。</p>
+    {% else %}
+        <p class="text-muted small">配置晋级名额 {{ qualification.quota }} · 实际晋级 {{ qualification.count }} 队</p>
+    {% endif %}
+{% endmacro %}
+
+{% macro settlement_badge(match, archived=false) %}
+    {% if is_settled(match) %}
+        <span class="badge bg-success">已结算</span>
+    {% elif match.settlement_state in ('legacy', 'settled') %}
+        <span class="badge bg-warning text-dark">结算待核对</span>
+    {% elif archived %}
+        <span class="badge bg-secondary">归档冻结，未结算</span>
+    {% else %}
+        <span class="badge bg-secondary">待结算</span>
+    {% endif %}
+{% endmacro %}
+
 
 {% macro render_pagination_simple(pager, endpoint, extra=None, ul_class='justify-content-center') %}
 {% if pager and pager.pages > 1 %}

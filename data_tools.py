@@ -8,7 +8,7 @@ from flask import current_app
 from openpyxl import Workbook
 
 from backup import verify_backup
-from formal_match import formal_query, has_outcome, is_settled
+from formal_match import formal_query, has_outcome, is_settled, summarize_formal_matches
 from scoring import get_member_score_breakdown
 from season_safety import SeasonError, final_score, verify_match_ownership
 
@@ -75,7 +75,7 @@ def append_text_safe(sheet, values):
             cell.data_type = 's'
 
 
-def build_season_workbook(tournament, rankings, advanced):
+def build_season_workbook(tournament, rankings, advancement):
     from app import Match, Team, TeamMember, db, get_labels, get_roguelike_name, get_team_size
 
     workbook = Workbook()
@@ -104,7 +104,8 @@ def build_season_workbook(tournament, rankings, advanced):
                         'A 原始分', 'A 难度', 'A 倍率', 'A 已结算积分',
                         'B 队伍', 'B 选手', 'B 原始分', 'B 难度', 'B 倍率', 'B 已结算积分',
                         '比赛状态', '胜负结果', '结算状态', '审核状态', '规则快照版本'])
-    for match in formal_query(Match, db, tournament.id).order_by(Match.id):
+    match_query = formal_query(Match, db, tournament.id)
+    for match in match_query.order_by(Match.id):
         verify_match_ownership(match)
         settled = is_settled(match)
         if match.settlement_state == 'settled' and not settled:
@@ -123,29 +124,40 @@ def build_season_workbook(tournament, rankings, advanced):
 
     team_sheet = workbook.create_sheet('队伍积分榜')
     team_sheet.append(['名次', '队伍', '队长', '队伍积分', '晋级'])
-    advanced_ids = {row['team'].id for row in advanced}
     for row in rankings:
         team = row['team']
         append_text_safe(team_sheet, [row['rank'], team.team_name, team.captain.nickname,
-                                      row['points'], '是' if team.id in advanced_ids else '否'])
+                                      row['points'], '是' if team.id in advancement['team_ids'] else '否'])
+    # Keep the existing five standings columns and the filter scope intact.
+    team_table = team_sheet.dimensions
+    totals = summarize_formal_matches(match_query, Match)
+    for index, (label, value) in enumerate((
+        ('配置晋级名额', advancement['quota']), ('实际晋级队伍', advancement['count']),
+        ('正式场次', totals['formal']), ('已判胜负', totals['decided']), ('已结算', totals['settled']),
+    ), start=1):
+        team_sheet.cell(index, 7, label)
+        team_sheet.cell(index, 8, value)
 
     member_sheet = workbook.create_sheet('队员积分榜')
     member_sheet.append(['队员', '队伍', '比赛累计', '有效调整', '最终积分', '对账状态'])
     members = (TeamMember.query.join(Team).filter(Team.tournament_id == tournament.id)
                .order_by(TeamMember.final_score.desc(), TeamMember.id))
     for member in members:
-        breakdown = get_member_score_breakdown(member.id)
+        try:
+            breakdown = get_member_score_breakdown(member.id)
+        except SeasonError:
+            breakdown = {'match_score': None, 'adjustment_score': None, 'final_score': None}
         stored = member.final_score
         append_text_safe(member_sheet, [
             member.user.nickname, member.team.team_name, breakdown['match_score'],
             breakdown['adjustment_score'], stored,
-            '一致' if stored == breakdown['final_score'] else '待核对',
+            '一致' if breakdown['final_score'] is not None and stored == breakdown['final_score'] else '待核对',
         ])
 
     for sheet in workbook:
         sheet.freeze_panes = 'A2'
-        sheet.auto_filter.ref = sheet.dimensions
+        sheet.auto_filter.ref = team_table if sheet is team_sheet else sheet.dimensions
         for column in sheet.columns:
-            width = max(len(str(cell.value)) for cell in column if cell.value is not None)
+            width = max((len(str(cell.value)) for cell in column if cell.value is not None), default=0)
             sheet.column_dimensions[column[0].column_letter].width = min(44, max(14, width + 4))
     return workbook

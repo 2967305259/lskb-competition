@@ -103,14 +103,14 @@
     </div>
     <div class="col-md-3 mb-3">
         <div class="stat-box">
-            <h3>{{ total_matches }}</h3>
-            <p>总比赛</p>
+            <h3>{{ match_counts.formal }}</h3>
+            <p>正式场次</p>
         </div>
     </div>
     <div class="col-md-3 mb-3">
         <div class="stat-box">
-            <h3>{{ finished_matches }}</h3>
-            <p>已完成</p>
+            <h3>{{ match_counts.settled }}</h3>
+            <p>已结算 · 已判胜负 {{ match_counts.decided }}</p>
         </div>
     </div>
 </div>
@@ -138,14 +138,14 @@
                                 {% for r in rankings %}
                                     <tr>
                                         <td>
-                                            {% if loop.index == 1 %}
+                                            {% if r.rank == 1 %}
                                                 <span class="badge bg-warning">🥇</span>
-                                            {% elif loop.index == 2 %}
+                                            {% elif r.rank == 2 %}
                                                 <span class="badge bg-secondary">🥈</span>
-                                            {% elif loop.index == 3 %}
+                                            {% elif r.rank == 3 %}
                                                 <span class="badge bg-danger">🥉</span>
                                             {% else %}
-                                                {{ loop.index }}
+                                                {{ r.rank }}
                                             {% endif %}
                                         </td>
                                         <td>

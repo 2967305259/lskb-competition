@@ -44,8 +44,11 @@ def test_export_includes_current_formal_results_adjustments_and_ties(application
     assert workbook['比赛结果']['F2'].value == 0
     assert workbook['比赛结果']['I2'].value == 0
     assert [row[3:] for row in list(workbook['队员积分榜'].values)[1:]] == [(10, 10, '一致')] * 2
-    assert [row[0] for row in list(workbook['队伍积分榜'].values)[1:]] == [1, 1]
-    assert [row[-2:] for row in list(workbook['队伍积分榜'].values)[1:]] == [(5000, '是')] * 2
+    standings = workbook['队伍积分榜']
+    rows = list(standings.iter_rows(min_row=2, max_row=3, max_col=5, values_only=True))
+    assert [row[0] for row in rows] == [1, 1]
+    assert [row[-2:] for row in rows] == [(5000, '是')] * 2
+    assert standings.auto_filter.ref == 'A1:E3'
 
     with application.app_context():
         a.Tournament.get_active().is_active = False

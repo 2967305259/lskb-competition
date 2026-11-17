@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge with context %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge, settlement_badge, qualification_summary with context %}
 
 {% block title %}赛事大厅{% endblock %}
 
@@ -50,51 +50,59 @@
 
 <!-- 比赛统计 -->
 <div class="row mb-4">
-    <div class="col-md-2 col-4 mb-3">
+    <div class="col-lg col-md-3 col-6 mb-3">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="text-primary">{{ total_matches }}</h3>
-                <small class="text-muted">总比赛</small>
+                <h3 class="text-primary">{{ match_counts.formal }}</h3>
+                <small class="text-muted">正式场次</small>
             </div>
         </div>
     </div>
-    <div class="col-md-2 col-4 mb-3">
+    <div class="col-lg col-md-3 col-6 mb-3">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="text-secondary">{{ pending_matches }}</h3>
+                <h3 class="text-secondary">{{ match_counts.pending }}</h3>
                 <small class="text-muted">待处理</small>
             </div>
         </div>
     </div>
-    <div class="col-md-2 col-4 mb-3">
+    <div class="col-lg col-md-3 col-6 mb-3">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="text-info">{{ scheduled_matches }}</h3>
+                <h3 class="text-info">{{ match_counts.decided }}</h3>
+                <small class="text-muted">已判胜负</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg col-md-3 col-6 mb-3">
+        <div class="card text-center h-100">
+            <div class="card-body">
+                <h3 class="text-info">{{ match_counts.scheduled }}</h3>
                 <small class="text-muted">待确认</small>
             </div>
         </div>
     </div>
-    <div class="col-md-2 col-4 mb-3">
+    <div class="col-lg col-md-3 col-6 mb-3">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="text-primary">{{ confirmed_matches }}</h3>
+                <h3 class="text-primary">{{ match_counts.confirmed }}</h3>
                 <small class="text-muted">已确认</small>
             </div>
         </div>
     </div>
-    <div class="col-md-2 col-4 mb-3">
+    <div class="col-lg col-md-3 col-6 mb-3">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="text-warning">{{ submitted_matches }}</h3>
+                <h3 class="text-warning">{{ match_counts.submitted }}</h3>
                 <small class="text-muted">已提交</small>
             </div>
         </div>
     </div>
-    <div class="col-md-2 col-4 mb-3">
+    <div class="col-lg col-md-3 col-6 mb-3">
         <div class="card text-center h-100">
             <div class="card-body">
-                <h3 class="text-success">{{ finished_matches }}</h3>
-                <small class="text-muted">已结束</small>
+                <h3 class="text-success">{{ match_counts.settled }}</h3>
+                <small class="text-muted">已结算</small>
             </div>
         </div>
     </div>
@@ -140,17 +148,14 @@
                                         <span class="badge bg-warning">{{ m.get_player_b_difficulty() }}难</span>
                                     </td>
                                     <td>
-                                        {% if m.status in ('finished', 'forfeit_a', 'forfeit_b') %}
-                                            {% if m.player_a_score is not none and m.player_b_score is not none %}
-                                                <strong>{{ m.player_a_score }} : {{ m.player_b_score }}</strong>
-                                            {% else %}
-                                                -
-                                            {% endif %}
+                                        {% if has_outcome(m) %}
+                                            <strong>{{ m.player_a_score if m.player_a_score is not none else '—' }} : {{ m.player_b_score if m.player_b_score is not none else '—' }}</strong>
+                                            <div class="small text-muted">{{ m.winner.nickname if m.winner else '平局' }}</div>
                                         {% else %}
                                             -
                                         {% endif %}
                                     </td>
-                                    <td>{{ match_progress_badge(m) }}</td>
+                                    <td>{{ match_progress_badge(m) }} {{ settlement_badge(m) }}</td>
                                     <td style="font-size:0.78rem;">
                                         {% set children_list = m.children|selectattr('scheduled_time')|sort(attribute='scheduled_time') %}
                                         {% if children_list %}
@@ -197,14 +202,14 @@
                                 {% for r in rankings[:10] %}
                                     <tr>
                                         <td>
-                                            {% if loop.index == 1 %}
+                                            {% if r.rank == 1 %}
                                                 <span class="badge bg-warning">🥇</span>
-                                            {% elif loop.index == 2 %}
+                                            {% elif r.rank == 2 %}
                                                 <span class="badge bg-secondary">🥈</span>
-                                            {% elif loop.index == 3 %}
+                                            {% elif r.rank == 3 %}
                                                 <span class="badge bg-danger">🥉</span>
                                             {% else %}
-                                                {{ loop.index }}
+                                                {{ r.rank }}
                                             {% endif %}
                                         </td>
                                         <td>
@@ -230,9 +235,9 @@
                 <h5 class="mb-0"><i class="fas fa-arrow-up"></i> 晋级区</h5>
             </div>
             <div class="card-body">
-                {% if setting.advance_count and setting.advance_count > 0 %}
-                    <p class="text-muted">前 {{ setting.advance_count }} 名晋级</p>
-                    {% if advanced %}
+                {{ qualification_summary(qualification) }}
+                {% if qualification.quota > 0 %}
+                    {% if qualification.rows %}
                         <div class="table-responsive">
                             <table class="table table-hover">
                                 <thead>
@@ -243,9 +248,9 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for r in advanced %}
+                                    {% for r in qualification.rows %}
                                         <tr>
-                                            <td>{{ loop.index }}</td>
+                                            <td>{{ r.rank }}</td>
                                             <td>
                                                 <a href="{{ url_for('main.team_detail', team_id=r.team.id) }}">{{ r.team.team_name }}</a>
                                             </td>

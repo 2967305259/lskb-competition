@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge with context %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge, settlement_badge with context %}
 
 {% block title %}我的比赛{% endblock %}
 
@@ -32,6 +32,7 @@
                                     <th>{{ labels.track }}主题</th>
                                     <th>难度</th>
                                     <th>状态</th>
+                                    <th>胜负</th>
                                     <th>创建时间</th>
                                     <th>操作</th>
                                 </tr>
@@ -50,13 +51,15 @@
                                         <td>
                                             <span class="badge bg-info">{{ match.get_player_a_difficulty() }}难</span>/<span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span>
                                         </td>
-                                        <td>{{ match_status_badge(match.status) }}</td>
+                                        <td>{{ match_status_badge(match.status) }} {{ settlement_badge(match, archived=match.tournament_id != active_season_id) }}</td>
+                                        {% set outcome = outcome_for_player(match, current_user.id) %}
+                                        <td>{{ {'win': '胜', 'loss': '负', 'draw': '平'}.get(outcome, '—') }}</td>
                                         <td>{{ match.created_at.strftime('%m-%d %H:%M') }}</td>
                                         <td>
                                             <a href="{{ url_for('tournament.match_detail', match_id=match.id) }}" class="btn btn-sm btn-outline-primary">
                                                 <i class="fas fa-eye"></i> 详情
                                             </a>
-                                            {% if match.status == 'confirmed' %}
+                                            {% if match_actions[match.id] %}
                                             <a href="{{ url_for('tournament.submit_result', match_id=match.id) }}" class="btn btn-sm btn-outline-success">
                                                 <i class="fas fa-upload"></i> 提交成绩
                                             </a>

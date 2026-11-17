@@ -4,6 +4,7 @@ The application stores schedule segments as child ``Match`` rows.  Only the
 root row is the formal scoring unit; children carry scheduling information and
 must never create a second result, win/loss record, or score contribution.
 """
+from sqlalchemy import and_, case, func
 
 FORMAL_MATCH_TYPE = 'match'
 OUTCOME_STATUSES = frozenset(('finished', 'forfeit_a', 'forfeit_b'))
@@ -32,11 +33,44 @@ def is_settled(match):
 
 def outcome_for_player(match, player_id):
     """Return ``win``, ``loss`` or ``draw`` for a participant, else ``None``."""
-    if not has_outcome(match):
+    if not is_formal(match) or player_id not in (match.player_a_id, match.player_b_id) or not has_outcome(match):
         return None
     if match.winner_id is None:
         return 'draw'
     return 'win' if match.winner_id == player_id else 'loss'
+
+
+def summarize_formal_matches(query, Match):
+    """Count three independent facts over a formal-match query."""
+    decided = Match.status.in_(OUTCOME_STATUSES)
+    settled = and_(decided, Match.settlement_state == 'settled',
+                   Match.player_a_score.is_not(None), Match.player_b_score.is_not(None))
+    criteria = {'decided': decided, 'settled': settled}
+    criteria.update({state: Match.status == state for state in ('pending', 'scheduled', 'confirmed', 'submitted')})
+    row = query.order_by(None).with_entities(
+        func.count(Match.id), *(func.count(case((test, 1))) for test in criteria.values())).one()
+    return dict(zip(('formal', *criteria), row))
+
+
+def summarize_teams(matches):
+    """Count each formal fixture once for each participating team."""
+    records = {}
+    for match in matches:
+        for team_id, player_id in ((match.team_a_id, match.player_a_id), (match.team_b_id, match.player_b_id)):
+            if team_id is None:
+                continue
+            counts = records.setdefault(team_id, empty_record())
+            counts['formal'] += 1
+            counts['settled'] += int(is_settled(match))
+            outcome = outcome_for_player(match, player_id)
+            if outcome:
+                counts['decided'] += 1
+                counts[outcome] += 1
+    return records
+
+
+def empty_record():
+    return dict.fromkeys(('formal', 'decided', 'settled', 'win', 'draw', 'loss'), 0)
 
 
 def formal_query(Match, db, tournament_id=None):

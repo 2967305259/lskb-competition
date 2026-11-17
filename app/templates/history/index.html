@@ -33,17 +33,21 @@
                         {{ (t.tournament_end|event_time(t.window_times_utc, '%Y-%m-%d')) if t.tournament_end else '—' }}
                     </p>
                     <div class="row text-center mb-3">
-                        <div class="col-4">
+                        <div class="col-6 col-lg-3">
                             <h4 class="mb-0">{{ item.team_count }}</h4>
                             <small class="text-muted">参赛队伍</small>
                         </div>
-                        <div class="col-4">
-                            <h4 class="mb-0">{{ item.match_count }}</h4>
-                            <small class="text-muted">比赛场次</small>
+                        <div class="col-6 col-lg-3">
+                            <h4 class="mb-0">{{ item.match_counts.formal }}</h4>
+                            <small class="text-muted">正式场次</small>
                         </div>
-                        <div class="col-4">
-                            <h4 class="mb-0">{{ item.finished_count }}</h4>
-                            <small class="text-muted">已完成</small>
+                        <div class="col-6 col-lg-3">
+                            <h4 class="mb-0">{{ item.match_counts.decided }}</h4>
+                            <small class="text-muted">已判胜负</small>
+                        </div>
+                        <div class="col-6 col-lg-3">
+                            <h4 class="mb-0">{{ item.match_counts.settled }}</h4>
+                            <small class="text-muted">已结算</small>
                         </div>
                     </div>
                     {% if item.champions %}

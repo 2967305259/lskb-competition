@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge with context %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge, qualification_summary, settlement_badge with context %}
 
 {% block title %}{{ tournament.name }} - 往届赛事{% endblock %}
 
@@ -100,6 +100,7 @@
                 <h5 class="mb-0"><i class="fas fa-list-ol"></i> 队伍积分榜</h5>
             </div>
             <div class="card-body">
+                {{ qualification_summary(qualification) }}
                 {% if rankings %}
                 <div class="table-responsive">
                     <table class="table table-hover table-sm mb-0">
@@ -109,6 +110,7 @@
                                 <th>队伍</th>
                                 <th>队长</th>
                                 <th class="text-end">积分</th>
+                                <th>晋级</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -134,6 +136,7 @@
                                     {{ r.team.captain.nickname if r.team.captain else '—' }}
                                 </td>
                                 <td class="text-end"><strong>{{ r.points }}</strong></td>
+                                <td>{{ '待核对' if qualification.quota is none else ('已晋级' if r.team.id in qualification.team_ids else '未晋级') }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -190,6 +193,7 @@
         <h5 class="mb-0"><i class="fas fa-history"></i> 比赛结果</h5>
     </div>
     <div class="card-body">
+        <p class="text-muted small">正式场次 {{ match_counts.formal }} · 已判胜负 {{ match_counts.decided }} · 已结算 {{ match_counts.settled }}</p>
         {% if matches %}
         <div class="table-responsive">
             <table class="table table-hover table-sm mb-0">
@@ -223,28 +227,14 @@
                         <td>
                             {% if m.winner %}
                                 <strong>{{ m.winner.nickname }}</strong>
-                            {% elif m.status in ['finished', 'forfeit_a', 'forfeit_b'] %}
+                            {% elif has_outcome(m) %}
                                 <span class="text-muted">平局</span>
                             {% else %}
                                 <span class="text-muted">—</span>
                             {% endif %}
                         </td>
                         <td>
-                            {% if m.status == 'finished' %}
-                                <span class="badge bg-success">已结束</span>
-                            {% elif m.status == 'forfeit_a' or m.status == 'forfeit_b' %}
-                                <span class="badge bg-warning text-dark">弃权</span>
-                            {% elif m.status == 'pending' %}
-                                <span class="badge bg-secondary">未开始</span>
-                            {% elif m.status == 'scheduled' %}
-                                <span class="badge bg-info">待确认</span>
-                            {% elif m.status == 'confirmed' %}
-                                <span class="badge bg-primary">已确认</span>
-                            {% elif m.status == 'submitted' %}
-                                <span class="badge bg-warning">已提交</span>
-                            {% else %}
-                                <span class="badge bg-secondary">{{ m.status }}</span>
-                            {% endif %}
+                            {{ match_status_badge(m.status) }} {{ settlement_badge(m, archived=true) }}
                         </td>
                     </tr>
                     {% endfor %}

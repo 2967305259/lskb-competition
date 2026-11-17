@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import qualification_summary %}
 
 {% block title %}晋级管理{% endblock %}
 
@@ -22,6 +23,7 @@
                 <h5 class="mb-0"><i class="fas fa-trophy"></i> 当前排名</h5>
             </div>
             <div class="card-body">
+                {{ qualification_summary(qualification) }}
                 {% if rankings %}
                     <div class="table-responsive">
                         <table class="table table-hover">
@@ -29,7 +31,9 @@
                                 <tr>
                                     <th>排名</th>
                                     <th>队伍</th>
-                                    <th>场次</th>
+                                    <th>正式场次</th>
+                                    <th>已判胜负</th>
+                                    <th>已结算</th>
                                     <th>胜</th>
                                     <th>平</th>
                                     <th>负</th>
@@ -39,26 +43,28 @@
                             </thead>
                             <tbody>
                                 {% for rank in rankings %}
-                                    <tr class="{% if loop.index <= setting.advance_count %}table-active{% endif %}">
+                                    <tr class="{% if rank.team.id in qualification.team_ids %}table-active{% endif %}">
                                         <td>
-                                            {% if loop.index == 1 %}
+                                            {% if rank.rank == 1 %}
                                                 <span class="badge bg-warning">🥇</span>
-                                            {% elif loop.index == 2 %}
+                                            {% elif rank.rank == 2 %}
                                                 <span class="badge bg-secondary">🥈</span>
-                                            {% elif loop.index == 3 %}
+                                            {% elif rank.rank == 3 %}
                                                 <span class="badge bg-danger">🥉</span>
                                             {% else %}
-                                                {{ loop.index }}
+                                                {{ rank.rank }}
                                             {% endif %}
                                         </td>
-                                        <td>{{ rank.team_name }}</td>
-                                        <td>{{ rank.matches_played }}</td>
-                                        <td class="text-success">{{ rank.wins }}</td>
-                                        <td class="text-info">{{ rank.draws }}</td>
-                                        <td class="text-danger">{{ rank.losses }}</td>
+                                        <td><a href="{{ url_for('admin.team_detail', team_id=rank.team.id) }}">{{ rank.team.team_name }}</a></td>
+                                        <td>{{ rank.record.formal }}</td>
+                                        <td>{{ rank.record.decided }}</td>
+                                        <td>{{ rank.record.settled }}</td>
+                                        <td class="text-success">{{ rank.record.win }}</td>
+                                        <td class="text-info">{{ rank.record.draw }}</td>
+                                        <td class="text-danger">{{ rank.record.loss }}</td>
                                         <td><strong>{{ rank.points }}</strong></td>
                                         <td>
-                                            {% if loop.index <= setting.advance_count %}
+                                            {% if rank.team.id in qualification.team_ids %}
                                                 <span class="badge bg-success"><i class="fas fa-check"></i> 已晋级</span>
                                             {% else %}
                                                 <span class="badge bg-secondary">未晋级</span>

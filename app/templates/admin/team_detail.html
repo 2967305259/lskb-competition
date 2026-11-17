@@ -6,7 +6,10 @@
 {% if read_only %}
 <div class="alert alert-warning">往届或归属待核对数据 · 只读</div>
 <h2>{{ team.team_name }}</h2>
-{% for member in members %}{% set breakdown = score_breakdowns[member.id] %}<p>{{ member.user.nickname }}：{{ breakdown.final_score if breakdown.final_score is not none else member.final_score or 0 }} 分</p>{% endfor %}
+{% for member in members %}
+    <p>{{ member.user.nickname }}：{{ member.final_score if member.final_score is not none else '—' }} 分
+    {% if score_breakdowns[member.id].match_score is none or score_breakdowns[member.id].final_score != member.final_score %} · 待核对{% endif %}</p>
+{% endfor %}
 {% if current_user.is_super_admin() and team.tournament_id %}<a href="{{ url_for('p0_correct_history', tid=team.tournament_id) }}">往届专项纠错</a>{% endif %}
 {% else %}
 
@@ -66,7 +69,7 @@
             {% if member.user_id == team.captain_id %}<span class="badge bg-primary ms-1">队长</span>{% endif %}
         </h5>
         {% set breakdown = score_breakdowns[member.id] %}
-        <span class="badge bg-warning fs-6">最终 {{ breakdown.final_score if breakdown.final_score is not none else member.final_score or 0 }} 分</span>
+        <span class="badge bg-warning fs-6">最终 {{ member.final_score if member.final_score is not none else '—' }} 分</span>
     </div>
     <div class="card-body">
         <form method="POST" action="{{ url_for('admin.update_member_info', team_id=team.id, member_id=member.id) }}" enctype="multipart/form-data">
@@ -116,7 +119,10 @@
                         {% if breakdown.match_score is not none %}
                         比赛累计：<strong>{{ breakdown.match_score }}</strong> ·
                         有效调整：<strong>{{ breakdown.adjustment_score }}</strong> ·
-                        最终：<strong>{{ breakdown.final_score }}</strong>
+                        账本合计：<strong>{{ breakdown.final_score }}</strong>
+                        {% if member.final_score != breakdown.final_score %}
+                        <span class="text-warning d-block">榜单记录 {{ member.final_score if member.final_score is not none else '—' }}，差额待核对</span>
+                        {% endif %}
                         {% else %}历史资料待核对，暂不能重建{% endif %}
                     </div>
                 </div>
