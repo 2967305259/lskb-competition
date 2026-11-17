@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 from sqlalchemy import create_engine, inspect, text
 from app import create_app, db
-from migrations import migrate_database, assert_schema_current
+from migrations import SCHEMA_VERSION, migrate_database, assert_schema_current
 from backup import verify_backup
 
 
@@ -31,6 +31,19 @@ def make_legacy(engine, dialect):
         conn.execute(text("INSERT INTO team_members (id,team_id,user_id,final_score) VALUES (1,1,1,120),(2,2,2,108)"))
         conn.execute(text("INSERT INTO matches (id,tournament_id,player_a_id,player_b_id,team_a_id,team_b_id,roguelike,status,player_a_score,player_b_score,difficulty) VALUES (1,NULL,1,2,1,2,'water','finished',100,90,14)"))
         conn.execute(text("INSERT INTO score_logs (id,match_id,modified_by,old_result,new_result) VALUES (1,1,1,'old','new')"))
+    add_legacy_notification(engine, user_id=1)
+
+
+def add_legacy_notification(engine, user_id):
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""
+            CREATE TABLE notifications (
+                id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, title VARCHAR(100), message TEXT,
+                `read` BOOLEAN, created_at DATETIME, FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        """)
+        conn.execute(text("INSERT INTO notifications (id, user_id, title) VALUES (1, :user_id, '旧比赛通知')"),
+                     {'user_id': user_id})
 
 
 @pytest.fixture
@@ -62,6 +75,8 @@ def test_real_legacy_upgrade_preserves_unknowns_and_is_idempotent(application, l
         batch = migrate_database(legacy_engine, application.config)
         manifest = verify_backup(batch)
         assert manifest['schema_version'] == 0 and manifest['code_version'] == '8238f20'
+        assert manifest['rows']['notifications'] == 1
+        assert not inspect(legacy_engine).has_table('notifications')
         assert_schema_current(legacy_engine)
         with legacy_engine.connect() as conn:
             assert conn.execute(text('SELECT tournament_id FROM teams WHERE id=2')).scalar() is None
@@ -70,6 +85,40 @@ def test_real_legacy_upgrade_preserves_unknowns_and_is_idempotent(application, l
             assert conn.execute(text('SELECT COUNT(*) FROM score_logs')).scalar() == 1
         assert str(next(c for c in inspect(legacy_engine).get_columns('score_logs') if c['name']=='old_result')['type']).upper() in ('TEXT', 'LONGTEXT')
         assert migrate_database(legacy_engine, application.config) is None
+
+
+def test_prepare_v2_removes_legacy_notifications_after_backup(application):
+    user_id = application.test_ids['users'][0]
+    with application.app_context():
+        engine = db.engine
+        add_legacy_notification(engine, user_id=user_id)
+        with engine.begin() as conn:
+            conn.exec_driver_sql('UPDATE schema_version SET version=2')
+
+    runner = application.test_cli_runner()
+    result = runner.invoke(args=['prepare'])
+    assert result.exit_code == 0, result.output
+    assert f'schema={SCHEMA_VERSION}' in result.output
+    assert_schema_current(engine)
+    assert not inspect(engine).has_table('notifications')
+
+    backups = Path(application.config['BACKUP_DIR'])
+    batch, = [path.parent for path in backups.glob('*/manifest.json')]
+    manifest = verify_backup(batch)
+    assert manifest['schema_version'] == 2 and manifest['rows']['notifications'] == 1
+    if engine.dialect.name == 'sqlite':
+        with sqlite3.connect(batch / 'database.db') as saved:
+            assert saved.execute('SELECT title FROM notifications').fetchone() == ('旧比赛通知',)
+    else:
+        assert f"(1,{user_id},'旧比赛通知'" in (batch / 'database.sql').read_text()
+    with engine.connect() as conn:
+        for table in ('users', 'tournaments', 'teams', 'team_members', 'matches', 'score_logs', 'system_logs'):
+            assert conn.exec_driver_sql(f'SELECT COUNT(*) FROM {table}').scalar() == manifest['rows'][table]
+        assert conn.exec_driver_sql('SELECT MAX(version) FROM schema_version').scalar() == SCHEMA_VERSION
+
+    result = runner.invoke(args=['prepare'])
+    assert result.exit_code == 0, result.output
+    assert list(backups.glob('*/manifest.json')) == [batch / 'manifest.json']
 
 
 def test_failure_stops_migration_and_sqlite_rolls_back_ddl(application, legacy_engine, monkeypatch):

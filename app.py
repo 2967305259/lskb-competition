@@ -4185,7 +4185,7 @@ def create_app(config_name=None, overrides=None):
         from markupsafe import escape, Markup
         return Markup(escape(text).replace('\n', '<br>'))
 
-    # 上下文处理器：注入未读通知数量 + 新手引导状态
+    # 上下文处理器：注入新手引导状态
     @app.context_processor
     def inject_onboarding():
         if current_user.is_authenticated:

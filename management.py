@@ -7,7 +7,7 @@ import click
 from flask import current_app
 
 from backup import create_backup, maintenance_lock, prune_backups, restore_backup
-from migrations import assert_schema_current, migrate_database
+from migrations import SCHEMA_VERSION, assert_schema_current, migrate_database
 from season_safety import (active_season, save_context, json_dump, scoring_rule, set_score,
                            SeasonError, _reconcile, _correction, apply_outcome)
 
@@ -231,7 +231,7 @@ def register_commands(app):
             assert_schema_current(a.db.engine)
             if batch:
                 prune_backups(app.config)
-            click.echo('schema=1，迁移/初始化完成；已有赛道不会在重启时补回')
+            click.echo(f'schema={SCHEMA_VERSION}，迁移/初始化完成；已有赛道不会在重启时补回')
             click.echo(json_dump(data_report()))
 
     @app.cli.command('data-report')

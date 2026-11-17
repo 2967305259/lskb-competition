@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy import MetaData, Table, inspect, text
 from backup import create_backup, maintenance_lock
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 # These additions cover the supported pre-P0 schema. Other missing base columns are an error.
 ADDITIONS = {
     'users': {'has_completed_onboarding': '0', 'tutorial_step': '0'},
@@ -187,11 +187,13 @@ def migrate_database(engine, config):
                     if ('season_number',) not in season_unique | season_indexes:
                         conn.exec_driver_sql('CREATE UNIQUE INDEX uq_tournament_season_number ON tournaments (season_number)')
                     conn.exec_driver_sql("UPDATE matches SET settlement_state='pending' WHERE settlement_state='legacy' AND player_a_score IS NULL AND player_b_score IS NULL AND player_a_result IS NULL AND player_b_result IS NULL AND status IN ('pending', 'scheduled', 'confirmed')")
-                    for legacy in ('notifications', 'announcements'):
-                        conn.exec_driver_sql(f'DROP TABLE IF EXISTS {legacy}')
+                    conn.exec_driver_sql('DROP TABLE IF EXISTS announcements')
                     # A legacy column can remain physically present on SQLite; it has no live model.
                     if engine.dialect.name == 'mysql' and 'approval_status' in {c['name'] for c in inspect(conn).get_columns('users')}:
                         conn.exec_driver_sql('ALTER TABLE users DROP COLUMN approval_status')
+                # Versioned databases may still carry the legacy notification table.
+                if 'notifications' in tables:
+                    conn.exec_driver_sql('DROP TABLE IF EXISTS notifications')
                 conn.exec_driver_sql('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at VARCHAR(40) NOT NULL)')
                 validate_schema(conn)
                 if engine.dialect.name == 'sqlite':
