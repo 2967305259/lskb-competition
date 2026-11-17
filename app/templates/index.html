@@ -58,14 +58,17 @@
                     </div>
                     <div class="col-md-3 mb-2">
                         <small class="text-muted">报名时间</small>
-                        <div>{{ tournament.registration_start.strftime('%m/%d') if tournament.registration_start else '待定' }} - {{ tournament.registration_end.strftime('%m/%d') if tournament.registration_end else '待定' }}</div>
+                        <div>{{ (tournament.registration_start|event_time(tournament.window_times_utc, '%m/%d')) if tournament.registration_start else '待定' }} - {{ (tournament.registration_end|event_time(tournament.window_times_utc, '%m/%d')) if tournament.registration_end else '待定' }}</div>
                     </div>
                     <div class="col-md-3 mb-2">
                         <small class="text-muted">比赛时间</small>
-                        <div>{{ tournament.tournament_start.strftime('%m/%d') if tournament.tournament_start else '待定' }} - {{ tournament.tournament_end.strftime('%m/%d') if tournament.tournament_end else '待定' }}</div>
+                        <div>{{ (tournament.tournament_start|event_time(tournament.window_times_utc, '%m/%d')) if tournament.tournament_start else '待定' }} - {{ (tournament.tournament_end|event_time(tournament.window_times_utc, '%m/%d')) if tournament.tournament_end else '待定' }}</div>
                     </div>
                     
                 </div>
+                {% if tournament.registration_start or tournament.registration_end or tournament.tournament_start or tournament.tournament_end %}
+                <small class="text-muted">计划时间 · {{ config.EVENT_TIMEZONE if tournament.window_times_utc else '旧日期时区待核对' }}</small>
+                {% endif %}
                 {% if tournament.description %}
                 <hr>
                 <p class="text-muted mb-0">{{ tournament.description }}</p>

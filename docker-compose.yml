@@ -11,6 +11,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY explicitly}
       PORT: ${PORT:-19198}
       EVENT_NAME: ${EVENT_NAME:-冷水坑杯}
+      EVENT_TIMEZONE: ${EVENT_TIMEZONE:-Asia/Shanghai}
       SEASON_NUMBER: ${SEASON_NUMBER:-3}
       TEAM_SIZE: ${TEAM_SIZE:-4}
       TEAM_POSITIONS: ${TEAM_POSITIONS:-cold,normal1,normal2,pit}

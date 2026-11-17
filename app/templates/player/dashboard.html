@@ -94,6 +94,9 @@
                                     </small>
                                 </div>
                                 <div class="col-md-4 text-end">
+                                    {% if registration_problem or invitation.team.tournament_id != active_season_id %}
+                                    <span class="text-muted">{{ registration_problem or '此邀请只读' }}</span>
+                                    {% else %}
                                     <form method="POST" class="d-flex gap-2" action="{{ url_for('player.accept_invitation', invitation_id=invitation.id) }}">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" name="action" value="accept" class="btn btn-sm btn-success"
@@ -108,6 +111,7 @@
                                             <i class="fas fa-times"></i> 拒绝
                                         </button>
                                     </form>
+                                    {% endif %}
                                 </div>
                             </div>
                         </div>
@@ -151,9 +155,13 @@
                             {% else %}
                                 <div class="mb-2">
                                     <i class="fas fa-circle" style="color: #808080;"></i>
-                                    <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
-                                        选择{{ labels.track }}主题
-                                    </a>
+                                    {% if not registration_problem %}
+                                        <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
+                                            选择{{ labels.track }}主题
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted small">{{ registration_problem }}</span>
+                                    {% endif %}
                                 </div>
                             {% endif %}
 
@@ -165,9 +173,13 @@
                             {% else %}
                                 <div class="mb-2">
                                     <i class="fas fa-circle" style="color: #808080;"></i>
-                                    <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
-                                        填写所选{{ labels.field1 }}
-                                    </a>
+                                    {% if not registration_problem %}
+                                        <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
+                                            填写所选{{ labels.field1 }}
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted small">{{ registration_problem }}</span>
+                                    {% endif %}
                                 </div>
                             {% endif %}
 
@@ -179,9 +191,13 @@
                             {% else %}
                                 <div class="mb-2">
                                     <i class="fas fa-circle" style="color: #808080;"></i>
-                                    <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
-                                        填写{{ labels.field2 }}
-                                    </a>
+                                    {% if not registration_problem %}
+                                        <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
+                                            填写{{ labels.field2 }}
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted small">{{ registration_problem }}</span>
+                                    {% endif %}
                                 </div>
                             {% endif %}
                             

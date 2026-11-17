@@ -28,9 +28,9 @@
                 <div class="card-body">
                     <p class="text-muted small mb-3">
                         <i class="fas fa-calendar"></i>
-                        {{ t.tournament_start.strftime('%Y-%m-%d') if t.tournament_start else '—' }}
+                        {{ (t.tournament_start|event_time(t.window_times_utc, '%Y-%m-%d')) if t.tournament_start else '—' }}
                         ~
-                        {{ t.tournament_end.strftime('%Y-%m-%d') if t.tournament_end else '—' }}
+                        {{ (t.tournament_end|event_time(t.window_times_utc, '%Y-%m-%d')) if t.tournament_end else '—' }}
                     </p>
                     <div class="row text-center mb-3">
                         <div class="col-4">

@@ -78,7 +78,7 @@
                 <h5 class="mb-0"><i class="fas fa-toggle-on"></i> 报名状态</h5>
             </div>
             <div class="card-body text-center">
-                {% if registration_open %}
+                {% if not registration_problem %}
                     <div class="stat-box">
                         <p style="margin-bottom: 0; color: #90ee90;">
                             <i class="fas fa-check-circle" style="font-size: 2rem;"></i>
@@ -269,8 +269,8 @@
                             {% if tournament_status == 'registration' %}
                                 <form method="POST" action="{{ url_for('admin.start_tournament') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-success"
-                                            onclick="return confirm('确定开始比赛？报名将锁定。');">
+                                    <button type="submit" class="btn btn-success" {% if registration_problem == no_track_message %}disabled{% endif %}
+                                            onclick="return confirm('确定进入匹配阶段？报名开关由管理员另行控制。');">
                                         <i class="fas fa-play"></i> 开始比赛
                                     </button>
                                 </form>
@@ -278,17 +278,17 @@
                             {% if tournament_status == 'matching' %}
                                 <form method="POST" action="{{ url_for('admin.run_matching') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-warning"
+                                    <button type="submit" class="btn btn-warning" {% if registration_problem == no_track_message %}disabled{% endif %}
                                             onclick="return confirm('确定执行自动匹配？');">
                                         <i class="fas fa-random"></i> 执行匹配
                                     </button>
                                 </form>
                             {% endif %}
-                            {% if tournament_status == 'playing' %}
+                            {% if tournament_status == 'running' %}
                                 <form method="POST" action="{{ url_for('admin.finish_tournament') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-danger"
-                                            onclick="return confirm('确定结束赛事？');">
+                                            onclick="return confirm('确定结束赛事？已安排场次仍可提交、确认结算和审核。');">
                                         <i class="fas fa-stop"></i> 结束赛事
                                     </button>
                                 </form>
@@ -296,18 +296,18 @@
                             {% if tournament_status != 'registration' %}
                                 <form method="POST" action="{{ url_for('admin.resume_registration') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-info"
+                                    <button type="submit" class="btn btn-info" {% if registration_problem == no_track_message %}disabled{% endif %}
                                             onclick="return confirm('确定恢复报名？将回到报名阶段。');">
                                         <i class="fas fa-undo"></i> 恢复报名
                                     </button>
                                 </form>
                             {% endif %}
-                            <span class="badge bg-{{ 'success' if tournament_status == 'playing' else 'info' if tournament_status == 'matching' else 'warning' if tournament_status == 'registration' else 'secondary' }} d-flex align-items-center" style="font-size: 0.9rem;">
+                            <span class="badge bg-{{ 'success' if tournament_status == 'running' else 'info' if tournament_status == 'matching' else 'warning' if tournament_status == 'registration' else 'secondary' }} d-flex align-items-center" style="font-size: 0.9rem;">
                                 <i class="fas fa-circle me-1"></i>
                                 当前状态：
                                 {% if tournament_status == 'registration' %}报名阶段
                                 {% elif tournament_status == 'matching' %}匹配阶段
-                                {% elif tournament_status == 'playing' %}比赛进行中
+                                {% elif tournament_status == 'running' %}比赛进行中
                                 {% elif tournament_status == 'finished' %}赛事已结束
                                 {% endif %}
                             </span>

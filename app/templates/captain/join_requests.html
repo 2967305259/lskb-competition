@@ -24,7 +24,7 @@
                         {{ join_request_status_badge(req.status) }}
                     </td>
                     <td>
-                        {% if req.status == 'pending' %}
+                        {% if req.status == 'pending' and not registration_problem and req.team.tournament_id == active_season_id %}
                         <form method="POST" action="{{ url_for('captain.accept_join_request', request_id=req.id) }}" class="d-inline">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-success btn-sm">

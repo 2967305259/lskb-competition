@@ -31,7 +31,7 @@
                                     </small>
                                 </div>
                                 <div class="col-md-4 text-end">
-                                    {% if invitation.status == 'pending' %}
+                                    {% if invitation.status == 'pending' and not registration_problem and invitation.team.tournament_id == active_season_id %}
                                         <form method="POST" action="{{ url_for('captain.cancel_invitation', invitation_id=invitation.id) }}" style="display: inline;">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <button type="submit" class="btn btn-sm btn-outline-danger"

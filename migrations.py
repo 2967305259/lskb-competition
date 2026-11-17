@@ -5,19 +5,21 @@ from pathlib import Path
 from sqlalchemy import MetaData, Table, inspect, text
 from backup import create_backup, maintenance_lock
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 # These additions cover the supported pre-P0 schema. Other missing base columns are an error.
 ADDITIONS = {
     'users': {'has_completed_onboarding': '0', 'tutorial_step': '0'},
     'teams': {'tournament_id': 'NULL'},
     'team_members': {'position': 'NULL', 'squad': "''", 'operator': "''"},
     'settings': {'team_size': 'NULL', 'allow_incomplete_teams': '0'},
-    'tournaments': {'context_snapshot': 'NULL', 'snapshot_version': '0', 'archived_at': 'NULL'},
+    'tournaments': {'context_snapshot': 'NULL', 'snapshot_version': '0', 'archived_at': 'NULL',
+                    'window_times_utc': '0'},
     'matches': {'tournament_id': 'NULL', 'player_a_difficulty': 'NULL', 'player_b_difficulty': 'NULL',
                 'match_type': "'match'", 'parent_id': 'NULL', 'segment_order': '0',
                 'player_a_multiplier': 'NULL', 'player_b_multiplier': 'NULL', 'scoring_rule': 'NULL', 'legacy_payload': 'NULL', 'context_version': 'NULL',
                 'settlement_state': "'legacy'", 'settled_at': 'NULL', 'forfeit_side': 'NULL',
-                'forfeit_reason': "''", 'score_origin_a': 'NULL', 'score_origin_b': 'NULL'},
+                'forfeit_reason': "''", 'score_origin_a': 'NULL', 'score_origin_b': 'NULL',
+                'scheduled_time_utc': '0'},
 }
 
 
@@ -84,8 +86,9 @@ def migrate_database(engine, config):
             Path(engine.url.database).parent.mkdir(parents=True, exist_ok=True)
         with engine.connect() as conn:
             tables = set(inspect(conn).get_table_names())
+            current = 0
             if 'schema_version' in tables:
-                current = conn.execute(text('SELECT MAX(version) FROM schema_version')).scalar()
+                current = conn.execute(text('SELECT MAX(version) FROM schema_version')).scalar() or 0
                 if current == SCHEMA_VERSION:
                     validate_schema(conn)
                     return None
@@ -132,62 +135,63 @@ def migrate_database(engine, config):
                         conn.exec_driver_sql(f'ALTER TABLE {table} ADD COLUMN {name} {sql_type}{nullable}{default_clause}')
                         if not default_clause:
                             conn.exec_driver_sql(f'UPDATE {table} SET {name}={default} WHERE {name} IS NULL')
-                db.metadata.create_all(bind=conn)
-                if engine.dialect.name == 'sqlite':
-                    constraints = {tuple(c['column_names']) for c in inspect(conn).get_unique_constraints('teams')}
-                    if ('tournament_id', 'captain_id') not in constraints or ('tournament_id', 'team_name') not in constraints:
-                        _rebuild_sqlite(conn, 'teams')
-                    logs = inspect(conn).get_columns('score_logs')
-                    if any(c['name'] in ('old_result', 'new_result') and str(c['type']).upper() != 'TEXT' for c in logs):
-                        _rebuild_sqlite(conn, 'score_logs')
-                else:
-                    unique = inspect(conn).get_unique_constraints('teams')
-                    quote = conn.dialect.identifier_preparer.quote
-                    for item in unique:
-                        if tuple(item['column_names']) in (('captain_id',), ('team_name',)):
-                            if item['column_names'] == ['captain_id']:
-                                indexes = {i['name'] for i in inspect(conn).get_indexes('teams')}
-                                if 'ix_teams_captain_reference' not in indexes:
-                                    conn.exec_driver_sql('CREATE INDEX ix_teams_captain_reference ON teams (captain_id)')
-                            conn.exec_driver_sql('ALTER TABLE teams DROP INDEX ' + quote(item['name']))
-                    unique = {tuple(c['column_names']) for c in inspect(conn).get_unique_constraints('teams')}
-                    for columns, name in ((('tournament_id', 'team_name'), 'uq_tournament_team_name'),
-                                          (('tournament_id', 'captain_id'), 'uq_tournament_captain')):
-                        if columns not in unique:
-                            conn.exec_driver_sql(f'ALTER TABLE teams ADD CONSTRAINT {name} UNIQUE ({", ".join(columns)})')
-                    conn.exec_driver_sql('ALTER TABLE score_logs MODIFY old_result LONGTEXT NULL, MODIFY new_result LONGTEXT NULL')
-                if engine.dialect.name == 'mysql':
-                    conn.exec_driver_sql('ALTER TABLE system_logs MODIFY detail LONGTEXT NULL')
-                # Complete foreign keys for columns added to old SQLite/MySQL structures.
-                for table in db.metadata.sorted_tables:
-                    actual_fk = {(tuple(f['constrained_columns']), f['referred_table'], tuple(f['referred_columns']))
-                                 for f in inspect(conn).get_foreign_keys(table.name)}
-                    missing_fk = []
-                    for constraint in table.foreign_key_constraints:
-                        expected = (tuple(e.parent.name for e in constraint.elements),
-                                    next(iter(constraint.elements)).column.table.name,
-                                    tuple(e.column.name for e in constraint.elements))
-                        if expected not in actual_fk:
-                            missing_fk.append(expected)
-                    if missing_fk and engine.dialect.name == 'sqlite':
-                        _rebuild_sqlite(conn, table.name)
-                    elif missing_fk:
+                if current == 0:
+                    db.metadata.create_all(bind=conn)
+                    if engine.dialect.name == 'sqlite':
+                        constraints = {tuple(c['column_names']) for c in inspect(conn).get_unique_constraints('teams')}
+                        if ('tournament_id', 'captain_id') not in constraints or ('tournament_id', 'team_name') not in constraints:
+                            _rebuild_sqlite(conn, 'teams')
+                        logs = inspect(conn).get_columns('score_logs')
+                        if any(c['name'] in ('old_result', 'new_result') and str(c['type']).upper() != 'TEXT' for c in logs):
+                            _rebuild_sqlite(conn, 'score_logs')
+                    else:
+                        unique = inspect(conn).get_unique_constraints('teams')
                         quote = conn.dialect.identifier_preparer.quote
-                        for columns, target, target_cols in missing_fk:
-                            name = 'fk_p0_' + table.name + '_' + '_'.join(columns)
-                            conn.exec_driver_sql(f'ALTER TABLE {quote(table.name)} ADD CONSTRAINT {quote(name)} FOREIGN KEY ({", ".join(map(quote, columns))}) REFERENCES {quote(target)} ({", ".join(map(quote, target_cols))})')
-                if engine.dialect.name == 'sqlite' and 'approval_status' in {c['name'] for c in inspect(conn).get_columns('users')}:
-                    _rebuild_sqlite(conn, 'users')
-                season_unique = {tuple(c['column_names']) for c in inspect(conn).get_unique_constraints('tournaments')}
-                season_indexes = {tuple(i['column_names']) for i in inspect(conn).get_indexes('tournaments') if i.get('unique')}
-                if ('season_number',) not in season_unique | season_indexes:
-                    conn.exec_driver_sql('CREATE UNIQUE INDEX uq_tournament_season_number ON tournaments (season_number)')
-                conn.exec_driver_sql("UPDATE matches SET settlement_state='pending' WHERE settlement_state='legacy' AND player_a_score IS NULL AND player_b_score IS NULL AND player_a_result IS NULL AND player_b_result IS NULL AND status IN ('pending', 'scheduled', 'confirmed')")
-                for legacy in ('notifications', 'announcements'):
-                    conn.exec_driver_sql(f'DROP TABLE IF EXISTS {legacy}')
-                # A legacy column can remain physically present on SQLite; it has no live model.
-                if engine.dialect.name == 'mysql' and 'approval_status' in {c['name'] for c in inspect(conn).get_columns('users')}:
-                    conn.exec_driver_sql('ALTER TABLE users DROP COLUMN approval_status')
+                        for item in unique:
+                            if tuple(item['column_names']) in (('captain_id',), ('team_name',)):
+                                if item['column_names'] == ['captain_id']:
+                                    indexes = {i['name'] for i in inspect(conn).get_indexes('teams')}
+                                    if 'ix_teams_captain_reference' not in indexes:
+                                        conn.exec_driver_sql('CREATE INDEX ix_teams_captain_reference ON teams (captain_id)')
+                                conn.exec_driver_sql('ALTER TABLE teams DROP INDEX ' + quote(item['name']))
+                        unique = {tuple(c['column_names']) for c in inspect(conn).get_unique_constraints('teams')}
+                        for columns, name in ((('tournament_id', 'team_name'), 'uq_tournament_team_name'),
+                                              (('tournament_id', 'captain_id'), 'uq_tournament_captain')):
+                            if columns not in unique:
+                                conn.exec_driver_sql(f'ALTER TABLE teams ADD CONSTRAINT {name} UNIQUE ({", ".join(columns)})')
+                        conn.exec_driver_sql('ALTER TABLE score_logs MODIFY old_result LONGTEXT NULL, MODIFY new_result LONGTEXT NULL')
+                    if engine.dialect.name == 'mysql':
+                        conn.exec_driver_sql('ALTER TABLE system_logs MODIFY detail LONGTEXT NULL')
+                    # Complete foreign keys for columns added to old SQLite/MySQL structures.
+                    for table in db.metadata.sorted_tables:
+                        actual_fk = {(tuple(f['constrained_columns']), f['referred_table'], tuple(f['referred_columns']))
+                                     for f in inspect(conn).get_foreign_keys(table.name)}
+                        missing_fk = []
+                        for constraint in table.foreign_key_constraints:
+                            expected = (tuple(e.parent.name for e in constraint.elements),
+                                        next(iter(constraint.elements)).column.table.name,
+                                        tuple(e.column.name for e in constraint.elements))
+                            if expected not in actual_fk:
+                                missing_fk.append(expected)
+                        if missing_fk and engine.dialect.name == 'sqlite':
+                            _rebuild_sqlite(conn, table.name)
+                        elif missing_fk:
+                            quote = conn.dialect.identifier_preparer.quote
+                            for columns, target, target_cols in missing_fk:
+                                name = 'fk_p0_' + table.name + '_' + '_'.join(columns)
+                                conn.exec_driver_sql(f'ALTER TABLE {quote(table.name)} ADD CONSTRAINT {quote(name)} FOREIGN KEY ({", ".join(map(quote, columns))}) REFERENCES {quote(target)} ({", ".join(map(quote, target_cols))})')
+                    if engine.dialect.name == 'sqlite' and 'approval_status' in {c['name'] for c in inspect(conn).get_columns('users')}:
+                        _rebuild_sqlite(conn, 'users')
+                    season_unique = {tuple(c['column_names']) for c in inspect(conn).get_unique_constraints('tournaments')}
+                    season_indexes = {tuple(i['column_names']) for i in inspect(conn).get_indexes('tournaments') if i.get('unique')}
+                    if ('season_number',) not in season_unique | season_indexes:
+                        conn.exec_driver_sql('CREATE UNIQUE INDEX uq_tournament_season_number ON tournaments (season_number)')
+                    conn.exec_driver_sql("UPDATE matches SET settlement_state='pending' WHERE settlement_state='legacy' AND player_a_score IS NULL AND player_b_score IS NULL AND player_a_result IS NULL AND player_b_result IS NULL AND status IN ('pending', 'scheduled', 'confirmed')")
+                    for legacy in ('notifications', 'announcements'):
+                        conn.exec_driver_sql(f'DROP TABLE IF EXISTS {legacy}')
+                    # A legacy column can remain physically present on SQLite; it has no live model.
+                    if engine.dialect.name == 'mysql' and 'approval_status' in {c['name'] for c in inspect(conn).get_columns('users')}:
+                        conn.exec_driver_sql('ALTER TABLE users DROP COLUMN approval_status')
                 conn.exec_driver_sql('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at VARCHAR(40) NOT NULL)')
                 validate_schema(conn)
                 if engine.dialect.name == 'sqlite':

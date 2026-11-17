@@ -1,8 +1,7 @@
 """Configuration readiness checks for the active season dashboard."""
 
-from datetime import datetime
-
 from flask import has_request_context, url_for
+from season_phase import NO_TRACKS, has_enabled_track, window_state
 
 
 def _app():
@@ -15,7 +14,7 @@ def _admin_url(endpoint):
         return url_for(endpoint)
     fallback = {
         'admin.tournament_settings': '/admin/tournament-settings',
-        'admin.registration_control': '/admin/registration-control',
+        'admin.registration_control': '/admin/registration',
         'admin.score_config': '/admin/score-config',
         'admin.carousel': '/admin/carousel',
         'admin.roguelikes': '/admin/roguelikes',
@@ -34,25 +33,32 @@ def get_season_todos(tournament):
         return []
     a = _app()
     setting = a.Setting.get_instance()
-    now = datetime.utcnow()
-    registration_window_done = bool(
-        tournament.registration_start and tournament.registration_end)
-    tournament_window_done = bool(
-        tournament.tournament_start and tournament.tournament_end)
-    registration_overdue = bool(
-        setting.registration_open and tournament.registration_end and
-        now > tournament.registration_end)
+    registration_state = window_state(tournament.registration_start, tournament.registration_end,
+                                      tournament.window_times_utc)
+    tournament_state = window_state(tournament.tournament_start, tournament.tournament_end,
+                                    tournament.window_times_utc)
+    registration_overdue = setting.registration_open and registration_state == 'expired'
     carousel_done = a.CarouselItem.query.filter_by(
         tournament_id=tournament.id, is_active=True).count() > 0
-    roguelike_done = a.Roguelike.query.filter_by(is_active=True).count() > 0
+    roguelike_done = has_enabled_track()
     rules_done = a.Rule.query.filter_by(is_published=True).count() > 0
     return [
         {'code': 'no_registration_window', 'level': 'info', 'order': 2,
          'message': '未设置报名时间', 'url': _admin_url('admin.tournament_settings'),
-         'done': registration_window_done},
+         'done': registration_state != 'missing'},
         {'code': 'no_tournament_window', 'level': 'info', 'order': 2,
          'message': '未设置比赛时间', 'url': _admin_url('admin.tournament_settings'),
-         'done': tournament_window_done},
+         'done': tournament_state != 'missing'},
+        {'code': 'invalid_registration_window', 'level': 'warning', 'order': 1,
+         'message': '报名结束时间须晚于开始时间', 'url': _admin_url('admin.tournament_settings'),
+         'done': registration_state != 'invalid'},
+        {'code': 'invalid_tournament_window', 'level': 'warning', 'order': 1,
+         'message': '比赛结束时间须晚于开始时间', 'url': _admin_url('admin.tournament_settings'),
+         'done': tournament_state != 'invalid'},
+        {'code': 'tournament_overdue', 'level': 'warning', 'order': 1,
+         'message': '比赛计划结束时间已过，赛事仍未手动结束',
+         'url': _admin_url('admin.tournament_settings'),
+         'done': tournament_state != 'expired' or tournament.status == 'finished'},
         {'code': 'registration_overdue', 'level': 'warning', 'order': 1,
          'message': '报名截止时间已过但报名仍开放',
          'url': _admin_url('admin.registration_control'),
@@ -64,7 +70,7 @@ def get_season_todos(tournament):
          'message': '当前赛季没有启用轮播条目',
          'url': _admin_url('admin.carousel'), 'done': carousel_done},
         {'code': 'no_roguelike', 'level': 'block', 'order': 0,
-         'message': '没有启用赛道，不能开放参赛',
+         'message': NO_TRACKS,
          'url': _admin_url('admin.roguelikes'), 'done': roguelike_done},
         {'code': 'no_rules', 'level': 'info', 'order': 2,
          'message': '没有已发布规则', 'url': _admin_url('admin.manage_rules'),

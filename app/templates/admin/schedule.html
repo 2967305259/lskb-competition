@@ -34,7 +34,10 @@
         <div class="card mb-4">
             <div class="card-header"><h5 class="mb-0"><i class="fas fa-hand-paper"></i> 手动创建比赛</h5></div>
             <div class="card-body">
+                <p class="small text-muted">排赛时间按 {{ config.EVENT_TIMEZONE }} 显示。未重存的旧排赛时间保留原值，时区待核对。</p>
+                {% if not schedule_open %}<p class="alert alert-warning">当前赛事已停止排赛。</p>{% endif %}
                 <form method="POST" action="{{ url_for('admin.manual_match') }}">
+                    <fieldset {% if not schedule_open %}disabled{% endif %}>
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-2">
                         <label class="form-label small">{{ labels.track }}</label>
@@ -57,9 +60,10 @@
                     </div>
                     <div class="mb-2">
                         <label class="form-label small">比赛日期</label>
-                        <input type="date" name="match_date" id="matchDate" class="form-control form-control-sm">
+                        <input type="date" name="match_date" id="matchDate" value="{{ today }}" class="form-control form-control-sm">
                     </div>
                     <button type="submit" class="btn btn-primary w-100"><i class="fas fa-plus"></i> 创建比赛</button>
+                    </fieldset>
                 </form>
             </div>
         </div>
@@ -75,7 +79,7 @@
                     <thead><tr><th>时间</th><th>对战</th><th>操作</th></tr></thead>
                     <tbody>
                     {% for m in matches if not m.parent_id %}
-                    {% set children_list = m.children|list|sort(attribute='scheduled_time') %}
+                    {% set children_list = m.children|selectattr('scheduled_time')|sort(attribute='scheduled_time') %}
                     <tr>
                         <td style="font-size:0.78rem;">
                             <strong>{{ m.player_a.nickname if m.player_a else '?' }}</strong>
@@ -89,13 +93,14 @@
                             {% if children_list %}
                                 {% for ch in children_list %}
                                 {% set host_name = ch.player_a.nickname if ch.player_a else '?' %}
-                                {{ ch.scheduled_time.strftime('%m/%d %H:%M') if ch.scheduled_time else '?' }} {{ host_name }}<br>
+                                {{ (ch.scheduled_time|event_time(ch.scheduled_time_utc, '%m/%d %H:%M')) if ch.scheduled_time else '?' }} {{ host_name }}<br>
                                 {% endfor %}
                             {% else %}
                                 <span class="text-muted">未安排</span>
                             {% endif %}
                         </td>
                         <td>
+                            {% if schedule_open and not admin_schedule_protected(m) %}
                             <form method="POST" action="{{ url_for('admin.schedule_confirm_match') }}" style="display:inline;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="match_id" value="{{ m.id }}">
                                 <button class="btn btn-sm btn-outline-success" title="确认比赛">✅</button>
@@ -104,6 +109,7 @@
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="match_id" value="{{ m.id }}">
                                 <button class="btn btn-sm btn-outline-danger">🗑</button>
                             </form>
+                            {% else %}<span class="text-muted">只读</span>{% endif %}
                         </td>
                     </tr>
                     {% endfor %}
@@ -148,11 +154,7 @@ function filterRoguelike() {
     });
 }
 
-// 默认填今天日期
-(function() {
-    const d = new Date();
-    document.getElementById('matchDate').value = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-})();
+const scheduleOpen = {{ schedule_open | tojson }};
 
 let splitMenuEl = null;
 
@@ -221,19 +223,20 @@ async function deleteMatch(matchId) {
 document.addEventListener('DOMContentLoaded', function() {
     window.calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
         initialView:'timeGridWeek',
+        timeZone:'UTC', // Calendar receives event-zone wall times from the schedule API.
+        now: {{ (today ~ 'T00:00:00') | tojson }},
         headerToolbar:{left:'prev,next today',center:'title',right:'timeGridWeek,timeGridDay,listWeek'},
         slotMinTime:'00:00:00', slotMaxTime:'24:00:00', allDaySlot:false, height:800,
         slotDuration: '00:15:00', slotLabelInterval: '01:00',
-        editable:true, eventDurationEditable:true,
+        editable:scheduleOpen, eventDurationEditable:scheduleOpen,
         events: function(info, cb) {
             fetch("{{ url_for('admin.schedule_api_matches') }}").then(r=>r.json()).then(data => {
                 const events = [];
                 data.matches.forEach(m => {
-                    const dur = m.duration_minutes || 60;
-                    const end = m.scheduled_time ? new Date(new Date(m.scheduled_time).getTime() + dur*60000) : null;
                     events.push({
                         id: String(m.id), title: (m.player_a||'?') + ' vs ' + (m.player_b||'?'),
-                        start: m.scheduled_time, end: end ? end.toISOString() : undefined,
+                        start: m.scheduled_time, end: m.scheduled_end,
+                        editable: scheduleOpen && !m.protected,
                         className: m.is_exhibition ? 'exhibition' : m.status,
                         extendedProps: m
                     });
@@ -244,7 +247,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             title: `${m.player_a||'?'} vs ${m.player_b||'?'}`,
                             start: ch.start, end: ch.end,
                             className: m.status,
-                            editable: true,
+                            editable: scheduleOpen && ch.editable,
                             extendedProps: { ...ch, parent_id: m.id }
                         });
                     });
@@ -253,6 +256,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         },
         eventClick: function(info) {
+            if (!scheduleOpen || info.event.startEditable === false) return;
             const el = info.el;
             const rect = el.getBoundingClientRect();
             showSplitMenu(info.event, rect.left + rect.width/2, rect.top);
@@ -260,7 +264,7 @@ document.addEventListener('DOMContentLoaded', function() {
         eventDrop: function(info) {
             const id = info.event.id.replace('child_','');
             const d = info.event.start || new Date();
-            const t = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T'+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+            const t = d.toISOString().slice(0, 16);
             const dur = info.event.end ? Math.round((info.event.end-info.event.start)/60000) : 60;
             fetch("{{ url_for('admin.schedule_update_time') }}", {
                 method:'POST',

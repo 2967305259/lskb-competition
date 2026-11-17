@@ -76,9 +76,9 @@
                                 <td>{{ match.created_at.strftime('%m-%d %H:%M') }}</td>
                                 <td>
                                     <a href="{{ url_for('tournament.match_detail', match_id=match.id) }}" class="btn btn-sm btn-outline-primary mb-1">查看</a>
-                                    {% if match.status in ('finished', 'forfeit_a', 'forfeit_b', 'submitted') %}
+                                    {% if match.tournament_id == active_season_id and not admin_result_denial('edit', match) %}
                                         <button type="button" class="btn btn-sm btn-outline-warning mb-1" data-bs-toggle="modal" data-bs-target="#editModal{{ match.id }}">{{ '修改' if match.settlement_state == 'settled' else '确认结束并结算' }}</button>
-                                        {% if match.review_status == 'pending' and match.settlement_state == 'settled' %}
+                                        {% if match.review_status == 'pending' and not admin_result_denial('review', match) %}
                                             <form method="POST" action="{{ url_for('admin.review_match', match_id=match.id) }}" style="display:inline;">
                                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                 <input type="hidden" name="action" value="approve">
@@ -91,7 +91,7 @@
                             </tr>
 
                             <!-- 修改结果弹窗 -->
-                            {% if match.status in ('finished', 'forfeit_a', 'forfeit_b', 'submitted') %}
+                            {% if match.tournament_id == active_season_id and not admin_result_denial('edit', match) %}
                             <div class="modal fade" id="editModal{{ match.id }}" tabindex="-1">
                                 <div class="modal-dialog">
                                     <div class="modal-content bg-dark text-light">

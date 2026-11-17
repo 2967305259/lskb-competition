@@ -30,7 +30,8 @@
                     {% if team.team_slogan %}
                     <p class="card-text">{{ team.team_slogan }}</p>
                     {% endif %}
-                    {% if team._has_pending %}
+                    {% if registration_problem %}<p class="text-muted mb-0">{{ registration_problem }}</p>
+                    {% elif team._has_pending %}
                     <button class="btn btn-secondary btn-sm" disabled>已申请，等待审核</button>
                     {% else %}
                     <form method="POST" action="{{ url_for('player.request_join', team_id=team.id) }}" class="d-inline">

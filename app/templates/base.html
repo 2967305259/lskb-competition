@@ -150,11 +150,13 @@
                                 <i class="fas fa-sign-in-alt"></i> 登录
                             </a>
                         </li>
+                        {% if not registration_problem %}
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('auth.register') }}">
                                 <i class="fas fa-user-plus"></i> 注册
                             </a>
                         </li>
+                        {% endif %}
                     {% endif %}
                 </ul>
             </div>

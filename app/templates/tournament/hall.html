@@ -152,10 +152,10 @@
                                     </td>
                                     <td>{{ match_progress_badge(m) }}</td>
                                     <td style="font-size:0.78rem;">
-                                        {% set children_list = m.children|list|sort(attribute='scheduled_time') %}
+                                        {% set children_list = m.children|selectattr('scheduled_time')|sort(attribute='scheduled_time') %}
                                         {% if children_list %}
                                             {% for ch in children_list %}{% if ch.scheduled_time %}
-                                            {{ ch.scheduled_time.strftime('%m-%d %H:%M') }}-{{ (ch.scheduled_time + timedelta(minutes=_parse_duration(ch.match_note) or 120)).strftime('%H:%M') }} {{ ch.player_a.nickname if ch.player_a else '?' }}<br>
+                                            {{ (ch.scheduled_time|event_time(ch.scheduled_time_utc, '%m-%d %H:%M')) }}-{{ ((ch.scheduled_time + timedelta(minutes=_parse_duration(ch.match_note) or 120))|event_time(ch.scheduled_time_utc, '%H:%M')) }} {{ ch.player_a.nickname if ch.player_a else '?' }}<br>
                                             {% endif %}{% endfor %}
                                         {% else %}
                                             <span class="text-muted">-</span>

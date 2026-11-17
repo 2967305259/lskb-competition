@@ -13,6 +13,8 @@ from sqlalchemy import event, inspect
 from sqlalchemy.orm import Session
 
 from backup import create_backup, maintenance_lock, prune_backups
+from season_phase import (FINISHED_SCHEDULING_ACTIONS, REGISTRATION_ACTIONS, admin_schedule_protected, has_enabled_track,
+                          registration_denial, window_warnings)
 
 _correction = ContextVar('season_correction', default=None)
 _reconcile = ContextVar('season_reconciliation', default=False)
@@ -191,7 +193,8 @@ def transition_preview(season):
     if season is None:
         return None
     return {'token': _signer().dumps({'key': uuid.uuid4().hex, 'expected': season.id, 'actor': current_user.id}),
-            'expected': season.id, 'unfinished': unfinished_matches(season.id)}
+            'expected': season.id, 'unfinished': unfinished_matches(season.id),
+            'date_warnings': window_warnings(season), 'has_enabled_track': has_enabled_track()}
 
 
 def _log(action, detail):
@@ -268,6 +271,7 @@ def switch_season():
     if inherit_tournament:
         new.tournament_start = season.tournament_start
         new.tournament_end = season.tournament_end
+    new.window_times_utc = season.window_times_utc
     a.db.session.add(new)
     a.db.session.flush()
     teams = [t.id for t in a.Team.query.filter_by(tournament_id=old_id).all()]
@@ -287,7 +291,7 @@ def switch_season():
         settings.team_size = old_team_size
     if inherit_incomplete:
         settings.allow_incomplete_teams = old_allow_incomplete
-    settings.registration_open = True
+    settings.registration_open = has_enabled_track()
     if inherit_carousel:
         previous_items = a.CarouselItem.query.filter_by(tournament_id=old_id).order_by(
             a.CarouselItem.sort_order, a.CarouselItem.id).all()
@@ -325,6 +329,7 @@ def switch_season():
             'advance_count': settings.advance_count,
             'team_size': settings.team_size,
             'allow_incomplete_teams': bool(settings.allow_incomplete_teams),
+            'registration_open': settings.registration_open,
         }})
     save_context(new)
     a.db.session.commit()
@@ -359,10 +364,9 @@ def _guard_request():
         root = root_match(match)
         require_writable(root.tournament_id)
         verify_match_ownership(root)
-        if endpoint in ('admin.schedule_split_match', 'admin.schedule_delete_match', 'admin.schedule_confirm_match'):
-            rows = [root] + list(root.children)
-            if any(m.player_a_score is not None or m.player_b_score is not None or m.settlement_state == 'settled' for m in rows):
-                raise SeasonError('已有成绩的整场不能删除、重拆或重置为待提交')
+        if endpoint in ('admin.schedule_update_time', 'admin.schedule_split_match',
+                        'admin.schedule_delete_match', 'admin.schedule_confirm_match') and admin_schedule_protected(root):
+            raise SeasonError('已有成绩或结果的整场不能更改日程')
     team_id = args.get('team_id')
     if team_id:
         team = a.db.session.get(a.Team, team_id)
@@ -399,6 +403,8 @@ def _guard_request():
             raise SeasonError('该账号有关联往届/待核对成员或队伍，不能删除')
     if endpoint.startswith('admin.') and endpoint not in ('admin.new_season', 'admin.create_backup_batch'):
         active_season()
+    if endpoint in FINISHED_SCHEDULING_ACTIONS and active_season().status == 'finished':
+        raise SeasonError('本届赛事已结束，已停止排赛')
     if endpoint.startswith('captain.') and endpoint not in ('captain.upload_avatar',):
         team = current_user.team
         if team:
@@ -407,9 +413,10 @@ def _guard_request():
         member = current_user.get_team_membership()
         if member:
             require_writable(member.team.tournament_id)
-    if endpoint in ('captain.invite_player', 'player.request_join', 'player.accept_invitation', 'captain.accept_join_request'):
-        if not a.check_registration_open():
-            raise SeasonError('报名已由管理员关闭', 403)
+    if endpoint in REGISTRATION_ACTIONS:
+        reason = registration_denial(active_season(required=False))
+        if reason:
+            raise SeasonError(reason, 403)
     if endpoint in ('admin.edit_roguelike', 'admin.delete_roguelike', 'admin.edit_rule', 'admin.delete_rule'):
         # Never discard the only surviving source of a legacy season's unknown rules.
         if a.Tournament.query.filter_by(is_active=False, context_snapshot=None).first():
@@ -487,6 +494,8 @@ def install_safety(app):
     @app.errorhandler(SeasonError)
     def invalid_season(error):
         ns().db.session.rollback()
+        if request.endpoint in ('admin.schedule_update_time', 'admin.schedule_split_match', 'admin.schedule_delete_match'):
+            return jsonify(error=str(error)), error.status
         # Error rendering must not query the broken season state again via context processors.
         return current_app.jinja_env.get_template('season_error.html').render(message=str(error)), error.status
 

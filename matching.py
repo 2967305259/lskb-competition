@@ -14,14 +14,15 @@ def _app_ns(*names):
 
 def _auto_match():
     """自动匹配：按肉鸽分组，位置优先匹配"""
-    Team, TeamMember, Tournament = _app_ns('Team', 'TeamMember', 'Tournament')
+    Team, TeamMember, Tournament, Roguelike = _app_ns('Team', 'TeamMember', 'Tournament', 'Roguelike')
     tournament = Tournament.get_active()
     if not tournament:
         return {'success': False, 'message': '没有活跃赛事', 'count': 0}
 
-    # 获取所有已选择肉鸽的队员（当前赛事的所有队伍）
+    enabled = Roguelike.query.with_entities(Roguelike.key).filter_by(is_active=True)
+    # 管理员可在匹配前停用赛道，仅按当前启用的赛道排赛。
     members = TeamMember.query.filter(
-        TeamMember.roguelike.isnot(None),
+        TeamMember.roguelike.in_(enabled),
         TeamMember.team.has(Team.tournament_id == tournament.id)
     ).all()
 

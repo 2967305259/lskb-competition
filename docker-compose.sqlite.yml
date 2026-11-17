@@ -17,6 +17,7 @@ services:
       DATABASE_URL: sqlite:////app/.db/lskb.db
       PORT: ${PORT:-19198}
       EVENT_NAME: ${EVENT_NAME:-冷水坑杯}
+      EVENT_TIMEZONE: ${EVENT_TIMEZONE:-Asia/Shanghai}
       SEASON_NUMBER: ${SEASON_NUMBER:-3}
       STATE_DIR: /app/.runtime
       BACKUP_DIR: /app/backups

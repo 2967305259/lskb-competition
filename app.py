@@ -9,6 +9,7 @@ import sys
 import uuid
 import json
 import secrets
+import re
 
 if __name__ == "__main__":
     sys.modules["app"] = sys.modules[__name__]
@@ -39,6 +40,10 @@ from formal_match import formal_query, outcome_for_player
 from matching import _auto_match
 from season_safety import transition_preview
 from season_health import get_season_todos
+from season_phase import (NO_TRACKS, admin_result_denial, admin_schedule_protected,
+                          event_local, event_now, event_zone, format_event_time,
+                          has_enabled_track, parse_event_time, player_match_denial,
+                          registration_denial, window_warnings)
 
 # ============================================================
 # 配置
@@ -82,6 +87,7 @@ class Config:
 
     # ---- 赛事可配置项（均可用环境变量覆盖，便于复用到其他赛事）----
     EVENT_NAME = os.environ.get('EVENT_NAME', '冷水坑杯')
+    EVENT_TIMEZONE = os.environ.get('EVENT_TIMEZONE', 'Asia/Shanghai')
     SEASON_NUMBER = int(os.environ.get('SEASON_NUMBER', '3'))
     TOURNAMENT_NAME = os.environ.get('TOURNAMENT_NAME') or f'{EVENT_NAME} #{SEASON_NUMBER}'
     TEAM_SIZE = int(os.environ.get('TEAM_SIZE', '4'))
@@ -203,16 +209,11 @@ def require_status(min_status):
     return decorator
 
 
-def check_registration_open():
-    """检查报名是否开放"""
-    if Tournament.get_active() is None:
-        return False
-    setting = Setting.get_instance()
-    return setting.registration_open
-
-
 def set_registration_open(status):
     """设置报名状态"""
+    from season_safety import SeasonError
+    if status and not has_enabled_track():
+        raise SeasonError(NO_TRACKS)
     setting = Setting.get_instance()
     setting.registration_open = status
     db.session.commit()
@@ -467,6 +468,7 @@ class Tournament(db.Model):
     registration_end = db.Column(db.DateTime, nullable=True)
     tournament_start = db.Column(db.DateTime, nullable=True)
     tournament_end = db.Column(db.DateTime, nullable=True)
+    window_times_utc = db.Column(db.Boolean, nullable=False, server_default=db.text('0'))
     bonus_score = db.Column(db.Integer, default=500)
     context_snapshot = db.Column(db.Text().with_variant(LONGTEXT(), 'mysql'), nullable=True)
     snapshot_version = db.Column(db.Integer, default=0)
@@ -760,6 +762,7 @@ class Match(db.Model):
     review_status = db.Column(db.String(20), default='pending')
     review_reason = db.Column(db.Text, default='')
     scheduled_time = db.Column(db.DateTime, nullable=True)
+    scheduled_time_utc = db.Column(db.Boolean, nullable=False, server_default=db.text('0'))
     match_note = db.Column(db.Text, default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     finished_at = db.Column(db.DateTime, nullable=True)
@@ -1117,10 +1120,10 @@ class TournamentSettingsForm(FlaskForm):
     team_size = IntegerField('队伍满员人数', validators=[
         Optional(), NumberRange(min=1, max=20, message='队伍人数需在 1~20 之间')])
     allow_incomplete_teams = BooleanField('允许未满员队伍开赛')
-    registration_start = StringField('报名开始时间', validators=[DataRequired(message='请填写报名开始时间')])
-    registration_end = StringField('报名截止时间', validators=[DataRequired(message='请填写报名截止时间')])
-    tournament_start = StringField('比赛开始时间', validators=[DataRequired(message='请填写比赛开始时间')])
-    tournament_end = StringField('比赛结束时间', validators=[DataRequired(message='请填写比赛结束时间')])
+    registration_start = StringField('报名开始时间', validators=[Optional()])
+    registration_end = StringField('报名截止时间', validators=[Optional()])
+    tournament_start = StringField('比赛开始时间', validators=[Optional()])
+    tournament_end = StringField('比赛结束时间', validators=[Optional()])
     submit = SubmitField('保存设置')
 
 
@@ -1318,8 +1321,9 @@ def forbidden(error):
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('main.index'))
-    if not check_registration_open():
-        flash('报名已关闭，暂不接受新用户注册', 'warning')
+    denial = registration_denial(Tournament.get_active())
+    if denial:
+        flash(denial, 'warning')
         return redirect(url_for('main.index'))
     form = RegistrationForm()
     if form.validate_on_submit():
@@ -1496,6 +1500,10 @@ def select_roguelike():
             return redirect(url_for('captain.dashboard'))
         return redirect(url_for('player.dashboard'))
 
+    denial = registration_denial(Tournament.get_active())
+    if denial:
+        flash(denial, 'warning')
+        return redirect(url_for('player.dashboard'))
     team_id = team_membership.team_id
 
     # 统计队伍中每个肉鸽的已选人数
@@ -2023,8 +2031,9 @@ def dashboard():
 @captain_bp.route('/team/create', methods=['GET', 'POST'])
 @login_required_with_role('captain')
 def create_team():
-    if not check_registration_open():
-        flash('报名已关闭，暂不接受创建队伍', 'warning')
+    denial = registration_denial(Tournament.get_active())
+    if denial:
+        flash(denial, 'warning')
         return redirect(url_for('captain.dashboard'))
     if current_user.has_team():
         flash('您已创建队伍，不能创建多个队伍', 'warning')
@@ -2126,8 +2135,9 @@ def search_players():
     if team.is_full():
         flash('队伍已满员，不能再邀请成员', 'warning')
         return redirect(url_for('captain.dashboard'))
-    if not check_registration_open():
-        flash('报名已关闭，暂不接受邀请成员', 'warning')
+    denial = registration_denial(Tournament.get_active())
+    if denial:
+        flash(denial, 'warning')
         return redirect(url_for('captain.dashboard'))
     form = SearchPlayerForm()
     players = []
@@ -2409,7 +2419,6 @@ def dashboard():
     total_members = TeamMember.query.join(Team).filter(
         Team.tournament_id == tournament.id).count() if tournament else TeamMember.query.count()
     latest_teams = team_query.order_by(Team.created_at.desc()).limit(5).all()
-    setting = Setting.get_instance()
     # 赛事统计
     match_query = formal_query(Match, db)
     if tournament:
@@ -2424,7 +2433,6 @@ def dashboard():
                            total_players=total_players,
                            total_members=total_members,
                            latest_teams=latest_teams,
-                           registration_open=setting.registration_open,
                            tournament_status=get_tournament_status(),
                            tournament=tournament,
                            season_todos=get_season_todos(tournament),
@@ -2702,6 +2710,10 @@ def update_member_info(team_id, member_id):
     if member.team_id != team_id:
         flash('该成员不属于此队伍', 'danger')
         return redirect(url_for('admin.teams'))
+    roguelike = request.form.get('roguelike', '').strip()
+    if roguelike and roguelike != member.roguelike and roguelike not in {r.key for r in get_active_roguelikes()}:
+        flash('请选择已启用的赛道', 'danger')
+        return redirect(url_for('admin.team_detail', team_id=team_id))
 
     # 更新头像
     if 'avatar' in request.files and request.files['avatar'].filename:
@@ -2724,7 +2736,6 @@ def update_member_info(team_id, member_id):
             member.user.avatar = filename
 
     # 更新肉鸽
-    roguelike = request.form.get('roguelike', '').strip()
     if roguelike:
         member.roguelike = roguelike
 
@@ -2986,7 +2997,8 @@ def registration_control():
     elif request.method == 'GET':
         form.registration_open.data = 'open' if setting.registration_open else 'closed'
     return render_template('admin/registration_control.html',
-                           form=form, registration_open=setting.registration_open)
+                           form=form, registration_open=setting.registration_open,
+                           opening_blocked=not has_enabled_track())
 
 
 @admin_bp.route('/data-tools')
@@ -3176,11 +3188,15 @@ def start_tournament():
     if not tournament or tournament.status != 'registration':
         flash('当前状态不允许开始比赛', 'warning')
         return redirect(url_for('admin.dashboard'))
+    if not has_enabled_track():
+        from season_safety import SeasonError
+        raise SeasonError(NO_TRACKS)
 
     # 验证所有队伍是否满足参赛条件
     setting = Setting.get_instance()
     teams = Team.query.filter_by(tournament_id=tournament.id).all()
     team_size = get_team_size()
+    enabled_keys = {track.key for track in get_active_roguelikes()}
     errors = []
     for team in teams:
         members = TeamMember.query.filter_by(team_id=team.id).all()
@@ -3189,14 +3205,14 @@ def start_tournament():
             errors.append(f'队伍「{team.team_name}」人数不足（{len(members)}/{team_size}）')
         # 检查队员是否都选了肉鸽
         for m in members:
-            if not m.roguelike:
-                errors.append(f'队伍「{team.team_name}」的 {m.user.nickname} 未选择肉鸽')
+            if m.roguelike not in enabled_keys:
+                errors.append(f'队伍「{team.team_name}」的 {m.user.nickname} 须选择已启用的赛道')
 
     if errors:
         flash('以下队伍不满足参赛条件：<br>' + '<br>'.join(errors), 'danger')
         return redirect(url_for('admin.dashboard'))
 
-    # 锁定报名
+    # 开赛只变更阶段，报名由独立开关控制。
     tournament.status = 'matching'
     db.session.commit()
     log_system_action('start_tournament', '赛事进入匹配阶段')
@@ -3213,6 +3229,9 @@ def run_matching():
     if not tournament or tournament.status != 'matching':
         flash('当前状态不允许执行匹配', 'warning')
         return redirect(url_for('admin.dashboard'))
+    if not has_enabled_track():
+        from season_safety import SeasonError
+        raise SeasonError(NO_TRACKS)
     # 执行自动匹配
     result = _auto_match()
     if result['success']:
@@ -3266,47 +3285,61 @@ def tournament_settings():
     tournament = Tournament.get_active()
     setting = Setting.get_instance()
     form = TournamentSettingsForm()
+    fields = ('registration_start', 'registration_end', 'tournament_start', 'tournament_end')
+    time_format = '%Y-%m-%dT%H:%M'
+    original_values = {
+        name: format_event_time(getattr(tournament, name), tournament.window_times_utc, time_format)
+        if tournament else ''
+        for name in fields
+    }
+    legacy_dates = bool(tournament and not tournament.window_times_utc and any(original_values.values()))
     if form.validate_on_submit():
+        saved_values = {
+            name: (form[name].data or '').strip() if name in request.form else original_values[name]
+            for name in fields
+        }
+        confirm_legacy = request.form.get('confirm_legacy_windows') == '1'
+        updates = None
         try:
-            if not tournament:
-                tournament = Tournament(
-                    name=current_app.config['TOURNAMENT_NAME'],
-                    season_number=current_app.config['SEASON_NUMBER'],
-                    is_active=True)
-                db.session.add(tournament)
+            if legacy_dates and not confirm_legacy:
+                if saved_values != original_values:
+                    raise ValueError('请先确认旧日期已按页面时区核对')
+            else:
+                updates = {
+                    name: getattr(tournament, name)
+                    if tournament.window_times_utc and value == original_values[name]
+                    else parse_event_time(value)
+                    for name, value in saved_values.items()
+                }
+                for field, title in (('registration', '报名'), ('tournament', '比赛')):
+                    start, end = updates[f'{field}_start'], updates[f'{field}_end']
+                    if start is not None and end is not None and start >= end:
+                        raise ValueError(f'{title}结束时间须晚于开始时间')
+        except ValueError as error:
+            flash(str(error), 'danger')
+        else:
             new_name = (form.tournament_name.data or '').strip()
             if new_name:
                 tournament.name = new_name
-            # 队伍人数：留空（None）表示回退环境变量 TEAM_SIZE
             setting.team_size = form.team_size.data
             setting.allow_incomplete_teams = bool(form.allow_incomplete_teams.data)
-            tournament.registration_start = datetime.strptime(form.registration_start.data, '%Y-%m-%dT%H:%M')
-            tournament.registration_end = datetime.strptime(form.registration_end.data, '%Y-%m-%dT%H:%M')
-            tournament.tournament_start = datetime.strptime(form.tournament_start.data, '%Y-%m-%dT%H:%M')
-            tournament.tournament_end = datetime.strptime(form.tournament_end.data, '%Y-%m-%dT%H:%M')
+            if updates is not None:
+                for name, value in updates.items():
+                    setattr(tournament, name, value)
+                tournament.window_times_utc = True
             db.session.commit()
             flash('赛事设置已更新', 'success')
-        except ValueError:
-            flash('时间格式错误，请使用正确的日期时间格式', 'danger')
-        return redirect(url_for('admin.tournament_settings'))
+            return redirect(url_for('admin.tournament_settings'))
     elif request.method == 'GET':
-        form.tournament_name.data = setting.tournament_name or (
-            tournament.name if tournament else current_app.config['TOURNAMENT_NAME'])
+        form.tournament_name.data = tournament.name if tournament else current_app.config['TOURNAMENT_NAME']
         form.team_size.data = setting.team_size
         form.allow_incomplete_teams.data = bool(setting.allow_incomplete_teams)
-        if tournament:
-            if tournament.registration_start:
-                form.registration_start.data = tournament.registration_start.strftime('%Y-%m-%dT%H:%M')
-            if tournament.registration_end:
-                form.registration_end.data = tournament.registration_end.strftime('%Y-%m-%dT%H:%M')
-            if tournament.tournament_start:
-                form.tournament_start.data = tournament.tournament_start.strftime('%Y-%m-%dT%H:%M')
-            if tournament.tournament_end:
-                form.tournament_end.data = tournament.tournament_end.strftime('%Y-%m-%dT%H:%M')
+        for name, value in original_values.items():
+            form[name].data = value
     from data_tools import backup_inventory
     batches = backup_inventory()
     return render_template('admin/tournament_settings.html', form=form, tournament=tournament,
-                           latest_backup=batches[0] if batches else None,
+                           latest_backup=batches[0] if batches else None, legacy_dates=legacy_dates,
                            env_team_size=current_app.config['TEAM_SIZE'],
                            transition=transition_preview(tournament))
 
@@ -3317,6 +3350,11 @@ def new_season():
     from season_safety import switch_season
     result = switch_season()
     flash(f'已开启新赛季【{result.name}】，上届数据已归档保留', 'success')
+    for warning in window_warnings(result).values():
+        if warning:
+            flash(warning, 'warning')
+    if not has_enabled_track():
+        flash(f'{NO_TRACKS}，本届报名开关保持关闭', 'warning')
     return redirect(url_for('admin.tournament_settings'))
 
 
@@ -3341,7 +3379,6 @@ def finish_tournament():
         flash('当前状态不允许结束赛事', 'warning')
         return redirect(url_for('admin.dashboard'))
     tournament.status = 'finished'
-    tournament.tournament_end = datetime.utcnow()
     db.session.commit()
     log_system_action('finish_tournament', '赛事已结束')
     db.session.commit()
@@ -3360,8 +3397,10 @@ def resume_registration():
     if tournament.status == 'registration':
         flash('当前已在报名阶段', 'warning')
         return redirect(url_for('admin.dashboard'))
-    setting = Setting.get_instance()
-    setting.registration_open = True
+    if not has_enabled_track():
+        from season_safety import SeasonError
+        raise SeasonError(NO_TRACKS)
+    Setting.get_instance().registration_open = True
     tournament.status = 'registration'
     db.session.commit()
     log_system_action('resume_registration', '恢复报名阶段')
@@ -3400,8 +3439,9 @@ def review_match(match_id):
     """审核比赛结果"""
     from season_safety import root_match
     match = root_match(Match.query.get_or_404(match_id))
-    if match.settlement_state != 'settled' or match.status not in ('finished', 'forfeit_a', 'forfeit_b'):
-        flash('只能审核已确认结算的比赛', 'warning')
+    denial = admin_result_denial('review', match)
+    if denial:
+        flash(denial, 'warning')
         return redirect(url_for('admin.matches'))
     action = request.form.get('action')
     reason = request.form.get('reason', '')
@@ -3426,10 +3466,9 @@ def edit_match_result(match_id):
     from season_safety import (root_match, capture_match_rule, set_score, final_score, apply_outcome,
                                audit_state, json_dump, SeasonError)
     match = root_match(Match.query.get_or_404(match_id))
-    if match.status not in ('finished', 'forfeit_a', 'forfeit_b', 'submitted'):
-        raise SeasonError('该整场尚未提交齐备或结束')
-    if match.settlement_state == 'legacy':
-        raise SeasonError('旧数据须先核对结算和规则基准')
+    denial = admin_result_denial('edit', match)
+    if denial:
+        raise SeasonError(denial)
     before = audit_state(match)
     was_settled = match.settlement_state == 'settled'
     reason = request.form.get('reason', '').strip()
@@ -3475,14 +3514,8 @@ def match_score_logs(match_id):
 
 def _parse_duration(note):
     """从 match_note 解析时长（分钟）"""
-    if note and 'duration:' in note:
-        try:
-            # 格式: duration:120 或 duration:120|host:xxx
-            dur_part = note.split('duration:')[1].split('|')[0]
-            return int(dur_part)
-        except (ValueError, IndexError):
-            pass
-    return None
+    stored = re.search(r'(?<!\w)duration:(\d+)', note or '')
+    return int(stored[1]) if stored else None
 
 
 def _parse_slot_times(base_date):
@@ -3535,7 +3568,8 @@ def schedule():
                            teams=all_teams,
                            matches=all_matches,
                            roguelike_players=roguelike_players,
-                           roguelikes=get_active_roguelikes())
+                           roguelikes=get_active_roguelikes(), today=event_now().date().isoformat(),
+                           schedule_open=tournament is not None and tournament.status != 'finished')
 
 
 @admin_bp.route('/draw')
@@ -3563,10 +3597,12 @@ def draw():
 def schedule_api_matches():
     """返回当前赛事比赛数据（JSON，供日程表前端用）—— 含子分段和表演赛"""
     matches = active_match_query().order_by(
-        Match.scheduled_time.asc().nullslast(), Match.created_at.asc()
+        Match.scheduled_time.is_(None), Match.scheduled_time.asc(), Match.created_at.asc()
     ).all()
     result = []
     for m in matches:
+        duration = _parse_duration(m.match_note) or 60
+        protected = admin_schedule_protected(m)
         children_data = []
         for child in sorted(m.children, key=lambda c: c.scheduled_time or datetime.max):
             if child.scheduled_time:
@@ -3574,10 +3610,10 @@ def schedule_api_matches():
                 children_data.append({
                     'id': child.id,
                     'parent_id': m.id,
-                    'start': child.scheduled_time.isoformat(),
-                    'end': (child.scheduled_time + timedelta(minutes=dur)).isoformat(),
+                    'start': event_local(child.scheduled_time, child.scheduled_time_utc).isoformat(),
+                    'end': event_local(child.scheduled_time + timedelta(minutes=dur), child.scheduled_time_utc).isoformat(),
                     'className': m.status,
-                    'editable': True,
+                    'editable': not protected,
                 })
 
         result.append({
@@ -3589,12 +3625,16 @@ def schedule_api_matches():
             'roguelike': m.roguelike,
             'roguelike_name': get_roguelike_name(m.roguelike),
             'status': m.status,
-            'scheduled_time': m.scheduled_time.isoformat() if m.scheduled_time else None,
-            'duration_minutes': 0,
+            'scheduled_time': event_local(m.scheduled_time, m.scheduled_time_utc).isoformat() if m.scheduled_time else None,
+            'duration_minutes': duration,
+            'scheduled_end': event_local(
+                m.scheduled_time + timedelta(minutes=duration),
+                m.scheduled_time_utc).isoformat() if m.scheduled_time else None,
+            'protected': protected,
             'is_exhibition': False,
             'children': children_data,
         })
-    return jsonify({'matches': result})
+    return jsonify({'matches': result, 'timezone': current_app.config['EVENT_TIMEZONE']})
 
 
 @admin_bp.route('/schedule/manual-match', methods=['POST'])
@@ -3626,18 +3666,21 @@ def manual_match():
         flash('不能选择同一队伍的两名选手', 'danger')
         return redirect(url_for('admin.schedule'))
 
-    # 如果用户填了日期，用它；否则默认今天
-    date_str = request.form.get('match_date', '').strip()
-    if date_str:
-        try:
-            base_date = datetime.strptime(date_str, '%Y-%m-%d')
-        except ValueError:
-            base_date = datetime.now()
-    else:
-        base_date = datetime.now()
+    if roguelike not in {track.key for track in get_active_roguelikes()}:
+        flash('请选择已启用的赛道', 'danger')
+        return redirect(url_for('admin.schedule'))
+    if ma.roguelike != roguelike or mb.roguelike != roguelike:
+        flash('两名选手须已选择该赛道', 'danger')
+        return redirect(url_for('admin.schedule'))
 
-    base_date = base_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    slot_times = _parse_slot_times(base_date)
+    date_str = request.form.get('match_date', '').strip() or event_now().date().isoformat()
+    try:
+        base_date = datetime.strptime(date_str, '%Y-%m-%d')
+        slot_times = _parse_slot_times(base_date)
+        utc_slots = [parse_event_time(slot.isoformat(timespec='minutes')) for slot in slot_times]
+    except ValueError as error:
+        flash(f'比赛日期或时段无效：{error}', 'danger')
+        return redirect(url_for('admin.schedule'))
     duration_note = f"duration:{current_app.config['SCHEDULE_SLOT_MINUTES']}"
 
     # 主比赛（容器）
@@ -3652,7 +3695,7 @@ def manual_match():
     db.session.flush()
 
     # 按 SCHEDULE_SLOT_TIMES 生成分段；偶数段交换对阵方向（与原「下午+晚上」逻辑一致）
-    for index, slot_time in enumerate(slot_times, start=1):
+    for index, slot_time in enumerate(utc_slots, start=1):
         swap = index % 2 == 0
         db.session.add(Match(
             tournament_id=match.tournament_id,
@@ -3662,7 +3705,7 @@ def manual_match():
             team_b_id=ma.team_id if swap else mb.team_id,
             roguelike=roguelike, status='pending',
             parent_id=match.id,
-            scheduled_time=slot_time,
+            scheduled_time=slot_time, scheduled_time_utc=True,
             match_note=duration_note,
             segment_order=index,
         ))
@@ -3681,23 +3724,24 @@ def manual_match():
 def schedule_update_time():
     """更新比赛时间（拖拽日程后调用）"""
     match_id = request.form.get('match_id', type=int)
-    scheduled_time_str = request.form.get('scheduled_time', '').strip()
-
     match = Match.query.get_or_404(match_id)
-    if scheduled_time_str:
-        try:
-            match.scheduled_time = datetime.strptime(scheduled_time_str, '%Y-%m-%dT%H:%M')
-        except ValueError:
-            return jsonify({'error': '时间格式无效'}), 400
-    else:
-        match.scheduled_time = None
-
-    # 更新时长
+    times = request.form.get('scheduled_time')
     duration = request.form.get('duration_minutes', type=int)
-    if duration:
-        match.match_note = f'duration:{duration}'
-    elif not match.match_note or not match.match_note.startswith('duration:'):
-        match.match_note = f'duration:60'
+    if times is not None:
+        try:
+            match.scheduled_time = parse_event_time(times)
+        except ValueError as error:
+            return jsonify({'error': str(error)}), 400
+        match.scheduled_time_utc = True
+    if duration is not None:
+        if not 1 <= duration <= 1440:
+            return jsonify({'error': '时长须在 1 至 1440 分钟之间'}), 400
+        note = match.match_note or ''
+        if re.search(r'(?<!\w)duration:\d+', note):
+            note = re.sub(r'(?<!\w)duration:\d+', f'duration:{duration}', note, count=1)
+        else:
+            note = f'duration:{duration}' + (f'\n{note}' if note else '')
+        match.match_note = note
 
     db.session.commit()
     return jsonify({'success': True, 'match_id': match.id})
@@ -3708,7 +3752,9 @@ def schedule_update_time():
 def schedule_split_match():
     """剪断比赛：把一场比赛切分成多个独立时段，每段不同主次选手"""
     match_id = request.form.get('match_id', type=int)
-    parts = request.form.get('parts', type=int) or 2
+    parts = request.form.get('parts', default=2, type=int)
+    if parts not in (2, 3, 4):
+        return jsonify({'error': '只支持拆成 2 至 4 段'}), 400
 
     match = Match.query.get_or_404(match_id)
     if not match.scheduled_time:
@@ -3751,7 +3797,7 @@ def schedule_split_match():
                 match_type='match',
                 parent_id=match.id,
                 segment_order=i,
-                scheduled_time=seg_start,
+                scheduled_time=seg_start, scheduled_time_utc=match.scheduled_time_utc,
                 match_note=f'duration:{seg_dur}|host:{host_name}',
             )
             db.session.add(child)
@@ -3777,7 +3823,7 @@ def schedule_insert_exhibition():
     scheduled_time = None
     if scheduled_time_str:
         try:
-            scheduled_time = datetime.strptime(scheduled_time_str, '%Y-%m-%dT%H:%M')
+            scheduled_time = parse_event_time(scheduled_time_str)
         except ValueError:
             return jsonify({'error': '时间格式无效'}), 400
 
@@ -3792,7 +3838,7 @@ def schedule_insert_exhibition():
         match_type='exhibition',
         parent_id=parent.id,
         segment_order=len(parent.children) + 1,
-        scheduled_time=scheduled_time,
+        scheduled_time=scheduled_time, scheduled_time_utc=True,
         match_note=f'exhibition:{player_name}|duration:{duration_minutes}',
     )
     db.session.add(match)
@@ -3814,7 +3860,7 @@ def schedule_quick_exhibition():
     scheduled_time = None
     if scheduled_time_str:
         try:
-            scheduled_time = datetime.strptime(scheduled_time_str, '%Y-%m-%dT%H:%M')
+            scheduled_time = parse_event_time(scheduled_time_str)
         except ValueError:
             pass
 
@@ -3825,7 +3871,7 @@ def schedule_quick_exhibition():
         team_a_id=None, team_b_id=None,
         roguelike=roguelike,
         status='pending',
-        scheduled_time=scheduled_time,
+        scheduled_time=scheduled_time, scheduled_time_utc=True,
         match_note=f'duration:{duration_minutes}',
     )
     db.session.add(match)
@@ -3955,31 +4001,41 @@ def match_detail(match_id):
     if not current_user.is_admin() and not is_participant:
         flash('您没有权限查看此比赛', 'danger')
         return redirect(url_for('tournament.my_matches'))
-    return render_template('tournament/match_detail.html',
-                           match=match,
-                           is_participant=is_participant)
+    season = Tournament.get_active()
+    allowed = {action: player_match_denial(action, match, current_user.id, season) is None
+               for action in ('schedule_match', 'confirm_schedule', 'submit_result', 'forfeit_match', 'send_match_note')}
+    return render_template('tournament/match_detail.html', match=match,
+                           is_participant=is_participant, allowed=allowed,
+                           is_current_match=season is not None and season.id == match.tournament_id)
+
+
+def require_player_match_action(match_id, action):
+    from season_safety import root_match, SeasonError
+
+    match = root_match(Match.query.get_or_404(match_id))
+    denial = player_match_denial(action, match, current_user.id, Tournament.get_active())
+    if denial:
+        raise SeasonError(*denial)
+    return match
 
 
 @tournament_bp.route('/match/<int:match_id>/schedule', methods=['GET', 'POST'])
 @login_required_with_role('player', 'captain')
 def schedule_match(match_id):
     """确认比赛时间（线下商讨后在此确定）"""
-    match = Match.query.get_or_404(match_id)
-    if current_user.id not in (match.player_a_id, match.player_b_id):
-        flash('无权限操作', 'danger')
-        return redirect(url_for('tournament.my_matches'))
-    if match.status not in ('pending', 'scheduled'):
-        flash('当前状态不允许修改时间', 'warning')
-        return redirect(url_for('tournament.match_detail', match_id=match_id))
-
+    match = require_player_match_action(match_id, 'schedule_match')
     is_a = current_user.id == match.player_a_id
     already_confirmed = match.confirmed_a if is_a else match.confirmed_b
 
     form = MatchScheduleForm()
     if form.validate_on_submit():
         try:
-            scheduled_time = datetime.strptime(form.scheduled_time.data, '%Y-%m-%d %H:%M')
+            scheduled_time = parse_event_time(form.scheduled_time.data.replace(' ', 'T'))
+            if match.scheduled_time != scheduled_time or not match.scheduled_time_utc:
+                match.confirmed_a = False
+                match.confirmed_b = False
             match.scheduled_time = scheduled_time
+            match.scheduled_time_utc = True
             # 设置时间的人自动视为已确认
             if is_a:
                 match.confirmed_a = True
@@ -4004,13 +4060,7 @@ def schedule_match(match_id):
 @login_required_with_role('player', 'captain')
 def confirm_schedule(match_id):
     """确认对手设定的比赛时间"""
-    match = Match.query.get_or_404(match_id)
-    if current_user.id not in (match.player_a_id, match.player_b_id):
-        flash('无权限操作', 'danger')
-        return redirect(url_for('tournament.my_matches'))
-    if match.status not in ('scheduled',):
-        flash('当前状态不允许确认时间', 'warning')
-        return redirect(url_for('tournament.match_detail', match_id=match_id))
+    match = require_player_match_action(match_id, 'confirm_schedule')
     is_a = current_user.id == match.player_a_id
     if is_a:
         match.confirmed_a = True
@@ -4028,12 +4078,8 @@ def confirm_schedule(match_id):
 @tournament_bp.route('/match/<int:match_id>/forfeit', methods=['POST'])
 @login_required_with_role('player', 'captain')
 def forfeit_match(match_id):
-    from season_safety import root_match, capture_match_rule, set_score, SeasonError, json_dump
-    match = root_match(Match.query.get_or_404(match_id))
-    if current_user.id not in (match.player_a_id, match.player_b_id):
-        abort(403)
-    if match.status not in ('confirmed', 'submitted') or match.settlement_state == 'settled':
-        raise SeasonError('当前比赛状态不允许弃权')
+    from season_safety import capture_match_rule, set_score, json_dump
+    match = require_player_match_action(match_id, 'forfeit_match')
     reason = request.form.get('reason', '').strip() or '选手主动弃权'
     capture_match_rule(match)
     side = 'a' if current_user.id == match.player_a_id else 'b'
@@ -4057,17 +4103,14 @@ def forfeit_match(match_id):
 @login_required_with_role('player', 'captain')
 def send_match_note(match_id):
     """发送比赛留言"""
-    match = Match.query.get_or_404(match_id)
-    if current_user.id not in (match.player_a_id, match.player_b_id):
-        flash('无权限操作', 'danger')
-        return redirect(url_for('tournament.my_matches'))
+    match = require_player_match_action(match_id, 'send_match_note')
     form = MatchNoteForm()
     if form.validate_on_submit():
         note = form.match_note.data
         if match.match_note:
-            match.match_note += f'\n[{datetime.now().strftime("%m-%d %H:%M")}] {current_user.nickname}: {note}'
+            match.match_note += f'\n[{event_now().strftime("%m-%d %H:%M")}] {current_user.nickname}: {note}'
         else:
-            match.match_note = f'[{datetime.now().strftime("%m-%d %H:%M")}] {current_user.nickname}: {note}'
+            match.match_note = f'[{event_now().strftime("%m-%d %H:%M")}] {current_user.nickname}: {note}'
         db.session.commit()
         flash('留言已发送', 'success')
     return redirect(url_for('tournament.match_detail', match_id=match_id))
@@ -4076,16 +4119,9 @@ def send_match_note(match_id):
 @tournament_bp.route('/match/<int:match_id>/submit-result', methods=['GET', 'POST'])
 @login_required_with_role('player', 'captain')
 def submit_result(match_id):
-    from season_safety import root_match, capture_match_rule, set_score, SeasonError
-    match = root_match(Match.query.get_or_404(match_id))
-    if current_user.id not in (match.player_a_id, match.player_b_id):
-        abort(403)
+    from season_safety import capture_match_rule, set_score, SeasonError
+    match = require_player_match_action(match_id, 'submit_result')
     side = 'a' if current_user.id == match.player_a_id else 'b'
-    if (match.settlement_state == 'settled' or match.status not in ('confirmed', 'submitted', 'forfeit_a', 'forfeit_b')
-            or match.forfeit_side == side):
-        raise SeasonError('当前整场状态不允许提交')
-    if getattr(match, 'player_' + side + '_score') is not None:
-        raise SeasonError('该选手已经提交过整场成绩')
     if request.method == 'POST':
         # Validate before touching uploads; duplicates and archived IDs create no files.
         capture_match_rule(match)
@@ -4153,6 +4189,8 @@ def create_app(config_name=None, overrides=None):
         raise RuntimeError('生产环境必须显式设置 ADMIN_PASSWORD')
     if overrides:
         app.config.update(overrides)
+    with app.app_context():
+        event_zone()  # Fail at startup on a misspelled timezone.
     from sqlalchemy.engine import make_url
     uri = make_url(app.config['SQLALCHEMY_DATABASE_URI'])
     if config_name == 'testing':
@@ -4194,6 +4232,9 @@ def create_app(config_name=None, overrides=None):
     app.jinja_env.globals['get_roguelike_name'] = get_roguelike_name
     app.jinja_env.globals['get_roguelike_by_key'] = get_roguelike_by_key
     app.jinja_env.globals['get_tournament_status'] = get_tournament_status
+    app.jinja_env.filters['event_time'] = format_event_time
+    app.jinja_env.globals['admin_result_denial'] = admin_result_denial
+    app.jinja_env.globals['admin_schedule_protected'] = admin_schedule_protected
     app.jinja_env.globals['get_active_roguelikes'] = get_active_roguelikes
     app.jinja_env.globals['_parse_duration'] = _parse_duration
     app.jinja_env.globals['timedelta'] = timedelta
@@ -4227,6 +4268,9 @@ def create_app(config_name=None, overrides=None):
         tournament = Tournament.get_active()
         return {
             'event_name': get_event_name(),
+            'registration_problem': registration_denial(tournament),
+            'no_track_message': NO_TRACKS,
+            'active_season_id': tournament.id if tournament else None,
             'labels': labels,
             'team_size': get_team_size(),
             'theme': {

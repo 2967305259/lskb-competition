@@ -24,13 +24,13 @@
                     
                     <div class="mb-4">
                         <p class="text-muted">
-                            选择是否开放报名。关闭报名后，将禁止以下操作：
+                            报名由管理员手动控制。关闭后暂停以下操作，已安排比赛仍按比赛状态处理成绩。
                         </p>
                         <ul class="text-muted small">
                             <li>注册新账号</li>
                             <li>创建新队伍</li>
                             <li>邀请新成员</li>
-                            <li>修改报名信息</li>
+                            <li>处理邀请和申请、选赛道、分配位置</li>
                         </ul>
                     </div>
                     
@@ -44,11 +44,20 @@
                                 {% endfor %}
                             </div>
                         {% else %}
+                            {% if opening_blocked %}
+                            <select id="registration_open" name="registration_open" class="form-select">
+                                <option value="closed">关闭报名</option>
+                                <option value="open" disabled>开放报名（需要启用赛道）</option>
+                            </select>
+                            {% else %}
                             {{ form.registration_open(class="form-select") }}
+                            {% endif %}
                         {% endif %}
                     </div>
                     
-                    {% if registration_open %}
+                    {% if opening_blocked %}
+                        <div class="alert alert-warning">没有启用赛道，当前禁止开放参赛。<a href="{{ url_for('admin.roguelikes') }}">设置赛道</a></div>
+                    {% elif registration_open %}
                         <div class="alert alert-success mb-3">
                             <i class="fas fa-check-circle"></i> 当前报名已开放
                         </div>

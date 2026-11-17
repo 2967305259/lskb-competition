@@ -104,19 +104,31 @@
             <!-- 快速操作 -->
             <div class="row">
                 <div class="col-6 mb-3">
-                    <a href="{{ url_for('captain.search_players') }}" class="btn btn-primary w-100">
-                        <i class="fas fa-user-plus"></i> 邀请成员
-                    </a>
+                    {% if not registration_problem %}
+                        <a href="{{ url_for('captain.search_players') }}" class="btn btn-primary w-100">
+                            <i class="fas fa-user-plus"></i> 邀请成员
+                        </a>
+                    {% else %}
+                        <span class="text-muted small">{{ registration_problem }}</span>
+                    {% endif %}
                 </div>
                 <div class="col-6 mb-3">
                     {% if my_membership and my_membership.roguelike %}
-                        <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-outline-primary w-100">
-                            <i class="fas fa-dragon"></i> 修改{{ labels.track }}
-                        </a>
+                        {% if not registration_problem %}
+                            <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-outline-primary w-100">
+                                <i class="fas fa-dragon"></i> 修改{{ labels.track }}
+                            </a>
+                        {% else %}
+                            <span class="text-muted small">{{ registration_problem }}</span>
+                        {% endif %}
                     {% else %}
-                        <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-success w-100">
-                            <i class="fas fa-dragon"></i> 选择{{ labels.track }}
-                        </a>
+                        {% if not registration_problem %}
+                            <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-success w-100">
+                                <i class="fas fa-dragon"></i> 选择{{ labels.track }}
+                            </a>
+                        {% else %}
+                            <span class="text-muted small">{{ registration_problem }}</span>
+                        {% endif %}
                     {% endif %}
                 </div>
                 <div class="col-12 mb-3">
@@ -151,9 +163,13 @@
                     </p>
                     <h5>您还未创建队伍</h5>
                     <p class="text-muted mb-4">创建队伍后即可邀请其他选手</p>
-                    <a href="{{ url_for('captain.create_team') }}" class="btn btn-primary">
-                        <i class="fas fa-plus"></i> 创建队伍
-                    </a>
+                    {% if not registration_problem %}
+                        <a href="{{ url_for('captain.create_team') }}" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> 创建队伍
+                        </a>
+                    {% else %}
+                        <span class="text-muted small">{{ registration_problem }}</span>
+                    {% endif %}
                 </div>
             </div>
         {% endif %}

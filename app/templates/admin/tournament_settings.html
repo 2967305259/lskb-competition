@@ -11,7 +11,7 @@
         <h2>
             <i class="fas fa-cog"></i> 赛事设置
         </h2>
-        <p class="text-muted">设置赛事名称、报名时间和比赛时间</p>
+        <p class="text-muted">计划日期按 {{ config.EVENT_TIMEZONE }} 填写。开放报名和赛事阶段由管理员手动控制。</p>
     </div>
 </div>
 
@@ -59,14 +59,14 @@
                         <div class="col-md-6">
                             <label class="form-label">报名开始时间</label>
                             <input type="datetime-local" class="form-control" name="registration_start"
-                                   value="{{ form.registration_start.data if form.registration_start.data else '' }}" required>
-                            <small class="text-muted">选手可以开始注册报名的时间</small>
+                                   value="{{ form.registration_start.data if form.registration_start.data else '' }}">
+                            <small class="text-muted">计划开放报名时间</small>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">报名截止时间</label>
                             <input type="datetime-local" class="form-control" name="registration_end"
-                                   value="{{ form.registration_end.data if form.registration_end.data else '' }}" required>
-                            <small class="text-muted">报名关闭时间，截止后无法注册</small>
+                                   value="{{ form.registration_end.data if form.registration_end.data else '' }}">
+                            <small class="text-muted">计划截止时间</small>
                         </div>
                     </div>
 
@@ -75,24 +75,30 @@
                         <div class="col-md-6">
                             <label class="form-label">比赛开始时间</label>
                             <input type="datetime-local" class="form-control" name="tournament_start"
-                                   value="{{ form.tournament_start.data if form.tournament_start.data else '' }}" required>
+                                   value="{{ form.tournament_start.data if form.tournament_start.data else '' }}">
                             <small class="text-muted">正式比赛开始的时间</small>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">比赛结束时间</label>
                             <input type="datetime-local" class="form-control" name="tournament_end"
-                                   value="{{ form.tournament_end.data if form.tournament_end.data else '' }}" required>
+                                   value="{{ form.tournament_end.data if form.tournament_end.data else '' }}">
                             <small class="text-muted">比赛预计结束的时间</small>
                         </div>
                     </div>
 
+                    {% if legacy_dates %}
+                    <label class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="confirm_legacy_windows" value="1">
+                        <span class="form-check-label">我已按 {{ config.EVENT_TIMEZONE }} 核对旧日期，同意将本表日期保存为 UTC</span>
+                    </label>
+                    {% endif %}
                     {% if tournament %}
                     <div class="alert alert-info mb-3">
-                        <strong>当前设置：</strong><br>
-                        报名：{{ tournament.registration_start.strftime('%Y-%m-%d %H:%M') if tournament.registration_start else '未设置' }}
-                        ~ {{ tournament.registration_end.strftime('%Y-%m-%d %H:%M') if tournament.registration_end else '未设置' }}<br>
-                        比赛：{{ tournament.tournament_start.strftime('%Y-%m-%d %H:%M') if tournament.tournament_start else '未设置' }}
-                        ~ {{ tournament.tournament_end.strftime('%Y-%m-%d %H:%M') if tournament.tournament_end else '未设置' }}
+                        <strong>当前设置（{{ "旧日期时区待核对" if legacy_dates else config.EVENT_TIMEZONE }}）</strong><br>
+                        报名：{{ (tournament.registration_start|event_time(tournament.window_times_utc, '%Y-%m-%d %H:%M')) if tournament.registration_start else '未设置' }}
+                        ~ {{ (tournament.registration_end|event_time(tournament.window_times_utc, '%Y-%m-%d %H:%M')) if tournament.registration_end else '未设置' }}<br>
+                        比赛：{{ (tournament.tournament_start|event_time(tournament.window_times_utc, '%Y-%m-%d %H:%M')) if tournament.tournament_start else '未设置' }}
+                        ~ {{ (tournament.tournament_end|event_time(tournament.window_times_utc, '%Y-%m-%d %H:%M')) if tournament.tournament_end else '未设置' }}
                     </div>
                     {% endif %}
 
@@ -144,10 +150,12 @@
                                 <label class="form-check">
                                     <input class="form-check-input" type="checkbox" name="inherit_registration_window" value="1">
                                     <span class="form-check-label">继承报名起止时间</span>
+                                    {% if transition and transition.date_warnings.registration %}<small class="text-warning d-block">{{ transition.date_warnings.registration }}</small>{% endif %}
                                 </label>
                                 <label class="form-check">
                                     <input class="form-check-input" type="checkbox" name="inherit_tournament_window" value="1">
                                     <span class="form-check-label">继承比赛起止时间</span>
+                                    {% if transition and transition.date_warnings.tournament %}<small class="text-warning d-block">{{ transition.date_warnings.tournament }}</small>{% endif %}
                                 </label>
                                 <label class="form-check">
                                     <input class="form-check-input" type="checkbox" name="inherit_advance_count" value="1">
@@ -170,6 +178,9 @@
                             </div>
                         </div>
                     </div>
+                    {% if transition and not transition.has_enabled_track %}
+                    <p class="alert alert-warning mt-3">没有启用赛道。可以换季，新一届报名初始关闭。</p>
+                    {% endif %}
                     {% if transition and transition.unfinished %}
                     <div class="alert alert-warning mt-3">
                         <strong>未结算整场：</strong>{% for m in transition.unfinished %} #{{ m.id }}（{{ m.status }}）{% endfor %}
