@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% from "_macros.html" import render_pagination, invitation_status_badge, join_request_status_badge %}
+{% set title = ('发出的邀请' if captain else '收到的邀请') if invitation else ('加入申请' if captain else '我的申请') %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <h2 class="mb-3">{{ title }}</h2>
+    <nav class="nav nav-pills gap-1 mb-3" aria-label="赛季范围">
+        {% for key, label in [('current', '本届'), ('history', '往届'), ('unassigned', '归属待核对')] %}
+        <a class="nav-link{{ ' active' if key == scope else '' }}"
+           {% if key == scope %}aria-current="page"{% endif %}
+           href="{{ url_for(request.endpoint, season=key) }}">{{ label }}</a>
+        {% endfor %}
+    </nav>
+
+    {% if scope == 'history' %}
+        <p class="text-muted">往届已处理记录，只读。</p>
+    {% elif scope == 'unassigned' %}
+        <p class="text-muted">这些记录的队伍尚未确认所属赛季，只读。</p>
+    {% elif not active_season_id %}
+        <p class="text-muted">当前没有活跃赛季。</p>
+    {% elif registration_problem %}
+        <p class="text-muted">{{ registration_problem }}</p>
+    {% endif %}
+
+    {% if records %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    {% if scope == 'history' %}<th scope="col">赛事届次</th>{% endif %}
+                    <th scope="col">队伍</th>
+                    {% if captain %}<th scope="col">{{ '受邀选手' if invitation else '申请人' }}</th>{% endif %}
+                    <th scope="col">{{ '邀请时间' if invitation else '申请时间' }}</th>
+                    <th scope="col">状态</th>
+                    {% if scope == 'current' and (invitation or captain) %}<th scope="col">操作</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in records %}
+                <tr>
+                    {% if scope == 'history' %}<td>第 {{ record.team.tournament.season_number }} 届 · {{ record.team.tournament.name }}</td>{% endif %}
+                    <td>
+                        {{ record.team.team_name }}
+                        {% if invitation and not captain and scope == 'current' %}
+                            <small class="text-muted d-block">
+                                队长 {{ record.team.captain.nickname if record.team.captain else '—' }}
+                                · {{ record.team.get_member_count() }}/{{ team_size }} 人
+                            </small>
+                        {% endif %}
+                    </td>
+                    {% if captain %}
+                    <td>{{ record.user.nickname ~ ' (@' ~ record.user.username ~ ')' if record.user else '—' }}</td>
+                    {% endif %}
+                    <td>{{ record.created_at|event_time or '—' }}</td>
+                    <td>{{ invitation_status_badge(record.status) if invitation else join_request_status_badge(record.status) }}</td>
+                    {% if scope == 'current' and (invitation or captain) %}
+                    <td>
+                        {% if record.status == 'pending' and not registration_problem %}
+                            {% if invitation and captain %}
+                                {% set actions = [(url_for('captain.cancel_invitation', invitation_id=record.id), '取消邀请', 'outline-danger')] %}
+                            {% elif invitation %}
+                                {% set actions = [(url_for('player.accept_invitation', invitation_id=record.id), '接受', 'outline-success'),
+                                                  (url_for('player.reject_invitation', invitation_id=record.id), '拒绝', 'outline-danger')] %}
+                            {% else %}
+                                {% set actions = [(url_for('captain.accept_join_request', request_id=record.id), '通过', 'outline-success'),
+                                                  (url_for('captain.reject_join_request', request_id=record.id), '拒绝', 'outline-danger')] %}
+                            {% endif %}
+                            {% for action, label, style in actions %}
+                            <form method="post" action="{{ action }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-{{ style }}"
+                                        {% if invitation %}onclick="return confirm('确定{{ label }}？');"{% endif %}>{{ label }}</button>
+                            </form>
+                            {% endfor %}
+                        {% else %}—{% endif %}
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {{ render_pagination(pagination, request.endpoint, {'season': scope}) }}
+    {% else %}
+        <p class="text-muted">{{ '本届暂无记录' if scope == 'current' else ('暂无往届已处理记录' if scope == 'history' else '暂无归属待核对记录') }}</p>
+    {% endif %}
+
+    {% if not invitation and not captain and scope == 'current' and not registration_problem %}
+    <a href="{{ url_for('player.search_teams') }}" class="btn btn-primary">搜索队伍</a>
+    {% endif %}
+</div>
+{% endblock %}

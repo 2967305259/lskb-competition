@@ -102,7 +102,8 @@
 {% macro join_request_status_badge(status) %}
 {% if status == 'pending' %}<span class="badge bg-warning">待审核</span>
 {% elif status == 'accepted' %}<span class="badge bg-success">已通过</span>
-{% else %}<span class="badge bg-danger">已拒绝</span>{% endif %}
+{% elif status == 'rejected' %}<span class="badge bg-danger">已拒绝</span>
+{% else %}<span class="badge bg-secondary">状态待核对</span>{% endif %}
 {% endmacro %}
 
 

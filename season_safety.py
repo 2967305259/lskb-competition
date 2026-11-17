@@ -380,8 +380,11 @@ def _guard_request():
     for key, model in (('invitation_id', a.Invitation), ('request_id', a.JoinRequest)):
         if key in args:
             item = a.db.session.get(model, args[key])
-            if item is None:
+            if item is None or item.team is None:
                 abort(404)
+            owner = item.user_id if endpoint.startswith('player.') else item.team.captain_id
+            if owner != current_user.id:
+                abort(403)
             require_writable(item.team.tournament_id)
     if 'item_id' in args:
         item = a.db.session.get(a.CarouselItem, args['item_id'])

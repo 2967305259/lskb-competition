@@ -31,6 +31,7 @@ from wtforms.validators import (DataRequired, Length, EqualTo, ValidationError,
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.orm import contains_eager, joinedload
 
 # 业务规则模块（积分/倍率、自动匹配）；模块内部延迟导入本文件的模型，无循环依赖
 from scoring import (calculate_multiplier, get_team_points, get_team_rankings, qualification,
@@ -421,7 +422,7 @@ def get_advanced_teams(rankings=None):
 
 
 def active_team_query():
-    """当前赛事的队伍查询；无活跃赛事时返回全部（兼容空库）"""
+    """当前赛事的队伍查询；无活跃赛事时返回空集合。"""
     tournament = Tournament.get_active()
     return Team.query.filter(Team.tournament_id == tournament.id) if tournament else Team.query.filter(db.false())
 
@@ -442,6 +443,35 @@ def active_match_query(*criteria):
 def in_current_season(team):
     tournament = Tournament.get_active()
     return bool(team and tournament and team.tournament_id == tournament.id)
+
+
+def participation_query(model, *, captain=False):
+    """Keep invitation and application ownership tied to the target team."""
+    owner = Team.captain_id if captain else model.user_id
+    return model.query.join(Team, model.team_id == Team.id).filter(owner == current_user.id)
+
+
+def current_participation(query, season):
+    return query.filter(Team.tournament_id == season.id if season else db.false())
+
+
+def participation_records(model, *, captain=False):
+    """Render one page of owned records for the requested season scope."""
+    scope = request.args.get('season', 'current')
+    query = participation_query(model, captain=captain).outerjoin(Tournament, Team.tournament_id == Tournament.id)
+    if scope == 'current':
+        query = current_participation(query, Tournament.get_active())
+    elif scope == 'history':
+        query = query.filter(Tournament.is_active.is_(False), model.status.in_(('accepted', 'rejected')))
+    elif scope == 'unassigned':
+        query = query.filter(Tournament.id.is_(None))
+    else:
+        abort(400, description='season 必须是 current、history 或 unassigned')
+    pager = query.options(contains_eager(model.team).contains_eager(Team.tournament), joinedload(model.user)).order_by(
+        Tournament.season_number.desc(), model.created_at.desc(), model.id.desc()
+    ).paginate(page=request.args.get('page', 1, type=int), per_page=20)
+    return render_template('participation_records.html', records=pager.items, pagination=pager,
+                           scope=scope, captain=captain, invitation=model is Invitation)
 
 
 # ============================================================
@@ -1389,13 +1419,9 @@ def change_password():
 @login_required_with_role('player', 'captain')
 def dashboard():
     tournament = Tournament.get_active()
-    invitation_query = Invitation.query.join(Team, Invitation.team_id == Team.id).filter(
-        Invitation.user_id == current_user.id, Invitation.status == 'pending')
-    if tournament:
-        invitation_query = invitation_query.filter(
-            db.or_(Team.tournament_id == tournament.id, Team.tournament_id.is_(None)))
-    invitations = invitation_query.all()
-    team_membership = current_user.get_team_membership()
+    invitations = current_participation(participation_query(Invitation), tournament).filter(
+        Invitation.status == 'pending').all()
+    team_membership = current_user.get_team_membership() if tournament else None
     team = team_membership.team if team_membership else None
     return render_template('player/dashboard.html',
                            invitations=invitations,
@@ -1406,34 +1432,15 @@ def dashboard():
 @player_bp.route('/invitations')
 @login_required_with_role('player', 'captain')
 def invitations():
-    page = request.args.get('page', 1, type=int)
-    query = Invitation.query.join(Team, Invitation.team_id == Team.id).filter(
-        Invitation.user_id == current_user.id)
-    tournament = Tournament.get_active()
-    if tournament:
-        query = query.filter(
-            db.or_(Team.tournament_id == tournament.id, Team.tournament_id.is_(None)))
-    pagination = query.paginate(page=page, per_page=20)
-    return render_template('player/invitations.html',
-                           invitations=pagination.items,
-                           pagination=pagination)
+    return participation_records(Invitation)
 
 
 @player_bp.route('/invitation/<int:invitation_id>/accept', methods=['POST'])
 @login_required_with_role('player', 'captain')
 def accept_invitation(invitation_id):
     invitation = Invitation.query.get_or_404(invitation_id)
-    if invitation.user_id != current_user.id:
-        flash('无权限操作', 'danger')
-        return redirect(url_for('player.invitations'))
     if invitation.status != 'pending':
         flash('邀请已处理', 'warning')
-        return redirect(url_for('player.invitations'))
-    # 拒绝跨赛季写入：已归档赛事的队伍不再接受新成员
-    if not in_current_season(invitation.team):
-        invitation.status = 'rejected'
-        db.session.commit()
-        flash('该邀请属于已结束的赛事，无法接受', 'warning')
         return redirect(url_for('player.invitations'))
     # 检查是否已在其他队伍中
     if current_user.has_team() or current_user.get_team_membership():
@@ -1462,9 +1469,6 @@ def accept_invitation(invitation_id):
 @login_required_with_role('player', 'captain')
 def reject_invitation(invitation_id):
     invitation = Invitation.query.get_or_404(invitation_id)
-    if invitation.user_id != current_user.id:
-        flash('无权限操作', 'danger')
-        return redirect(url_for('player.invitations'))
     if invitation.status != 'pending':
         flash('邀请已处理', 'warning')
         return redirect(url_for('player.invitations'))
@@ -1701,17 +1705,15 @@ def time_preferences():
 @login_required_with_role('player', 'captain')
 def search_teams():
     """选手搜索队伍并申请加入"""
-    if current_user.has_team() or current_user.get_team_membership():
+    tournament = Tournament.get_active()
+    if tournament and (current_user.has_team() or current_user.get_team_membership()):
         flash('您已在队伍中，不能申请加入其他队伍', 'warning')
         return redirect(url_for('player.dashboard'))
     form = SearchPlayerForm()
     teams = []
     if form.validate_on_submit():
         keyword = form.search_keyword.data
-        query = Team.query.filter(Team.team_name.ilike(f'%{keyword}%'))
-        tournament = Tournament.get_active()
-        if tournament:
-            query = query.filter(Team.tournament_id == tournament.id)
+        query = active_team_query().filter(Team.team_name.ilike(f'%{keyword}%'))
         for team in query.all():
             if not team.is_full():
                 # 检查是否已有待处理申请
@@ -1732,9 +1734,6 @@ def request_join(team_id):
         flash('您已在队伍中', 'warning')
         return redirect(url_for('player.dashboard'))
     team = Team.query.get_or_404(team_id)
-    if not in_current_season(team):
-        flash('该队伍属于已结束的赛事，无法申请加入', 'danger')
-        return redirect(url_for('player.search_teams'))
     if team.is_full():
         flash('队伍已满员', 'danger')
         return redirect(url_for('player.search_teams'))
@@ -1760,11 +1759,7 @@ def request_join(team_id):
 @player_bp.route('/my-join-requests')
 @login_required_with_role('player', 'captain')
 def my_join_requests():
-    """查看我的申请记录"""
-    requests = JoinRequest.query.filter_by(
-        user_id=current_user.id
-    ).order_by(JoinRequest.created_at.desc()).all()
-    return render_template('player/join_requests.html', requests=requests)
+    return participation_records(JoinRequest)
 
 
 # ============================================================
@@ -1775,16 +1770,7 @@ def my_join_requests():
 @captain_bp.route('/join-requests')
 @login_required_with_role('captain')
 def join_requests():
-    """队长查看加入申请"""
-    team = current_user.team
-    if not team:
-        flash('您还未创建队伍', 'warning')
-        return redirect(url_for('captain.dashboard'))
-    requests = JoinRequest.query.filter_by(
-        team_id=team.id
-    ).order_by(JoinRequest.created_at.desc()).all()
-    return render_template('captain/join_requests.html',
-                           requests=requests, team=team)
+    return participation_records(JoinRequest, captain=True)
 
 
 @captain_bp.route('/join-request/<int:request_id>/accept', methods=['POST'])
@@ -1792,10 +1778,7 @@ def join_requests():
 def accept_join_request(request_id):
     """队长接受加入申请"""
     join_req = JoinRequest.query.get_or_404(request_id)
-    team = current_user.team
-    if not team or join_req.team_id != team.id:
-        flash('无权限操作', 'danger')
-        return redirect(url_for('captain.join_requests'))
+    team = join_req.team
     if join_req.status != 'pending':
         flash('该申请已处理', 'warning')
         return redirect(url_for('captain.join_requests'))
@@ -1824,10 +1807,6 @@ def accept_join_request(request_id):
 def reject_join_request(request_id):
     """队长拒绝加入申请"""
     join_req = JoinRequest.query.get_or_404(request_id)
-    team = current_user.team
-    if not team or join_req.team_id != team.id:
-        flash('无权限操作', 'danger')
-        return redirect(url_for('captain.join_requests'))
     if join_req.status != 'pending':
         flash('该申请已处理', 'warning')
         return redirect(url_for('captain.join_requests'))
@@ -2006,12 +1985,13 @@ def api_player_by_name(name):
 @captain_bp.route('/dashboard')
 @login_required_with_role('captain')
 def dashboard():
-    team = current_user.team
+    tournament = Tournament.get_active()
+    team = current_user.team if tournament else None
     if not team:
         return render_template('captain/dashboard.html', team=None)
     members = TeamMember.query.filter_by(team_id=team.id).all()
-    pending_invitations = Invitation.query.filter_by(
-        team_id=team.id, status='pending').all()
+    pending_invitations = current_participation(participation_query(Invitation, captain=True), tournament).filter(
+        Invitation.status == 'pending').all()
     # 队长自己的参赛信息
     my_membership = TeamMember.query.filter_by(
         team_id=team.id, user_id=current_user.id).first()
@@ -2121,7 +2101,7 @@ def assign_position():
 @captain_bp.route('/invite/search', methods=['GET', 'POST'])
 @login_required_with_role('captain')
 def search_players():
-    team = current_user.team
+    team = active_team_query().filter_by(captain_id=current_user.id).first()
     if not team:
         flash('您还未创建队伍', 'warning')
         return redirect(url_for('captain.dashboard'))
@@ -2159,7 +2139,7 @@ def search_players():
 @captain_bp.route('/invite/<int:player_id>', methods=['POST'])
 @login_required_with_role('captain')
 def invite_player(player_id):
-    team = current_user.team
+    team = active_team_query().filter_by(captain_id=current_user.id).first()
     if not team:
         flash('您还未创建队伍', 'warning')
         return redirect(url_for('captain.dashboard'))
@@ -2193,25 +2173,13 @@ def invite_player(player_id):
 @captain_bp.route('/invitations')
 @login_required_with_role('captain')
 def invitations():
-    team = current_user.team
-    if not team:
-        flash('您还未创建队伍', 'warning')
-        return redirect(url_for('captain.dashboard'))
-    page = request.args.get('page', 1, type=int)
-    pagination = Invitation.query.filter_by(team_id=team.id).paginate(
-        page=page, per_page=20)
-    return render_template('captain/invitations.html',
-                           invitations=pagination.items,
-                           pagination=pagination, team=team)
+    return participation_records(Invitation, captain=True)
 
 
 @captain_bp.route('/invitation/<int:invitation_id>/cancel', methods=['POST'])
 @login_required_with_role('captain')
 def cancel_invitation(invitation_id):
     invitation = Invitation.query.get_or_404(invitation_id)
-    if invitation.team.captain_id != current_user.id:
-        flash('无权限操作', 'danger')
-        return redirect(url_for('captain.invitations'))
     if invitation.status != 'pending':
         flash('只能取消待处理邀请', 'warning')
         return redirect(url_for('captain.invitations'))

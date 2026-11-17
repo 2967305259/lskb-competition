@@ -40,6 +40,10 @@
                 <a href="{{ url_for('tournament.my_matches') }}" class="btn btn-sm btn-outline-warning w-100 mt-2">
                     <i class="fas fa-sword"></i> 我的比赛
                 </a>
+                <div class="d-flex flex-wrap gap-2 justify-content-center mt-3">
+                    <a href="{{ url_for('captain.join_requests') }}" class="btn btn-sm btn-outline-secondary">加入申请</a>
+                    <a href="{{ url_for('captain.invitations') }}" class="btn btn-sm btn-outline-secondary">发出的邀请</a>
+                </div>
             </div>
         </div>
     </div>
