@@ -2,8 +2,8 @@
 import sys
 from decimal import Decimal
 
-from formal_match import (FORMAL_MATCH_TYPE, OUTCOME_STATUSES, has_outcome, is_formal,
-                          is_settled, player_query, summarize_formal_matches)
+from formal_match import (FORMAL_MATCH_TYPE, OUTCOME_STATUSES, formal_match_counts_by_season,
+                          has_outcome, is_formal, is_settled, player_query, summarize_formal_matches)
 
 
 def _app_ns(*names):
@@ -23,12 +23,31 @@ def calculate_final_score(raw_score, multiplier):
     return int(Decimal(raw_score) * Decimal(str(multiplier)))
 
 
+def _team_points_query():
+    Team, TeamMember, db = _app_ns('Team', 'TeamMember', 'db')
+    member_total = db.select(db.func.sum(TeamMember.final_score)).where(
+        TeamMember.team_id == Team.id).correlate(Team).scalar_subquery()
+    points = db.func.coalesce(Team.team_score, member_total, 0)
+    return db.session.query(Team, points.label('points'))
+
+
 def get_team_points(team_id):
-    Team, TeamMember = _app_ns('Team', 'TeamMember')
-    team = Team.query.get(team_id)
-    if team is not None and team.team_score is not None:
-        return team.team_score, 0, 0
-    return sum(m.final_score or 0 for m in TeamMember.query.filter_by(team_id=team_id)), 0, 0
+    Team, = _app_ns('Team')
+    row = _team_points_query().filter(Team.id == team_id).first()
+    return (int(row.points) if row else 0), 0, 0
+
+
+def _rank_teams(team_points):
+    rows = [{'team': team, 'points': int(points), 'special': 0, 'minor': 0}
+            for team, points in team_points]
+    rows.sort(key=lambda row: (-row['points'], row['team'].id))
+    last_points, rank = None, 0
+    for index, row in enumerate(rows, 1):
+        if row['points'] != last_points:
+            rank = index
+            last_points = row['points']
+        row['rank'] = rank
+    return rows
 
 
 def get_team_rankings(tournament_id=None):
@@ -39,16 +58,31 @@ def get_team_rankings(tournament_id=None):
         if season is None:
             return []
         tournament_id = season.id
-    rows = [{'team': team, 'points': get_team_points(team.id)[0], 'special': 0, 'minor': 0}
-            for team in Team.query.filter_by(tournament_id=tournament_id).all()]
-    rows.sort(key=lambda row: (-row['points'], row['team'].id))
-    last_points, rank = None, 0
-    for index, row in enumerate(rows, 1):
-        if row['points'] != last_points:
-            rank = index
-            last_points = row['points']
-        row['rank'] = rank
-    return rows
+    return _rank_teams(_team_points_query().filter(Team.tournament_id == tournament_id))
+
+
+def get_season_summaries(tournament_ids):
+    if not tournament_ids:
+        return {}
+    Team, Tournament, Match, db = _app_ns('Team', 'Tournament', 'Match', 'db')
+    counts = formal_match_counts_by_season(Match, db, tournament_ids)
+    rows = (_team_points_query().select_from(Tournament)
+            .outerjoin(Team, Team.tournament_id == Tournament.id)
+            .outerjoin(counts, counts.c.tournament_id == Tournament.id)
+            .filter(Tournament.id.in_(tournament_ids))
+            .add_columns(Tournament.id, counts.c.formal, counts.c.decided, counts.c.settled))
+    teams = {tid: [] for tid in tournament_ids}
+    totals = {}
+    for team, points, tid, formal, decided, settled in rows:
+        if team is not None:
+            teams[tid].append((team, points))
+        totals[tid] = {'formal': formal or 0, 'decided': decided or 0, 'settled': settled or 0}
+    return {
+        tid: {'team_count': len(entries),
+              'champions': [row for row in _rank_teams(entries) if row['rank'] == 1],
+              'match_counts': totals.get(tid, {'formal': 0, 'decided': 0, 'settled': 0})}
+        for tid, entries in teams.items()
+    }
 
 
 def qualification(rankings, quota):

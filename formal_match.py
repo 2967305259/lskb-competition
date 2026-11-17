@@ -40,8 +40,7 @@ def outcome_for_player(match, player_id):
     return 'win' if match.winner_id == player_id else 'loss'
 
 
-def summarize_formal_matches(query, Match, player_id=None):
-    """Count three independent facts over a formal-match query."""
+def _formal_count_columns(Match, player_id=None):
     decided = Match.status.in_(OUTCOME_STATUSES)
     settled = and_(decided, Match.settlement_state == 'settled',
                    Match.player_a_score.is_not(None), Match.player_b_score.is_not(None))
@@ -51,9 +50,20 @@ def summarize_formal_matches(query, Match, player_id=None):
         criteria.update(wins=and_(decided, Match.winner_id == player_id),
                         losses=and_(decided, Match.winner_id != player_id),
                         draws=and_(decided, Match.winner_id.is_(None)))
-    row = query.order_by(None).with_entities(
-        func.count(Match.id), *(func.count(case((test, 1))) for test in criteria.values())).one()
-    return dict(zip(('formal', *criteria), row))
+    return [func.count(Match.id).label('formal'),
+            *(func.count(case((test, 1))).label(name) for name, test in criteria.items())]
+
+
+def summarize_formal_matches(query, Match, player_id=None):
+    """Count independent match facts over a formal-match query."""
+    row = query.order_by(None).with_entities(*_formal_count_columns(Match, player_id)).one()
+    return dict(row._mapping)
+
+
+def formal_match_counts_by_season(Match, db, tournament_ids):
+    return (formal_query(Match, db).filter(Match.tournament_id.in_(tournament_ids))
+            .with_entities(Match.tournament_id, *_formal_count_columns(Match))
+            .group_by(Match.tournament_id).subquery())
 
 
 def summarize_teams(matches):

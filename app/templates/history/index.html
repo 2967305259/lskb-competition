@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import render_pagination %}
 
 {% block title %}往届赛事 - {{ event_name }}{% endblock %}
 
@@ -69,6 +70,7 @@
         </div>
         {% endfor %}
     </div>
+    {{ render_pagination(pagination, 'main.history') }}
 {% else %}
     <div class="card">
         <div class="card-body text-center py-5">

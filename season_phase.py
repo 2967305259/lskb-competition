@@ -25,13 +25,17 @@ def has_enabled_track():
     return Roguelike.query.filter_by(is_active=True).first() is not None
 
 
-def registration_denial(season):
+def registration_denial(season, *, tracks_enabled=None, registration_open=None):
     from app import Setting
     if season is None:
         return '当前没有活跃赛季'
-    if not has_enabled_track():
+    if tracks_enabled is None:
+        tracks_enabled = has_enabled_track()
+    if not tracks_enabled:
         return NO_TRACKS
-    if not Setting.get_instance().registration_open:
+    if registration_open is None:
+        registration_open = Setting.get_instance().registration_open
+    if not registration_open:
         return '报名已由管理员关闭'
     return None
 

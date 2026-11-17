@@ -34,7 +34,7 @@ from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import contains_eager, joinedload
 
 # 业务规则模块（积分/倍率、自动匹配）；模块内部延迟导入本文件的模型，无循环依赖
-from scoring import (calculate_multiplier, get_team_points, get_team_rankings, qualification,
+from scoring import (calculate_multiplier, get_team_rankings, get_season_summaries, qualification,
                      recalculate_all_scores, _update_team_scores, get_player_stats, player_record_query,
                      create_score_adjustment, get_member_score_breakdown)
 from formal_match import (empty_record, formal_query, has_outcome, is_settled, outcome_for_player,
@@ -1257,20 +1257,12 @@ def team_detail(team_id):
 @main_bp.route('/history')
 def history():
     """往届赛事归档列表（已结束的赛季，只读）"""
-    seasons = Tournament.query.filter_by(is_active=False).order_by(
-        Tournament.season_number.desc(), Tournament.id.desc()).all()
-    items = []
-    for t in seasons:
-        rankings = get_team_rankings(t.id)
-        champions = [row for row in rankings if row['rank'] == 1]
-        items.append({
-            'tournament': t,
-            'team_count': Team.query.filter_by(tournament_id=t.id).count(),
-            'match_counts': summarize_formal_matches(formal_query(Match, db, t.id), Match),
-            'champions': champions,
-            'champion': champions[0] if champions else None,
-        })
-    return render_template('history/index.html', seasons=items)
+    pager = Tournament.query.filter_by(is_active=False).order_by(
+        Tournament.season_number.desc(), Tournament.id.desc()).paginate(
+            page=request.args.get('page', 1, type=int), per_page=20)
+    summaries = get_season_summaries([season.id for season in pager.items])
+    items = [dict(summaries[season.id], tournament=season) for season in pager.items]
+    return render_template('history/index.html', seasons=items, pagination=pager)
 
 
 @main_bp.route('/history/<int:tournament_id>')
@@ -4211,22 +4203,44 @@ def create_app(config_name=None, overrides=None):
     @app.context_processor
     def inject_event_info():
         labels = get_labels()
-        tournament = Tournament.get_active()
+        settings_id = db.select(db.func.min(Setting.id)).scalar_subquery()
+        track_exists = db.select(Roguelike.id).where(Roguelike.is_active.is_(True)).exists()
+        # Seed a row so the layout can render with no active season or saved settings.
+        rows = db.session.execute(
+            db.select(Tournament, Setting, track_exists)
+            .select_from(db.select(db.literal(1)).subquery())
+            .outerjoin(Tournament, Tournament.is_active.is_(True))
+            .outerjoin(Setting, Setting.id == settings_id)
+            .limit(2)
+        ).all()
+        if len(rows) > 1:
+            raise SeasonError('检测到多个活跃赛季，请先按核对报告修复', 409)
+        tournament, setting, tracks_enabled = rows[0]
+        context = getattr(g, 'historical_context', None)
+        name = context['name'] if context else (
+            (tournament.name if tournament else None) or _resolve_config(
+                'TOURNAMENT_NAME', 'TOURNAMENT_NAME', '赛事管理系统',
+                lambda: setting.tournament_name if setting else None))
+        team_size = context['team_size'] if context else int(_resolve_config(
+            'TEAM_SIZE', 'TEAM_SIZE', 4, lambda: (setting.team_size or None) if setting else None))
+        season_info = {'name': tournament.name, 'number': tournament.season_number} if tournament else {
+            'name': '', 'number': None}
+        if context:
+            season_info = {'name': context['name'], 'number': context.get('season_number', season_info['number'])}
         return {
-            'event_name': get_event_name(),
-            'registration_problem': registration_denial(tournament),
+            'event_name': name,
+            'registration_problem': registration_denial(
+                tournament, tracks_enabled=tracks_enabled,
+                registration_open=bool(setting.registration_open) if setting else True),
             'no_track_message': NO_TRACKS,
             'active_season_id': tournament.id if tournament else None,
             'labels': labels,
-            'team_size': get_team_size(),
+            'team_size': team_size,
             'theme': {
                 'brand_color': current_app.config.get('BRAND_PRIMARY_COLOR', '#0d6efd'),
                 'track_label': labels['track'],
             },
-            'current_season': {
-                'name': getattr(g, 'historical_context', {}).get('name', tournament.name if tournament else ''),
-                'number': getattr(g, 'historical_context', {}).get('season_number', tournament.season_number if tournament else None),
-            },
+            'current_season': season_info,
         }
 
     # 404 处理：非指定页面全部跳回主页
