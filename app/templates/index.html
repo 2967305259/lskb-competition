@@ -5,22 +5,41 @@
 
 {% block content %}
 <!-- ===== 轮播图区域 ===== -->
-{% if carousel_media and carousel_media|length > 0 %}
-<div id="homeCarousel" class="carousel slide mb-4" data-bs-ride="carousel" data-bs-interval="4000">
-    <div class="carousel-indicators">
+{% if carousel_media %}
+{% set multiple_slides = carousel_media|length > 1 %}
+<div id="homeCarousel" class="carousel slide mb-4"{% if multiple_slides %} data-bs-ride="carousel" data-bs-interval="4000"{% endif %}>
+    {% if multiple_slides %}
+    <div class="carousel-indicators" style="top: 0; bottom: auto;">
         {% for item in carousel_media %}
-        <button type="button" data-bs-target="#homeCarousel" data-bs-slide-to="{{ loop.index0 }}" {% if loop.first %}class="active"{% endif %} aria-label="Slide {{ loop.index }}"></button>
+        <button type="button" data-bs-target="#homeCarousel" data-bs-slide-to="{{ loop.index0 }}" {% if loop.first %}class="active" aria-current="true"{% endif %} aria-label="第 {{ loop.index }} 张"></button>
         {% endfor %}
     </div>
+    {% endif %}
     <div class="carousel-inner" style="border-radius: 12px; overflow: hidden;">
         {% for item in carousel_media %}
         <div class="carousel-item {% if loop.first %}active{% endif %}">
-            <img src="{{ url_for('main.carousel_media_serve', filename=item.file) }}" 
-                 class="d-block w-100" alt="轮播 {{ loop.index }}"
+            {% if item.type == 'video' %}
+            <video src="{{ item.url }}" controls playsinline preload="metadata" class="d-block w-100 bg-dark"
+                   aria-label="{{ item.title or '轮播视频' }}" style="object-fit: contain; height: 420px;"></video>
+            {% else %}
+            {% if item.link %}<a href="{{ item.link }}">{% endif %}
+            <img src="{{ item.url }}" class="d-block w-100" alt="{{ item.title or ('轮播 ' ~ loop.index) }}"
                  style="object-fit: cover; height: 420px;">
+            {% if item.link %}</a>{% endif %}
+            {% endif %}
+            {% if item.title or (item.type == 'video' and item.link) %}
+            <div class="bg-dark text-light text-center py-2">
+                {% if item.type == 'video' and item.link %}
+                <a class="link-light" href="{{ item.link }}">{{ item.title or '打开链接' }}</a>
+                {% else %}
+                {{ item.title }}
+                {% endif %}
+            </div>
+            {% endif %}
         </div>
         {% endfor %}
     </div>
+    {% if multiple_slides %}
     <button class="carousel-control-prev" type="button" data-bs-target="#homeCarousel" data-bs-slide="prev">
         <span class="carousel-control-prev-icon" aria-hidden="true"></span>
         <span class="visually-hidden">上一页</span>
@@ -29,6 +48,7 @@
         <span class="carousel-control-next-icon" aria-hidden="true"></span>
         <span class="visually-hidden">下一页</span>
     </button>
+    {% endif %}
 </div>
 {% endif %}
 
@@ -228,4 +248,36 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if carousel_media|length > 1 and (carousel_media|selectattr('type', 'equalto', 'video')|first) %}
+<script>
+    (() => {
+        if (!window.bootstrap) return;
+        const carousel = document.getElementById('homeCarousel');
+        const slideshow = bootstrap.Carousel.getOrCreateInstance(carousel);
+        const activeVideo = () => carousel.querySelector('.carousel-item.active video');
+        for (const video of carousel.querySelectorAll('video')) {
+            video.addEventListener('play', () => slideshow.pause());
+            for (const event of ['pause', 'ended']) {
+                video.addEventListener(event, () => {
+                    if (video === activeVideo()) slideshow.cycle();
+                });
+            }
+        }
+        carousel.addEventListener('mouseleave', () => {
+            const video = activeVideo();
+            if (video && !video.paused) slideshow.pause();
+        });
+        carousel.addEventListener('slide.bs.carousel', () => {
+            const video = activeVideo();
+            if (video && !video.paused) {
+                video.pause();
+                slideshow.cycle();
+            }
+        });
+    })();
+</script>
+{% endif %}
 {% endblock %}

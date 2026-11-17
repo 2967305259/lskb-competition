@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from pathlib import Path
 
 import app as a
 from app import db
@@ -9,6 +10,7 @@ from test_p0 import transition_data
 
 def prepare_previous_configuration(application):
     ids = application.test_ids
+    (Path(application.config['IMAGE_DIR']) / 'clip.mp4').write_bytes(b'fixture-video')
     with application.app_context():
         season = a.db.session.get(a.Tournament, ids['season'])
         season.registration_start = datetime(2026, 12, 1, 9, 0)
@@ -21,9 +23,9 @@ def prepare_previous_configuration(application):
         setting.allow_incomplete_teams = True
         db.session.add_all([
             a.CarouselItem(tournament_id=season.id, media_type='image',
-                           file_path='image/1.png', title='一', sort_order=2),
+                           file_path='image/1.png', title='往届图片', sort_order=2, is_active=False),
             a.CarouselItem(tournament_id=season.id, media_type='video',
-                           file_path='image/1.png', title='二', sort_order=1),
+                           file_path='image/clip.mp4', title='继承视频', sort_order=1, link_url='/rules'),
         ])
         db.session.commit()
 
@@ -54,7 +56,8 @@ def test_new_season_wizard_inherits_selected_values_and_carousel(application, cl
         assert a.CarouselItem.query.filter_by(tournament_id=old.id).count() == 2
         copied = a.CarouselItem.query.filter_by(tournament_id=new.id).order_by(a.CarouselItem.sort_order).all()
         assert len(copied) == 2
-        assert [item.file_path for item in copied] == ['image/1.png', 'image/1.png']
+        assert [item.file_path for item in copied] == ['image/clip.mp4', 'image/1.png']
+        assert [item.is_active for item in copied] == [True, False]
         log = a.SystemLog.query.filter_by(action='new_season').one()
         detail = json.loads(log.detail)
         assert set(detail['inherited']) == {
@@ -62,6 +65,10 @@ def test_new_season_wizard_inherits_selected_values_and_carousel(application, cl
             'advance_count', 'team_size', 'allow_incomplete_teams', 'carousel',
         }
         assert detail['carousel_copied'] == 2
+    home = client.get('/').get_data(as_text=True)
+    assert '<video src="/carousel-media/clip.mp4"' in home and '继承视频' in home
+    assert '/carousel-media/1.png' not in home
+    assert client.get('/carousel-media/clip.mp4').data == b'fixture-video'
 
 
 def test_new_season_wizard_without_inheritance_keeps_legacy_defaults(application, client):
@@ -80,6 +87,10 @@ def test_new_season_wizard_without_inheritance_keeps_legacy_defaults(application
         assert setting.team_size == 5
         assert setting.allow_incomplete_teams is True
         assert a.CarouselItem.query.filter_by(tournament_id=new.id).count() == 0
+    home = client.get('/').get_data(as_text=True)
+    assert '<img src="/carousel-media/1.png"' in home
+    assert '继承视频' not in home
+    assert '首页来源：素材目录（image/）' in client.get('/admin/carousel').get_data(as_text=True)
 
 
 def test_new_season_can_inherit_empty_dates(application, client):

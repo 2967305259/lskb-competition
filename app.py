@@ -16,6 +16,8 @@ if __name__ == "__main__":
 from datetime import datetime, timedelta
 from functools import wraps
 from io import BytesIO
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from flask import (Flask, Blueprint, render_template, redirect, url_for,
                    flash, request, abort, send_file, jsonify, current_app, g)
@@ -327,6 +329,50 @@ def load_carousel_media():
             })
     items.sort(key=lambda x: _natural_sort_key(x['file']))
     return items
+
+
+def _season_carousel_items(tournament):
+    if tournament is None:
+        return []
+    return tournament.carousel_items.order_by(CarouselItem.sort_order, CarouselItem.id).all()
+
+
+def _carousel_item_media_url(file_path):
+    if file_path.startswith('/static/uploads/'):
+        filename = file_path.removeprefix('/static/uploads/')
+        endpoint = 'p0_media'
+    else:
+        filename = (file_path.removeprefix('/carousel-media/') if file_path.startswith('/carousel-media/')
+                    else file_path.removeprefix('image/'))
+        endpoint = 'main.carousel_media_serve'
+    if re.search(r'[\x00-\x1f\x7f\\]', filename) or any(part in ('', '.', '..') for part in filename.split('/')):
+        return None
+    return url_for(endpoint, filename=filename)
+
+
+def _carousel_link(link_url):
+    if not link_url or link_url.startswith('//') or re.search(r'[\x00-\x1f\x7f\\]', link_url):
+        return None
+    try:
+        parts = urlsplit(link_url)
+    except ValueError:
+        return None
+    if parts.scheme and (parts.scheme not in ('http', 'https') or not parts.netloc):
+        return None
+    return link_url
+
+
+def _home_carousel_media(tournament):
+    items = _season_carousel_items(tournament)
+    if not items:
+        return [dict(item, url=url_for('main.carousel_media_serve', filename=item['file']))
+                for item in load_carousel_media()]
+    slides = []
+    for item in items:
+        if item.is_active and (url := _carousel_item_media_url(item.file_path)):
+            slides.append({'type': item.media_type, 'url': url, 'title': item.title,
+                           'link': _carousel_link((item.link_url or '').strip())})
+    return slides
 
 
 def get_roguelike_name(key):
@@ -1199,7 +1245,7 @@ def index():
     page = request.args.get('page', 1, type=int)
     latest_teams = team_query.order_by(Team.created_at.desc()).paginate(
         page=page, per_page=10)
-    carousel_media = load_carousel_media()
+    carousel_media = _home_carousel_media(tournament)
     # TOP10 排行榜
     rankings = get_team_rankings()[:10]
     return render_template('index.html',
@@ -1217,13 +1263,11 @@ def index():
 @main_bp.route('/carousel-media/<path:filename>')
 def carousel_media_serve(filename):
     """提供轮播媒体文件（图片/视频），支持子目录"""
-    path = os.path.join(current_app.config['IMAGE_DIR'], filename)
-    # 安全检查：防止路径穿越
-    real = os.path.realpath(path)
-    img_dir = os.path.realpath(current_app.config['IMAGE_DIR'])
-    if not real.startswith(img_dir):
+    if '\0' in filename:
         abort(404)
-    if not os.path.isfile(real):
+    img_dir = Path(os.path.realpath(current_app.config['IMAGE_DIR']))
+    real = Path(os.path.realpath(img_dir / filename))
+    if not real.is_relative_to(img_dir) or not real.is_file():
         abort(404)
     return send_file(real)
 
@@ -2831,12 +2875,9 @@ def delete_roguelike(rl_id):
 def carousel():
     """轮播图管理列表"""
     tournament = Tournament.get_active()
-    items = []
-    if tournament:
-        items = CarouselItem.query.filter_by(
-            tournament_id=tournament.id
-        ).order_by(CarouselItem.sort_order).all()
-    return render_template('admin/carousel.html', items=items, tournament=tournament)
+    items = _season_carousel_items(tournament)
+    return render_template('admin/carousel.html', items=items, tournament=tournament,
+                           media_url=_carousel_item_media_url)
 
 
 @admin_bp.route('/carousel/add', methods=['POST'])

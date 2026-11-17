@@ -3,6 +3,14 @@
 {% block content %}
 <div class="container py-4">
     <h2 class="mb-4"><i class="fas fa-images me-2"></i>轮播图管理</h2>
+    <div class="alert alert-info">
+        {% if items %}
+        首页来源：当届数据库条目。
+        {% if not (items|selectattr('is_active')|first) %}当前全部禁用，首页隐藏轮播。{% endif %}
+        {% else %}
+        首页来源：素材目录（image/）。
+        {% endif %}
+    </div>
 
     <!-- 新增轮播图 -->
     <div class="card bg-dark border-secondary mb-4">
@@ -73,10 +81,13 @@
                         {% for item in items %}
                         <tr>
                             <td>
-                                {% if item.media_type == 'video' %}
-                                <i class="fas fa-video fa-2x text-info"></i>
+                                {% set preview_url = media_url(item.file_path) %}
+                                {% if not preview_url %}
+                                <span class="text-warning">路径无效</span>
+                                {% elif item.media_type == 'video' %}
+                                <a href="{{ preview_url }}" aria-label="预览视频"><i class="fas fa-video fa-2x text-info"></i></a>
                                 {% else %}
-                                <img src="{{ url_for('main.carousel_media_serve', filename=item.file_path) }}"
+                                <img src="{{ preview_url }}" alt="{{ item.title or '轮播图片预览' }}"
                                      style="max-height: 50px; max-width: 80px; object-fit: cover;"
                                      onerror="this.style.display='none'">
                                 {% endif %}
@@ -116,7 +127,7 @@
                 </table>
             </div>
             {% else %}
-            <div class="alert alert-info">暂无轮播图，系统将自动使用 image/ 目录下的静态文件</div>
+            <p class="mb-0 text-muted">暂无数据库条目</p>
             {% endif %}
         </div>
     </div>
