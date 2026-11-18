@@ -2,8 +2,10 @@ from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from io import BytesIO
 import json
+import os
 from pathlib import Path
 import re
+import sqlite3
 import subprocess
 import sys
 
@@ -47,12 +49,33 @@ def complete(application, client):
 
 
 def test_import_and_factory_have_no_side_effects(tmp_path):
-    code = "import app; instance=app.create_app('testing'); assert not hasattr(app, 'app')"
-    import os
-    env = dict(os.environ, DB_FILE=str(tmp_path / 'source.db'), STATE_DIR=str(tmp_path / 'state'),
-               UPLOAD_ROOT=str(tmp_path / 'uploads'), IMAGE_DIR=str(tmp_path / 'images'))
+    database = tmp_path / 'source.db'
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute('CREATE TABLE existing_data (value TEXT)')
+        connection.execute("INSERT INTO existing_data VALUES ('sentinel')")
+        connection.commit()
+    finally:
+        connection.close()
+    uploads = tmp_path / 'uploads'
+    uploads.mkdir()
+    (uploads / 'original.png').write_bytes(b'existing upload')
+    def snapshot():
+        return {path.relative_to(tmp_path): path.read_bytes() if path.is_file() else None
+                for path in tmp_path.rglob('*')}
+
+    before = snapshot()
+    code = """
+import app
+instance = app.create_app('testing')
+assert not hasattr(app, 'app')
+assert instance.config['SQLALCHEMY_DATABASE_URI'] == 'sqlite:///:memory:'
+"""
+    env = dict(os.environ, DATABASE_URL=f'sqlite:///{database}',
+               DB_FILE=str(tmp_path / 'alternate.db'), STATE_DIR=str(tmp_path / 'state'),
+               UPLOAD_ROOT=str(uploads), IMAGE_DIR=str(tmp_path / 'images'), BACKUP_DIR=str(tmp_path / 'backups'))
     subprocess.run([sys.executable, '-c', code], env=env, check=True)
-    assert not list(tmp_path.iterdir())
+    assert snapshot() == before
 
 
 def test_zero_submission_and_explicit_settlement(application, client):
@@ -241,13 +264,52 @@ def test_current_rebuild_does_not_touch_archive(application, client):
     complete(application, client)
     data = transition_data(application, client)
     assert client.post('/admin/new-season', data=data).status_code == 302
+
+    ids = application.test_ids
+    with application.app_context():
+        season = a.Tournament.get_active()
+        season.bonus_score = 200
+        track = a.Roguelike.query.filter_by(key='water').one()
+        track.difficulty_min, track.difficulty_max, track.difficulty_step = 10, 13, 0.25
+        teams = [a.Team(team_name=name, captain_id=user_id, tournament_id=season.id)
+                 for name, user_id in zip(('alpha', 'beta'), ids['users'])]
+        db.session.add_all(teams)
+        db.session.flush()
+        members = [a.TeamMember(team_id=team.id, user_id=team.captain_id, roguelike='water') for team in teams]
+        match = a.Match(tournament_id=season.id, player_a_id=ids['users'][0], player_b_id=ids['users'][1],
+                        team_a_id=teams[0].id, team_b_id=teams[1].id, roguelike='water', status='confirmed')
+        db.session.add_all([*members, match])
+        db.session.commit()
+        new_match = match.id
+        new_members = [member.id for member in members]
+        new_teams = [team.id for team in teams]
+
+    for user_id, score in zip(ids['users'], (101, 80)):
+        login(client, user_id)
+        assert client.post(f'/tournament/match/{new_match}/submit-result', data={
+            'score': str(score), 'difficulty': '12', 'screenshots': (BytesIO(b'image'), 'score.png'),
+        }).status_code == 302
+    login(client, ids['admin'])
+    assert client.post(f'/admin/match/{new_match}/edit-result', data={'action': 'win_a'}).status_code == 302
+    with application.app_context():
+        for player_id, team_id in zip(new_members, new_teams):
+            db.session.get(a.TeamMember, player_id).final_score = 3
+            db.session.get(a.Team, team_id).team_score = 5
+        db.session.commit()
+
     assert client.post('/admin/reset-scores').status_code == 302
     with application.app_context():
-        assert db.session.get(a.TeamMember, application.test_ids['members'][0]).final_score == 120
+        assert [db.session.get(a.TeamMember, mid).final_score for mid in ids['members']] == [120, 108]
+        assert [db.session.get(a.Team, tid).team_score for tid in ids['teams']] == [60000, 54000]
+        assert [db.session.get(a.TeamMember, mid).final_score for mid in new_members] == [151, 120]
+        assert [db.session.get(a.Team, tid).team_score for tid in new_teams] == [30200, 24000]
+        assert db.session.get(a.Match, ids['match']).player_a_multiplier == Decimal('1.2000')
+        assert db.session.get(a.Match, new_match).player_a_multiplier == Decimal('1.5000')
         with pytest.raises(SeasonError):
-            recalculate_all_scores(application.test_ids['season'])
+            recalculate_all_scores(ids['season'])
 
 
+@pytest.mark.maintenance
 def test_backup_and_isolated_restore(application, client, tmp_path):
     complete(application, client)
     with application.app_context():
@@ -265,6 +327,10 @@ def test_backup_and_isolated_restore(application, client, tmp_path):
                 conn.execute(text('CREATE DATABASE ' + name))
             target = create_engine(source_url.set(database=name))
         try:
+            with pytest.raises(RuntimeError, match='代码版本不匹配'):
+                restore_backup(batch, target, tmp_path / 'wrong-version', 'other-version')
+            assert not inspect(target).get_table_names()
+            assert not (tmp_path / 'wrong-version').exists()
             restore_backup(batch, target, tmp_path / 'restored-media', application.config['APP_VERSION'])
             with target.connect() as conn:
                 assert conn.execute(text('SELECT player_a_score FROM matches')).scalar() == 100
@@ -377,6 +443,7 @@ def test_correction_audit_failure_rolls_back_scores(application, client, monkeyp
         assert a.SystemLog.query.filter_by(action='historical_correction').count() == 0
 
 
+@pytest.mark.maintenance
 def test_missing_media_and_tampered_backup_are_rejected(application, client):
     with application.app_context():
         db.session.remove()
@@ -392,6 +459,7 @@ def test_missing_media_and_tampered_backup_are_rejected(application, client):
         assert a.Tournament.query.count() == 1
 
 
+@pytest.mark.maintenance
 def test_wal_backup_restore_and_custom_media_route(application, tmp_path, client):
     with application.app_context():
         if db.engine.dialect.name != 'sqlite':
@@ -473,6 +541,7 @@ def test_orphan_match_cannot_silently_clear_existing_scores(application):
         assert all(m.final_score == 123 for m in a.TeamMember.query.all())
 
 
+@pytest.mark.maintenance
 def test_backup_rejects_missing_database_media_references(application, client):
     with application.app_context():
         user = db.session.get(a.User, application.test_ids['users'][0])

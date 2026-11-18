@@ -4,10 +4,14 @@ import os
 import subprocess
 import sys
 
+import pytest
 from sqlalchemy import text
 from app import db, Tournament, SeasonTransition
 from conftest import login
 from test_p0 import transition_data
+
+
+pytestmark = pytest.mark.maintenance
 
 
 def launch(application, code, data=None):

@@ -1,6 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from openpyxl import load_workbook
 from sqlalchemy import create_engine, text
 
@@ -56,6 +57,7 @@ def test_export_includes_current_formal_results_adjustments_and_ties(application
     assert client.get('/admin/export').status_code == 409
 
 
+@pytest.mark.maintenance
 def test_web_backup_download_and_isolated_restore(application, client, tmp_path):
     complete(application, client)
     root = Path(application.config['BACKUP_DIR'])
@@ -141,6 +143,7 @@ def test_web_backup_download_and_isolated_restore(application, client, tmp_path)
                 admin.dispose()
 
 
+@pytest.mark.maintenance
 def test_web_backup_retention_and_missing_media_failure(application, client):
     ids = application.test_ids
     login(client, ids['super'])

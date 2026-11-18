@@ -10,6 +10,9 @@ from backup import verify_backup
 from conftest import login
 
 
+pytestmark = pytest.mark.maintenance
+
+
 def make_legacy(engine, dialect):
     sql = (Path(__file__).parent / 'fixtures' / f'pre_p0_{dialect}.sql').read_text()
     sql = '\n'.join(line for line in sql.splitlines() if not line.startswith('--'))

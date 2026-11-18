@@ -1,10 +1,12 @@
+from copy import deepcopy
 import os
 from pathlib import Path
+from shutil import copyfile
 import sys
 import uuid
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -14,29 +16,22 @@ from management import initialize_database
 from migrations import migrate_database
 
 
-@pytest.fixture(params=['sqlite', 'mysql'] if os.environ.get('P0_MYSQL_URL') else ['sqlite'])
-def application(tmp_path, request):
-    admin_engine = None
-    if request.param == 'mysql':
-        base = make_url(os.environ['P0_MYSQL_URL'])
-        database_name = 'p0_' + uuid.uuid4().hex
-        admin_engine = create_engine(base.set(database=None))
-        with admin_engine.begin() as conn:
-            conn.execute(text('CREATE DATABASE ' + database_name + ' CHARACTER SET utf8mb4'))
-        uri = base.set(database=database_name).render_as_string(hide_password=False)
-    else:
-        uri = 'sqlite:///' + str(tmp_path / 'instance.db')
-    config = {'SQLALCHEMY_DATABASE_URI': uri, 'STATE_DIR': str(tmp_path / 'state'),
-              'BACKUP_DIR': str(tmp_path / 'backups'), 'UPLOAD_ROOT': str(tmp_path / 'uploads'),
-              'IMAGE_DIR': str(tmp_path / 'image'), 'SQLALCHEMY_ECHO': False,
-              'SECRET_KEY': 'isolated-test-key', 'ADMIN_PASSWORD': 'isolated-admin-password', 'APP_VERSION': 'p0-v1',
+def make_test_app(root, uri):
+    config = {'SQLALCHEMY_DATABASE_URI': uri, 'STATE_DIR': str(root / 'state'),
+              'BACKUP_DIR': str(root / 'backups'), 'UPLOAD_ROOT': str(root / 'uploads'),
+              'IMAGE_DIR': str(root / 'image'), 'SQLALCHEMY_ECHO': False,
+              'SECRET_KEY': 'isolated-test-key', 'ADMIN_USERNAME': 'admin',
+              'ADMIN_PASSWORD': 'isolated-admin-password', 'APP_VERSION': 'p0-v1',
               'SUPER_ADMIN_USERNAME': 'super', 'SUPER_ADMIN_PASSWORD': 'isolated-password'}
-    if os.environ.get('P0_MYSQLDUMP'):
-        config['MYSQLDUMP_COMMAND'] = os.environ['P0_MYSQLDUMP']
-    for path in [tmp_path / 'image'] + [tmp_path / 'uploads' / n for n in ('avatars', 'teams', 'screenshots')]:
+    if make_url(uri).get_backend_name() == 'mysql' and (command := os.environ.get('P0_MYSQLDUMP')):
+        config['MYSQLDUMP_COMMAND'] = command
+    for path in [root / 'image'] + [root / 'uploads' / name for name in ('avatars', 'teams', 'screenshots')]:
         path.mkdir(parents=True)
-    (tmp_path / 'image' / '1.png').write_bytes(b'fixture-media')
-    app = create_app('testing', config)
+    (root / 'image' / '1.png').write_bytes(b'fixture-media')
+    return create_app('testing', config)
+
+
+def seed_test_database(app):
     with app.app_context():
         migrate_database(db.engine, app.config)
         initialize_database()
@@ -61,17 +56,56 @@ def application(tmp_path, request):
                              team_a_id=teams[0], team_b_id=teams[1], roguelike='water', status='confirmed')
         db.session.add(match)
         db.session.commit()
-        app.test_ids = {'season': season.id, 'users': users, 'teams': teams, 'members': [m.id for m in members],
-                        'match': match.id, 'admin': models.User.query.filter_by(username='admin').one().id,
-                        'super': models.User.query.filter_by(username='super').one().id}
-        engine = db.engine
-    yield app
-    with app.app_context():
-        db.session.remove()
-        engine.dispose()
-    if admin_engine:
+        return {'season': season.id, 'users': users, 'teams': teams, 'members': [m.id for m in members],
+                'match': match.id, 'admin': models.User.query.filter_by(username='admin').one().id,
+                'super': models.User.query.filter_by(username='super').one().id}
+
+
+@pytest.fixture(scope='session')
+def sqlite_seed(tmp_path_factory):
+    root = tmp_path_factory.mktemp('sqlite-seed')
+    database = root / 'seed.db'
+    app = make_test_app(root, f'sqlite:///{database}')
+    try:
+        ids = seed_test_database(app)
+    finally:
+        with app.app_context():
+            db.engine.dispose()
+    return database, ids
+
+
+@pytest.fixture(params=['sqlite', 'mysql'] if os.environ.get('P0_MYSQL_URL') else ['sqlite'])
+def application(tmp_path, request):
+    if request.param == 'sqlite':
+        seed_path, ids = request.getfixturevalue('sqlite_seed')
+        database = tmp_path / 'instance.db'
+        copyfile(seed_path, database)
+        app = make_test_app(tmp_path, f'sqlite:///{database}')
+        app.test_ids = deepcopy(ids)
+        yield app
+        with app.app_context():
+            db.engine.dispose()
+        return
+
+    base = make_url(os.environ['P0_MYSQL_URL'])
+    database_name = 'p0_' + uuid.uuid4().hex
+    admin_engine = create_engine(base.set(database=None))
+    try:
         with admin_engine.begin() as conn:
-            conn.execute(text('DROP DATABASE ' + database_name))
+            conn.exec_driver_sql(f'CREATE DATABASE {database_name} CHARACTER SET utf8mb4')
+        try:
+            uri = base.set(database=database_name).render_as_string(hide_password=False)
+            app = make_test_app(tmp_path, uri)
+            try:
+                app.test_ids = seed_test_database(app)
+                yield app
+            finally:
+                with app.app_context():
+                    db.engine.dispose()
+        finally:
+            with admin_engine.begin() as conn:
+                conn.exec_driver_sql(f'DROP DATABASE {database_name}')
+    finally:
         admin_engine.dispose()
 
 

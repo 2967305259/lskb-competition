@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import app as a
 from app import db
@@ -21,12 +21,14 @@ def test_dashboard_lists_incomplete_season_configuration(application, client):
 
 
 def test_season_todos_clear_when_configuration_is_ready(application, client):
+    start = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1)
     with application.app_context():
         season = a.Tournament.get_active()
-        season.registration_start = datetime(2026, 12, 1, 9)
-        season.registration_end = datetime(2026, 12, 5, 23)
-        season.tournament_start = datetime(2026, 12, 6, 9)
-        season.tournament_end = datetime(2026, 12, 8, 22)
+        season.registration_start = start
+        season.registration_end = start + timedelta(days=1)
+        season.tournament_start = start + timedelta(days=2)
+        season.tournament_end = start + timedelta(days=3)
+        season.window_times_utc = True
         setting = a.Setting.get_instance()
         setting.advance_count = 4
         setting.registration_open = False

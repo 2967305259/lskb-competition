@@ -189,6 +189,7 @@ def test_event_time_rejects_ambiguous_or_nonexistent_wall_times(application):
                 parse_event_time(time)
 
 
+@pytest.mark.maintenance
 def test_version_one_upgrade_keeps_unverified_clock_values(application):
     with application.app_context():
         season = a.Tournament.get_active()

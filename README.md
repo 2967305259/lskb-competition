@@ -208,6 +208,29 @@ pip install -r requirements.txt
 - 检查 `app/templates` 目录是否存在
 - 检查模板文件名是否正确
 
+## 测试
+
+在仓库根目录安装开发依赖。日常回归使用 SQLite 临时文件，需要数据库的用例各自复制数据库，并使用自己的上传、素材和备份目录。
+
+```bash
+python -m pip install -r requirements-dev.txt
+env -u P0_MYSQL_URL python -m pytest -q --disable-warnings -m 'not maintenance'
+```
+
+完整 SQLite 回归包含旧库迁移、跨进程准备、备份和恢复。单独执行这些用例时可加 `-m maintenance`。
+
+```bash
+env -u P0_MYSQL_URL python -m pytest -q --disable-warnings
+```
+
+MySQL 回归需要本地 Docker。脚本创建一个临时 MySQL 8 容器，默认分配本机端口，每个用例在容器里创建独立数据库，退出时清理容器。
+
+```bash
+PYTHON=python tests/run_mysql.sh -k mysql
+```
+
+容器持久化验证使用 `tests/container_smoke.py`，输入为本地测试镜像。验收结果见 [改造最终参考](docs/改造最终参考.md#6-p3-配置部署与运维)。
+
 ## 开发建议
 
 - 使用 `FLASK_ENV=development` 启用调试模式

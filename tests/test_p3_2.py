@@ -1,4 +1,9 @@
+import pytest
+
 from app import create_app
+
+
+pytestmark = pytest.mark.maintenance
 
 
 def test_prepare_reports_storage_paths_and_reuses_read_only_media(tmp_path):
@@ -8,6 +13,7 @@ def test_prepare_reports_storage_paths_and_reuses_read_only_media(tmp_path):
     app = create_app('testing', {
         'SQLALCHEMY_DATABASE_URI': f'sqlite:///{database}',
         'STATE_DIR': str(tmp_path / 'state'),
+        'BACKUP_DIR': str(tmp_path / 'backups'),
         'IMAGE_DIR': str(images),
         'UPLOAD_ROOT': str(uploads),
         'ADMIN_USERNAME': '',

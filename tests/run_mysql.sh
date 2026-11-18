@@ -1,15 +1,23 @@
 #!/bin/bash
-# Run only against a newly created disposable MySQL container; never use a business database.
+# Run a new disposable MySQL container and use only its generated test databases.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export P0_MYSQL_CONTAINER=${P0_MYSQL_CONTAINER:-lskb-p0-mysql-test}
-P0_TEST_PORT=${P0_MYSQL_PORT:-13361}
-docker run -d --name "$P0_MYSQL_CONTAINER" --tmpfs /var/lib/mysql \
-    -e MYSQL_ROOT_PASSWORD=p0-test-only -p "127.0.0.1:$P0_TEST_PORT:3306" mysql:8.0 >/dev/null
-trap 'docker rm -f "$P0_MYSQL_CONTAINER" >/dev/null' EXIT
+name_args=()
+if [ -n "${P0_MYSQL_CONTAINER:-}" ]; then
+    name_args=(--name "$P0_MYSQL_CONTAINER")
+fi
+container=$(docker run -d "${name_args[@]}" --tmpfs /var/lib/mysql \
+    -e MYSQL_ROOT_PASSWORD=p0-test-only -p "127.0.0.1:${P0_MYSQL_PORT:-}:3306" mysql:8.0)
+trap 'docker rm -f "$container" >/dev/null' EXIT
+export P0_MYSQL_CONTAINER="$container"
+published_address=$(docker port "$container" 3306/tcp)
+P0_TEST_PORT=${published_address##*:}
 ready=0
 for attempt in $(seq 1 60); do
-    if docker exec -e MYSQL_PWD=p0-test-only "$P0_MYSQL_CONTAINER" mysqladmin ping -h127.0.0.1 -uroot --silent >/dev/null 2>&1; then ready=1; break; fi
+    if docker exec -e MYSQL_PWD=p0-test-only "$container" mysql -h127.0.0.1 -uroot -e 'SELECT 1' >/dev/null 2>&1; then
+        ready=1
+        break
+    fi
     sleep 2
 done
 [ "$ready" = 1 ] || { echo 'MySQL startup failed'; exit 1; }
