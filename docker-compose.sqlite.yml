@@ -26,7 +26,7 @@ services:
       - uploads:/app/app/static/uploads
       - backups:/app/backups
       - state:/app/.runtime
-      - ./image:/app/image:ro
+      - ${IMAGE_HOST_DIR:-./image}:/app/image:ro
 volumes:
   sqlite_data:
   uploads:

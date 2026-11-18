@@ -218,15 +218,31 @@ def reconcile_plan(plan, operator):
             _reconcile.reset(token)
 
 
+def prepare_directory(directory, label):
+    path = Path(directory).absolute()
+    try:
+        if path.is_dir():
+            click.echo(f'{label}目录已存在：{path}')
+            return
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise click.ClickException(f'无法准备{label}目录 {path}（{exc}）') from exc
+    click.echo(f'已创建{label}目录：{path}')
+
+
 def register_commands(app):
     @app.cli.command('prepare')
     def prepare():
         """Migrate once before workers; seed defaults only on an explicitly prepared empty instance."""
         import app as a
         with maintenance_lock(app.config):
-            for directory in [app.config['IMAGE_DIR']] + [str(Path(app.config['UPLOAD_ROOT']) / name) for name in ('avatars', 'teams', 'screenshots')]:
-                Path(directory).mkdir(parents=True, exist_ok=True)
-            batch = migrate_database(a.db.engine, app.config)
+            prepare_directory(app.config['IMAGE_DIR'], '轮播素材')
+            uploads = Path(app.config['UPLOAD_ROOT'])
+            prepare_directory(uploads, '上传')
+            for name in ('avatars', 'teams', 'screenshots'):
+                prepare_directory(uploads / name, '上传')
+            batch = migrate_database(a.db.engine, app.config,
+                prepare_sqlite_directory=lambda path: prepare_directory(path, 'SQLite 数据库'))
             initialize_database()
             assert_schema_current(a.db.engine)
             if batch:

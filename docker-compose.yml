@@ -40,7 +40,7 @@ services:
       - sqlite_data:/app/.db
       - state:/app/.runtime
       - backups:/app/backups
-      - ./image:/app/image:ro
+      - ${IMAGE_HOST_DIR:-./image}:/app/image:ro
     depends_on:
       mysql:
         condition: service_healthy

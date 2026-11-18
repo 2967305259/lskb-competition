@@ -78,12 +78,16 @@ def _rebuild_sqlite(conn, name):
         index.create(conn)
 
 
-def migrate_database(engine, config):
+def migrate_database(engine, config, *, prepare_sqlite_directory=None):
     from app import db
     with maintenance_lock(config):
         # Only these explicit preparation commands create filesystem paths.
-        if engine.dialect.name == 'sqlite' and engine.url.database != ':memory:':
-            Path(engine.url.database).parent.mkdir(parents=True, exist_ok=True)
+        if engine.dialect.name == 'sqlite' and engine.url.database not in (None, '', ':memory:'):
+            directory = Path(engine.url.database).parent
+            if prepare_sqlite_directory is None:
+                directory.mkdir(parents=True, exist_ok=True)
+            else:
+                prepare_sqlite_directory(directory)
         with engine.connect() as conn:
             tables = set(inspect(conn).get_table_names())
             current = 0
