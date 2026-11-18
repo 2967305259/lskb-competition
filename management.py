@@ -29,12 +29,12 @@ def initialize_database():
         if not a.Roguelike.query.filter_by(key=key).first():
             a.db.session.add(a.Roguelike(key=key, name=name, is_active=True, **default_difficulty))
     a.Setting.get_instance()
-    for username, password, role in (
-        (current_app.config['ADMIN_USERNAME'], current_app.config['ADMIN_PASSWORD'], 'admin'),
-        (current_app.config['SUPER_ADMIN_USERNAME'], current_app.config['SUPER_ADMIN_PASSWORD'], 'super_admin')):
+    for prefix, role in (('ADMIN', 'admin'), ('SUPER_ADMIN', 'super_admin')):
+        username = current_app.config[f'{prefix}_USERNAME']
         if username and not a.User.query.filter_by(username=username).first():
+            password = current_app.config[f'{prefix}_PASSWORD']
             if not password:
-                raise SeasonError('初始超级管理员须显式设置密码')
+                raise SeasonError(f'首次创建 {role} 账号须显式设置 {prefix}_PASSWORD')
             user = a.User(username=username, nickname=username, role=role)
             user.set_password(password)
             a.db.session.add(user)

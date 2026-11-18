@@ -62,7 +62,6 @@ DB_FILE = os.environ.get('DB_FILE', os.path.join(DB_DIR, 'lskb.db'))
 
 class Config:
     """基础配置"""
-    SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_urlsafe(32)
     if os.environ.get('DATABASE_URL'):
         SQLALCHEMY_DATABASE_URI = os.environ['DATABASE_URL']
     elif os.environ.get('DB_BACKEND') == 'mysql':
@@ -104,9 +103,8 @@ class Config:
     MEMBER_FIELD1_LABEL = os.environ.get('MEMBER_FIELD1_LABEL', '分队')
     MEMBER_FIELD2_LABEL = os.environ.get('MEMBER_FIELD2_LABEL', '开局干员')
     PORT = int(os.environ.get('PORT', '19198'))
-    # 初始账号（仅首次启动无对应用户时创建）
+    # 初始账号由空赛事库的 prepare 创建。
     ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
-    ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
     # 超级管理员：不设置环境变量则不创建
     SUPER_ADMIN_USERNAME = os.environ.get('SUPER_ADMIN_USERNAME', '')
     SUPER_ADMIN_PASSWORD = os.environ.get('SUPER_ADMIN_PASSWORD', '')
@@ -423,25 +421,6 @@ def get_tournament_status():
     if tournament:
         return tournament.status
     return 'registration'
-
-
-def set_tournament_status(status):
-    """设置赛事状态"""
-    tournament = Tournament.get_active()
-    if tournament:
-        tournament.status = status
-        db.session.commit()
-
-
-def is_tournament_running():
-    """赛事是否在进行中（匹配或比赛阶段）"""
-    status = get_tournament_status()
-    return status in ('matching', 'running')
-
-
-def is_tournament_finished():
-    """赛事是否已结束"""
-    return get_tournament_status() == 'finished'
 
 
 def log_system_action(action, detail=''):
@@ -772,10 +751,9 @@ class Setting(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     registration_open = db.Column(db.Boolean, default=True)
-    tournament_status = db.Column(db.String(20), default='registration')
     # 晋级数量
     advance_count = db.Column(db.Integer, default=0)
-    # 新增可配置参数
+    # 仅用于旧库赛事名回退。当前赛事名保存在 Tournament.name。
     tournament_name = db.Column(db.String(100), default='')
     # 队伍配置（team_size 为空时回退环境变量 TEAM_SIZE）
     team_size = db.Column(db.Integer, nullable=True)
@@ -2376,6 +2354,10 @@ def dashboard():
                            latest_teams=latest_teams,
                            tournament_status=get_tournament_status(),
                            tournament=tournament,
+                           secret_key_warning=current_app.config['SECRET_KEY_WARNING'],
+                           using_default_password=any(
+                               current_user.check_password(password)
+                               for password in known_admin_passwords(current_user.username)),
                            season_todos=get_season_todos(tournament),
                            match_counts=match_counts)
 
@@ -2496,7 +2478,7 @@ def demote_from_admin(user_id):
 @admin_bp.route('/user/<int:user_id>/reset-password', methods=['POST'])
 @login_required_with_role('admin')
 def reset_user_password(user_id):
-    """管理员重置用户密码为临时密码（下次登录强制修改）"""
+    """管理员重置用户密码为临时密码。"""
     user = User.query.get_or_404(user_id)
     if user.id == current_user.id:
         flash('不能重置自己的密码，请使用修改密码功能', 'warning')
@@ -2510,7 +2492,7 @@ def reset_user_password(user_id):
     db.session.commit()
     log_system_action('reset_password', f'重置 {user.nickname}({user.username}) 的密码')
     db.session.commit()
-    flash(f'已重置 【{user.nickname}】 的密码，临时密码：{temp_password}（该用户下次登录将被强制修改）', 'success')
+    flash(f'已重置 【{user.nickname}】 的密码，临时密码：{temp_password}。请通知该用户登录后修改密码。', 'success')
     return redirect(url_for('admin.users'))
 
 
@@ -4121,6 +4103,37 @@ def load_user(user_id):
 # ============================================================
 
 
+def known_admin_passwords(username):
+    """Recognize the legacy bootstrap default and the existing reset convention."""
+    return ('admin123', f'{username}1234')
+
+
+def configure_credentials(app, *, production):
+    for name in ('SECRET_KEY', 'ADMIN_PASSWORD'):
+        if production and not app.config[name]:
+            raise RuntimeError(f'生产环境必须显式设置 {name}')
+
+    warning = None
+    if not app.config['SECRET_KEY']:
+        app.config['SECRET_KEY'] = secrets.token_urlsafe(32)
+        warning = '未设置 SECRET_KEY，当前进程使用临时会话密钥。重启后需要重新登录。'
+    elif app.config['SECRET_KEY'] in (
+            'dev-secret-key-change-in-production', 'change-me-in-production',
+            '请显式设置随机长字符串', '请改成随机长字符串'):
+        warning = '正在使用已知的默认会话密钥，请设置独立的随机 SECRET_KEY。'
+    app.config['SECRET_KEY_WARNING'] = warning
+    if warning:
+        app.logger.warning(warning)
+
+    if not app.config['ADMIN_PASSWORD']:
+        app.logger.warning('未设置 ADMIN_PASSWORD。首次创建管理员时需要该配置，既有账号使用数据库中的密码。')
+    for prefix in ('ADMIN', 'SUPER_ADMIN'):
+        username = app.config[f'{prefix}_USERNAME']
+        password = app.config[f'{prefix}_PASSWORD']
+        if username and password in (*known_admin_passwords(username), '请显式设置强口令', '请改成强密码'):
+            app.logger.warning('%s 使用已知的默认口令或配置示例，请为新账号配置独立口令。', f'{prefix}_PASSWORD')
+
+
 def create_app(config_name=None, overrides=None):
     """应用工厂"""
     if config_name is None:
@@ -4131,12 +4144,11 @@ def create_app(config_name=None, overrides=None):
                    template_folder='app/templates',
                    static_folder='app/static')
     app.config.from_object(config[config_name])
-    if config_name == 'production' and not os.environ.get('SECRET_KEY'):
-        raise RuntimeError('生产环境必须显式设置 SECRET_KEY')
-    if config_name == 'production' and not os.environ.get('ADMIN_PASSWORD'):
-        raise RuntimeError('生产环境必须显式设置 ADMIN_PASSWORD')
+    app.config.update(SECRET_KEY=os.environ.get('SECRET_KEY'),
+                      ADMIN_PASSWORD=os.environ.get('ADMIN_PASSWORD', ''))
     if overrides:
         app.config.update(overrides)
+    configure_credentials(app, production=(config_name == 'production'))
     with app.app_context():
         event_zone()  # Fail at startup on a misspelled timezone.
     from sqlalchemy.engine import make_url

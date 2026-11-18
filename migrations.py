@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy import MetaData, Table, inspect, text
 from backup import create_backup, maintenance_lock
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 # These additions cover the supported pre-P0 schema. Other missing base columns are an error.
 ADDITIONS = {
     'users': {'has_completed_onboarding': '0', 'tutorial_step': '0'},
@@ -60,7 +60,7 @@ def validate_schema(conn):
 
 def _rebuild_sqlite(conn, name):
     from app import db
-    # Copy only current model columns; deprecated approval/status columns are intentionally removed.
+    # Copy the current model columns while rebuilding legacy constraints.
     old = db.metadata.tables[name]
     staging_metadata = MetaData()
     for table in db.metadata.tables.values():
@@ -184,20 +184,18 @@ def migrate_database(engine, config, *, prepare_sqlite_directory=None):
                             for columns, target, target_cols in missing_fk:
                                 name = 'fk_p0_' + table.name + '_' + '_'.join(columns)
                                 conn.exec_driver_sql(f'ALTER TABLE {quote(table.name)} ADD CONSTRAINT {quote(name)} FOREIGN KEY ({", ".join(map(quote, columns))}) REFERENCES {quote(target)} ({", ".join(map(quote, target_cols))})')
-                    if engine.dialect.name == 'sqlite' and 'approval_status' in {c['name'] for c in inspect(conn).get_columns('users')}:
-                        _rebuild_sqlite(conn, 'users')
                     season_unique = {tuple(c['column_names']) for c in inspect(conn).get_unique_constraints('tournaments')}
                     season_indexes = {tuple(i['column_names']) for i in inspect(conn).get_indexes('tournaments') if i.get('unique')}
                     if ('season_number',) not in season_unique | season_indexes:
                         conn.exec_driver_sql('CREATE UNIQUE INDEX uq_tournament_season_number ON tournaments (season_number)')
                     conn.exec_driver_sql("UPDATE matches SET settlement_state='pending' WHERE settlement_state='legacy' AND player_a_score IS NULL AND player_b_score IS NULL AND player_a_result IS NULL AND player_b_result IS NULL AND status IN ('pending', 'scheduled', 'confirmed')")
-                    conn.exec_driver_sql('DROP TABLE IF EXISTS announcements')
-                    # A legacy column can remain physically present on SQLite; it has no live model.
-                    if engine.dialect.name == 'mysql' and 'approval_status' in {c['name'] for c in inspect(conn).get_columns('users')}:
-                        conn.exec_driver_sql('ALTER TABLE users DROP COLUMN approval_status')
-                # Versioned databases may still carry the legacy notification table.
-                if 'notifications' in tables:
-                    conn.exec_driver_sql('DROP TABLE IF EXISTS notifications')
+                # Older versioned databases can still carry retired account/announcement data.
+                for table in ('announcements', 'notifications'):
+                    if table in tables:
+                        conn.exec_driver_sql(f'DROP TABLE {table}')
+                for table, column in (('users', 'approval_status'), ('settings', 'tournament_status')):
+                    if table in tables and column in {c['name'] for c in inspect(conn).get_columns(table)}:
+                        conn.exec_driver_sql(f'ALTER TABLE {table} DROP COLUMN {column}')
                 conn.exec_driver_sql('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at VARCHAR(40) NOT NULL)')
                 validate_schema(conn)
                 if engine.dialect.name == 'sqlite':

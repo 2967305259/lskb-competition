@@ -117,7 +117,7 @@ if __name__ == '__main__':
         print("  依赖安装完成！")
         print("============================================================\n")
 
-    from app import create_app
+    from app import create_app, get_event_name
 
     env = os.environ.get('FLASK_ENV', 'development')
     app = create_app(env)
@@ -125,12 +125,12 @@ if __name__ == '__main__':
     from app import db
     with app.app_context():
         assert_schema_current(db.engine)
+        event_name = get_event_name()
     port = app.config['PORT']
     print("============================================================")
-    print(f"  {app.config['TOURNAMENT_NAME']} 比赛管理系统")
+    print(f"  {event_name} 比赛管理系统")
     print("============================================================")
     print(f"  启动地址: http://0.0.0.0:{port}")
-    print(f"  默认管理员: {app.config['ADMIN_USERNAME']}")
     print("============================================================")
     app.run(host='0.0.0.0', port=port, debug=(env == 'development'))
 

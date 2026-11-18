@@ -46,7 +46,7 @@
             type: 'highlight',
             title: '首页',
             icon: 'fa-home',
-            content: '这里展示赛事公告、轮播图、当前赛事和最新动态，是了解整个赛事的第一站。',
+            content: '首页展示轮播图、当前赛事和参赛统计。',
             reason: '快速了解赛事概况',
             url: URLS.home,
             target: '.carousel, .card:first-of-type',

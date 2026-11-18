@@ -14,6 +14,15 @@
     </div>
 </div>
 
+{% if secret_key_warning or using_default_password %}
+<div class="alert alert-warning" role="alert">
+    {% if secret_key_warning %}<p class="{{ 'mb-2' if using_default_password else 'mb-0' }}">{{ secret_key_warning }}</p>{% endif %}
+    {% if using_default_password %}
+    <p class="mb-0">当前账号仍在使用已知的默认口令。<a class="alert-link" href="{{ url_for('auth.change_password') }}">修改密码</a></p>
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- 统计卡片 -->
 <div class="row mb-4">
     <div class="col-md-3 mb-3">

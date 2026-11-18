@@ -12,7 +12,7 @@
 ### 用户系统
 - ✅ 用户注册与登录（密码强度验证：8位+字母+数字）
 - ✅ 四级角色：超级管理员、管理员、队长、选手
-- ✅ 密码加密存储与强制修改机制
+- ✅ 密码哈希存储、修改和重置
 - ✅ 登录会话管理（24小时超时）
 - ✅ 注册后直接可用（无审批环节）
 - ✅ 新手引导系统
@@ -79,7 +79,7 @@
 ## 快速启动
 
 ```bash
-# 先准备：原生入口不会自动读取 .env，请先导出环境变量
+# 先准备：原生入口不会自动读取 .env。首次创建管理员前请导出 ADMIN_PASSWORD
 python -m pip install -r requirements.txt
 python -m flask --app 'app:create_app()' prepare
 
@@ -115,10 +115,10 @@ python app.py
 | `DEFAULT_DIFFICULTY_MIN` / `_MAX` / `_STEP` | `12` / `18` / `0.1` | 新建赛道的默认难度区间与倍率阶级 |
 | `BRAND_PRIMARY_COLOR` | `#0d6efd` | 品牌主色（导航/按钮/卡片边框跟随） |
 | `PORT` | `19198` | 监听端口 |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `<explicitly set>` | 初始管理员（仅首次启动创建） |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / 空 | 空赛事库执行 `prepare` 时创建初始管理员，生产入口要求显式设置口令 |
 | `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` | 空（不创建） | 初始超级管理员 |
 | `DATABASE_URL` | SQLite | 生产环境 MySQL 连接串 |
-| `SECRET_KEY` | 开发默认值 | 生产环境必须修改 |
+| `SECRET_KEY` | 开发应用工厂生成临时随机密钥 | 生产入口要求显式设置随机会话密钥 |
 
 原生部署可通过 `DB_FILE`、`UPLOAD_ROOT` 和 `IMAGE_DIR` 指定存储位置。Compose 使用独立上传卷，宿主机轮播素材可通过 `IMAGE_HOST_DIR` 指定。目录默认值、上传去向及多实例配置见[复用指南的素材与上传目录](docs/复用指南.md#步骤-3素材与上传目录)。
 
@@ -128,17 +128,13 @@ python app.py
 >
 > 换赛事 / 换赛季的完整操作清单、配置优先级、必须手改的写死项与已知限制，见 [docs/复用指南.md](docs/复用指南.md)。
 
-## 默认账号
+## 初始账号与登录
 
-首次显式执行 prepare、且数据库中没有赛事时创建（已有数据不会在重启时补种）：
+显式执行 `prepare` 时，空赛事库按 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 创建初始管理员。若需要初始超级管理员，同时设置 `SUPER_ADMIN_USERNAME` 和 `SUPER_ADMIN_PASSWORD`。
 
-| 用户名 | 密码 | 角色 |
-|--------|------|------|
-| `admin` | `<explicitly set>` | 管理员 |
+`wsgi:app` 默认使用生产配置，生产服务和两套 Compose 均要求提供 `SECRET_KEY` 和 `ADMIN_PASSWORD`。开发环境缺少密钥时会记录告警并使用临时随机密钥，服务重启后需重新登录。已知默认配置会触发告警，仍在使用旧版默认口令或重置口令的管理员会在后台看到改密提示。
 
-> 超级管理员需通过 `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` 环境变量创建。
->
-> ⚠️ **重要**: 管理员首次登录必须修改密码！密码要求至少8位，包含字母和数字。
+已有账号继续使用数据库中保存的密码并正常进入登录后页面。修改部署环境变量只影响初始创建配置。升级到数据库结构版本 4 前，先停止旧服务，使用同一数据库和存储路径执行 `prepare` 完成备份与迁移。
 
 ## 项目结构
 
@@ -216,7 +212,7 @@ pip install -r requirements.txt
 
 - 使用 `FLASK_ENV=development` 启用调试模式
 - 定期备份数据库
-- 生产环境更改 SECRET_KEY
+- 生产环境配置独立的随机 `SECRET_KEY`
 - 使用环境变量管理敏感配置
 
 ## 许可证

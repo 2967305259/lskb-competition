@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, inspect, text
 from app import create_app, db
 from migrations import SCHEMA_VERSION, migrate_database, assert_schema_current
 from backup import verify_backup
+from conftest import login
 
 
 def make_legacy(engine, dialect):
@@ -119,6 +120,54 @@ def test_prepare_v2_removes_legacy_notifications_after_backup(application):
     result = runner.invoke(args=['prepare'])
     assert result.exit_code == 0, result.output
     assert list(backups.glob('*/manifest.json')) == [batch / 'manifest.json']
+
+
+def test_prepare_v3_backs_up_retired_fields_and_preserves_live_phase(application, client):
+    with application.app_context():
+        engine = db.engine
+    with engine.begin() as conn:
+        conn.exec_driver_sql('UPDATE schema_version SET version = 3')
+        conn.exec_driver_sql('ALTER TABLE settings ADD COLUMN tournament_status VARCHAR(20)')
+        conn.exec_driver_sql('ALTER TABLE users ADD COLUMN approval_status VARCHAR(20)')
+        conn.exec_driver_sql("UPDATE settings SET tournament_status = 'finished', tournament_name = '旧设置名称'")
+        conn.exec_driver_sql("UPDATE users SET approval_status = 'pending'")
+        conn.exec_driver_sql("UPDATE tournaments SET status = 'running', name = '当前赛事名称' WHERE is_active")
+        conn.exec_driver_sql('CREATE TABLE announcements (id INTEGER PRIMARY KEY, title VARCHAR(100))')
+        conn.exec_driver_sql("INSERT INTO announcements (id, title) VALUES (1, '旧公告样本')")
+
+    runner = application.test_cli_runner()
+    result = runner.invoke(args=['prepare'])
+    assert result.exit_code == 0, result.output
+    assert_schema_current(engine)
+    schema = inspect(engine)
+    assert 'tournament_status' not in {col['name'] for col in schema.get_columns('settings')}
+    assert 'approval_status' not in {col['name'] for col in schema.get_columns('users')}
+    assert not schema.has_table('announcements')
+    backup_dir = Path(application.config['BACKUP_DIR'])
+    batch, = [path.parent for path in backup_dir.glob('*/manifest.json')]
+    manifest = verify_backup(batch)
+    assert manifest['schema_version'] == 3 and manifest['rows']['announcements'] == 1
+    if engine.dialect.name == 'sqlite':
+        with sqlite3.connect(batch / 'database.db') as saved:
+            assert saved.execute('SELECT tournament_status FROM settings').fetchone() == ('finished',)
+            assert saved.execute('SELECT DISTINCT approval_status FROM users').fetchall() == [('pending',)]
+    else:
+        dump = (batch / 'database.sql').read_text()
+        assert '`tournament_status`' in dump and '`approval_status`' in dump
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql('SELECT tournament_name FROM settings').scalar() == '旧设置名称'
+        for table in ('users', 'tournaments', 'teams', 'team_members', 'matches', 'score_logs', 'system_logs'):
+            assert conn.exec_driver_sql(f'SELECT COUNT(*) FROM {table}').scalar() == manifest['rows'][table]
+
+    response = client.get('/')
+    page = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert '当前赛事名称' in page and '旧设置名称' not in page
+    login(client, application.test_ids['admin'])
+    dashboard = client.get('/admin/dashboard').get_data(as_text=True)
+    assert 'href="/admin/registration"' in dashboard and '比赛进行中' in dashboard
+    assert runner.invoke(args=['prepare']).exit_code == 0
+    assert list(backup_dir.glob('*/manifest.json')) == [batch / 'manifest.json']
 
 
 def test_failure_stops_migration_and_sqlite_rolls_back_ddl(application, legacy_engine, monkeypatch):
