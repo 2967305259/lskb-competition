@@ -275,7 +275,7 @@
                             {% if tournament_status == 'registration' %}
                                 <form method="POST" action="{{ url_for('admin.start_tournament') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-success" {% if registration_problem == no_track_message %}disabled{% endif %}
+                                    <button type="submit" class="btn btn-success" {% if not tracks_enabled %}disabled{% endif %}
                                             onclick="return confirm('确定进入匹配阶段？报名开关由管理员另行控制。');">
                                         <i class="fas fa-play"></i> 开始比赛
                                     </button>
@@ -284,7 +284,7 @@
                             {% if tournament_status == 'matching' %}
                                 <form method="POST" action="{{ url_for('admin.run_matching') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-warning" {% if registration_problem == no_track_message %}disabled{% endif %}
+                                    <button type="submit" class="btn btn-warning" {% if not tracks_enabled %}disabled{% endif %}
                                             onclick="return confirm('确定执行自动匹配？');">
                                         <i class="fas fa-random"></i> 执行匹配
                                     </button>
@@ -302,7 +302,7 @@
                             {% if tournament_status != 'registration' %}
                                 <form method="POST" action="{{ url_for('admin.resume_registration') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-info" {% if registration_problem == no_track_message %}disabled{% endif %}
+                                    <button type="submit" class="btn btn-info" {% if not tracks_enabled %}disabled{% endif %}
                                             onclick="return confirm('确定恢复报名？将回到报名阶段。');">
                                         <i class="fas fa-undo"></i> 恢复报名
                                     </button>

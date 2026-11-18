@@ -55,7 +55,6 @@
                     </div>
                     <div class="col-md-3">
                         <p><strong>难度：</strong>
-                            {% set rl = get_roguelike_by_key(match.roguelike) %}
                             <span class="badge bg-info">{{ match.get_player_a_difficulty() }}难</span>
                             {% if match.player_a_multiplier is not none %}(×{{ match.player_a_multiplier }}){% endif %}
                             <small class="text-muted"> / </small>

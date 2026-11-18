@@ -1,7 +1,7 @@
 """Configuration readiness checks for the active season dashboard."""
 
 from flask import has_request_context, url_for
-from season_phase import NO_TRACKS, has_enabled_track, window_state
+from season_phase import has_enabled_track, no_tracks_message, window_state
 
 
 def _app():
@@ -70,7 +70,7 @@ def get_season_todos(tournament):
          'message': '当前赛季没有启用轮播条目',
          'url': _admin_url('admin.carousel'), 'done': carousel_done},
         {'code': 'no_roguelike', 'level': 'block', 'order': 0,
-         'message': NO_TRACKS,
+         'message': no_tracks_message(),
          'url': _admin_url('admin.roguelikes'), 'done': roguelike_done},
         {'code': 'no_rules', 'level': 'info', 'order': 2,
          'message': '没有已发布规则', 'url': _admin_url('admin.manage_rules'),

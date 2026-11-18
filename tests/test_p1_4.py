@@ -8,7 +8,7 @@ import app as a
 from backup import verify_backup
 from conftest import login
 from migrations import assert_schema_current, migrate_database, SCHEMA_VERSION
-from season_phase import NO_TRACKS, parse_event_time, window_state
+from season_phase import parse_event_time, window_state
 from test_p0 import settle, submit, transition_data
 
 
@@ -74,11 +74,11 @@ def test_disabled_tracks_block_opening_and_start_but_allow_blank_new_season(appl
         a.Setting.get_instance().registration_open = False
         a.db.session.commit()
     login(client, ids['admin'])
-    assert '开放报名（需要启用赛道）' in client.get('/admin/registration').get_data(as_text=True)
+    assert '开放报名（需要启用肉鸽）' in client.get('/admin/registration').get_data(as_text=True)
     for path, data in (('/admin/registration', {'registration_open': 'open'}), ('/admin/start-tournament', {})):
         response = client.post(path, data=data)
         assert response.status_code == 409
-        assert NO_TRACKS in response.get_data(as_text=True)
+        assert '没有启用肉鸽，不能开放参赛' in response.get_data(as_text=True)
     response = client.post('/admin/new-season', data=transition_data(application, client, force=True), follow_redirects=True)
     assert response.status_code == 200
     assert '本届报名开关保持关闭' in response.get_data(as_text=True)
@@ -224,7 +224,7 @@ def test_start_and_matching_use_enabled_tracks_without_changing_manual_switch(ap
         a.db.session.commit()
     login(client, ids['admin'])
     start = client.post('/admin/start-tournament', follow_redirects=True)
-    assert '须选择已启用的赛道' in start.get_data(as_text=True)
+    assert '须选择已启用的肉鸽' in start.get_data(as_text=True)
     with application.app_context():
         season = a.Tournament.get_active()
         assert season.status == 'registration'

@@ -9,7 +9,7 @@ from flask import current_app
 from backup import create_backup, maintenance_lock, prune_backups, restore_backup
 from migrations import SCHEMA_VERSION, assert_schema_current, migrate_database
 from season_safety import (active_season, save_context, json_dump, scoring_rule, set_score,
-                           SeasonError, _reconcile, _correction, apply_outcome)
+                           SeasonError, _reconcile, _correction, apply_outcome, get_default_difficulty)
 
 
 def initialize_database():
@@ -23,13 +23,11 @@ def initialize_database():
         season_number=current_app.config['SEASON_NUMBER'], bonus_score=current_app.config['DEFAULT_BONUS_SCORE'],
         is_active=True, status='registration')
     a.db.session.add(season)
+    default_difficulty = get_default_difficulty()
     for key, name in [('water', '水月与深蓝之树'), ('sami', '探索者的银凇止境'),
                       ('sarkaz', '萨卡兹的无终奇语'), ('garden', '岁的界园志异')]:
         if not a.Roguelike.query.filter_by(key=key).first():
-            a.db.session.add(a.Roguelike(key=key, name=name, is_active=True,
-                difficulty_min=current_app.config['DEFAULT_DIFFICULTY_MIN'],
-                difficulty_max=current_app.config['DEFAULT_DIFFICULTY_MAX'],
-                difficulty_step=current_app.config['DEFAULT_DIFFICULTY_STEP']))
+            a.db.session.add(a.Roguelike(key=key, name=name, is_active=True, **default_difficulty))
     a.Setting.get_instance()
     for username, password, role in (
         (current_app.config['ADMIN_USERNAME'], current_app.config['ADMIN_PASSWORD'], 'admin'),

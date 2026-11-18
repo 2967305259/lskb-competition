@@ -43,11 +43,12 @@ from formal_match import (empty_record, formal_query, has_outcome, is_settled, o
                           summarize_formal_matches, summarize_teams)
 from matching import _auto_match
 from season_safety import (SeasonError, match_scope_of, season_scope_of,
-                           transition_preview, use_season_read_context, historical_context)
+                           transition_preview, use_season_read_context, historical_context,
+                           get_default_difficulty, parse_track_difficulty)
 from season_health import get_season_todos
-from season_phase import (NO_TRACKS, admin_result_denial, admin_schedule_protected,
+from season_phase import (admin_result_denial, admin_schedule_protected,
                           event_local, event_now, event_zone, format_event_time,
-                          has_enabled_track, parse_event_time, player_match_denial,
+                          has_enabled_track, no_tracks_message, parse_event_time, player_match_denial,
                           registration_denial, window_warnings)
 
 # ============================================================
@@ -218,7 +219,7 @@ def set_registration_open(status):
     """设置报名状态"""
     from season_safety import SeasonError
     if status and not has_enabled_track():
-        raise SeasonError(NO_TRACKS)
+        raise SeasonError(no_tracks_message())
     setting = Setting.get_instance()
     setting.registration_open = status
     db.session.commit()
@@ -282,11 +283,9 @@ def get_team_positions():
     return value
 
 
-def get_labels():
+def get_labels(*, use_historical=True):
     """领域术语文案（track=赛道/玩法，field1/field2=队员两个自定义字段）"""
-    from flask import g
-    context = getattr(g, 'historical_context', None)
-    if context:
+    if use_historical and (context := getattr(g, 'historical_context', None)):
         return context['labels']
     return {
         'track': _resolve_config('TRACK_LABEL', 'TRACK_LABEL', '肉鸽'),
@@ -375,30 +374,26 @@ def _home_carousel_media(tournament):
     return slides
 
 
+def _historical_track_name(key, tracks):
+    return tracks.get(key, {}).get('name') or f'{key}（历史名称待核对）'
+
+
 def get_roguelike_name(key):
-    """从数据库获取肉鸽名称（回退到硬编码）"""
-    from flask import g
+    """显示对应赛季的名称，缺失记录时保留原标识以便核对。"""
+    if not key:
+        return key
     context = getattr(g, 'historical_context', None)
     if context:
-        return context.get('tracks', {}).get(key, {}).get('name', key + '（历史名称待核对）')
-    rl = Roguelike.query.filter_by(key=key).first()
-    if rl:
-        return rl.name
-    # 回退
-    fallback = {
-        'water': '水月与深蓝之树',
-        'sami': '探索者的银凇止境',
-        'sarkaz': '萨卡兹的无终奇语',
-        'garden': '岁的界园志异',
-    }
-    return fallback.get(key, key)
+        return _historical_track_name(key, context.get('tracks', {}))
+    track = get_roguelike_by_key(key)
+    return track.name if track and track.name else f'{key}（名称待核对）'
 
 
 def get_match_track_name(match):
     season = match.tournament
     if season and season.is_active is False:
         tracks = historical_context(season).get('tracks', {}) if season.context_snapshot else {}
-        return tracks.get(match.roguelike, {}).get('name') or f'{match.roguelike}（历史名称待核对）'
+        return _historical_track_name(match.roguelike, tracks)
     return get_roguelike_name(match.roguelike)
 
 
@@ -1100,20 +1095,22 @@ class InvitationForm(FlaskForm):
 
 
 class RoguelikeForm(FlaskForm):
-    roguelike = SelectField('选择肉鸽', choices=[], validators=[DataRequired()])
-    squad = StringField('所选分队', validators=[
-        Optional(),
-        Length(max=50, message='分队名称最多50个字符'),
-    ])
-    operator = StringField('开局干员', validators=[
-        Optional(),
-        Length(max=50, message='干员名称最多50个字符'),
-    ])
+    roguelike = SelectField(choices=[], validators=[DataRequired()])
+    squad = StringField(validators=[Optional()])
+    operator = StringField(validators=[Optional()])
     submit = SubmitField('确认选择')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        labels = get_labels()
+        self.roguelike.label.text = f"{labels['track']}主题"
+        self.squad.label.text = f"所选{labels['field1']}"
+        self.operator.label.text = labels['field2']
         self.roguelike.choices = get_roguelike_choices()
+        for field, label in ((self.squad, labels['field1']), (self.operator, labels['field2'])):
+            length = Length(max=50, message=f'{label}名称最多50个字符')
+            field.validators = [*field.validators, length]
+            field.flags.maxlength = length.max
 
 
 class DeclarationForm(FlaskForm):
@@ -1130,38 +1127,6 @@ class RegistrationControlForm(FlaskForm):
         ('closed', '关闭报名'),
     ], validators=[DataRequired()])
     submit = SubmitField('更新')
-
-
-class MatchResultForm(FlaskForm):
-    """比赛结果提交表单（难度动态生成）"""
-    difficulty = SelectField('难度', choices=[], validators=[DataRequired()])
-    score = StringField('比赛分数', validators=[
-        DataRequired(message='请输入比赛分数'),
-    ])
-    result = SelectField('我的比赛结果', choices=[
-        ('win', '我获胜'),
-        ('lose', '我失败'),
-        ('draw', '平局'),
-    ], validators=[DataRequired()])
-    submit = SubmitField('提交结果')
-
-    def set_difficulty_choices(self, roguelike_key):
-        """根据肉鸽动态设置难度选项"""
-        rl = Roguelike.query.filter_by(key=roguelike_key).first()
-        if rl:
-            choices = []
-            for d in range(rl.difficulty_min, rl.difficulty_max + 1):
-                mult = rl.get_multiplier(d)
-                choices.append((str(d), f'{d} 难 (×{mult:.1f})'))
-            self.difficulty.choices = choices
-            self.difficulty.default = str(rl.difficulty_min)
-        else:
-            # 回退到默认 12-15
-            self.difficulty.choices = [
-                ('12', '12 难 (×1.0)'), ('13', '13 难 (×1.1)'),
-                ('14', '14 难 (×1.2)'), ('15', '15 难 (×1.3)'),
-            ]
-            self.difficulty.default = '12'
 
 
 class MatchScheduleForm(FlaskForm):
@@ -1211,10 +1176,14 @@ class RuleForm(FlaskForm):
     """规则编辑表单"""
     title = StringField('规则标题', validators=[DataRequired(message='标题不能为空'), Length(max=200)])
     content = TextAreaField('规则内容（支持 HTML）', validators=[Optional()])
-    roguelike_key = SelectField('关联肉鸽', choices=[], validators=[Optional()])
+    roguelike_key = SelectField(choices=[], validators=[Optional()])
     sort_order = StringField('排序', validators=[Optional()], default='0')
     is_published = SelectField('发布状态', choices=[('1', '发布'), ('0', '隐藏')], default='1')
     submit = SubmitField('保存规则')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.roguelike_key.label.text = f"关联{get_labels()['track']}"
 
 
 # ============================================================
@@ -1592,12 +1561,13 @@ def select_roguelike():
         form.operator.data = team_membership.operator or ''
 
     if form.validate_on_submit():
+        track_label = get_labels()['track']
         chosen = form.roguelike.data
         # 检查 team_limit
         current_count = team_counts.get(chosen, 0)
         limit = roguelike_limits.get(chosen, 1)
         if chosen != team_membership.roguelike and current_count >= limit:
-            flash(f'该肉鸽已达到队伍选择上限（{limit}人）', 'danger')
+            flash(f'该{track_label}已达到队伍选择上限（{limit}人）', 'danger')
             return redirect(url_for('player.select_roguelike'))
         team_membership.roguelike = chosen
         team_membership.squad = (form.squad.data or '').strip()
@@ -1605,7 +1575,7 @@ def select_roguelike():
         if current_user.status < 2:
             current_user.status = 2  # 已选配置
         db.session.commit()
-        flash(f'已选择肉鸽：{get_roguelike_name(chosen)}', 'success')
+        flash(f'已选择{track_label}：{get_roguelike_name(chosen)}', 'success')
         if current_user.role == 'captain':
             return redirect(url_for('captain.dashboard'))
         return redirect(url_for('player.team_detail', team_id=team_membership.team_id))
@@ -1713,7 +1683,7 @@ def upload_avatar():
 def time_preferences():
     """选手填写可用比赛时间"""
     if not current_user.is_admin() and current_user.status < 2:
-        flash('请先选择肉鸽和填写宣言', 'warning')
+        flash(f"请先选择{get_labels()['track']}和填写宣言", 'warning')
         if current_user.is_captain():
             return redirect(url_for('captain.dashboard'))
         return redirect(url_for('player.dashboard'))
@@ -2048,7 +2018,7 @@ def create_team():
         captain_member = TeamMember(team_id=team.id, user_id=current_user.id)
         db.session.add(captain_member)
         db.session.commit()
-        flash(f'队伍 【{team.team_name}】 创建成功！您已自动成为队员，请选择肉鸽和位置', 'success')
+        flash(f"队伍 【{team.team_name}】 创建成功！您已自动成为队员，请选择{get_labels()['track']}和位置", 'success')
         return redirect(url_for('captain.dashboard'))
     return render_template('captain/create_team.html', form=form)
 
@@ -2684,7 +2654,7 @@ def update_member_info(team_id, member_id):
         return redirect(url_for('admin.teams'))
     roguelike = request.form.get('roguelike', '').strip()
     if roguelike and roguelike != member.roguelike and roguelike not in {r.key for r in get_active_roguelikes()}:
-        flash('请选择已启用的赛道', 'danger')
+        flash(f"请选择已启用的{get_labels()['track']}", 'danger')
         return redirect(url_for('admin.team_detail', team_id=team_id))
 
     # 更新头像
@@ -2793,41 +2763,39 @@ def update_team_info(team_id):
 def roguelikes():
     """肉鸽管理列表"""
     all_roguelikes = Roguelike.query.order_by(Roguelike.sort_order).all()
-    return render_template('admin/roguelikes.html', roguelikes=all_roguelikes)
+    return render_template('admin/roguelikes.html', roguelikes=all_roguelikes,
+                           default_difficulty=get_default_difficulty())
 
 
 @admin_bp.route('/roguelike/add', methods=['POST'])
 @login_required_with_role('admin')
 def add_roguelike():
     """新增肉鸽"""
+    difficulty = parse_track_difficulty(request.form)
+    track_label = get_labels()['track']
     key = request.form.get('key', '').strip()
     name = request.form.get('name', '').strip()
     max_per_team = request.form.get('max_per_team', '1')
     sort_order = request.form.get('sort_order', '0')
-    diff_min = request.form.get('difficulty_min', '12')
-    diff_max = request.form.get('difficulty_max', '18')
-    diff_step = request.form.get('difficulty_step', '0.1')
     if not key or not name:
         flash('标识和名称不能为空', 'danger')
         return redirect(url_for('admin.roguelikes'))
     if Roguelike.query.filter_by(key=key).first():
-        flash(f'肉鸽标识 "{key}" 已存在', 'danger')
+        flash(f'{track_label}标识 "{key}" 已存在', 'danger')
         return redirect(url_for('admin.roguelikes'))
     try:
         rl = Roguelike(
             key=key, name=name,
             max_per_team=int(max_per_team),
             sort_order=int(sort_order),
-            difficulty_min=int(diff_min),
-            difficulty_max=int(diff_max),
-            difficulty_step=float(diff_step),
-            is_active=True
+            is_active=True,
+            **difficulty,
         )
         db.session.add(rl)
         db.session.commit()
-        flash(f'肉鸽 "{name}" 已添加', 'success')
+        flash(f'{track_label} "{name}" 已添加', 'success')
     except ValueError:
-        flash('人数限制、排序和难度配置必须为数字', 'danger')
+        flash('人数限制和排序必须为数字', 'danger')
     return redirect(url_for('admin.roguelikes'))
 
 
@@ -2836,20 +2804,21 @@ def add_roguelike():
 def edit_roguelike(rl_id):
     """编辑肉鸽"""
     rl = Roguelike.query.get_or_404(rl_id)
+    difficulty = parse_track_difficulty(request.form, rl)
     rl.name = request.form.get('name', rl.name).strip()
     rl.key = request.form.get('key', rl.key).strip()
     try:
         rl.max_per_team = int(request.form.get('max_per_team', rl.max_per_team))
         rl.sort_order = int(request.form.get('sort_order', rl.sort_order))
-        rl.difficulty_min = int(request.form.get('difficulty_min', rl.difficulty_min))
-        rl.difficulty_max = int(request.form.get('difficulty_max', rl.difficulty_max))
-        rl.difficulty_step = float(request.form.get('difficulty_step', rl.difficulty_step))
     except ValueError:
-        flash('人数限制、排序和难度配置必须为数字', 'danger')
+        flash('人数限制和排序必须为数字', 'danger')
         return redirect(url_for('admin.roguelikes'))
+    rl.difficulty_min = difficulty['difficulty_min']
+    rl.difficulty_max = difficulty['difficulty_max']
+    rl.difficulty_step = difficulty['difficulty_step']
     rl.is_active = request.form.get('is_active') == '1'
     db.session.commit()
-    flash(f'肉鸽 "{rl.name}" 已更新', 'success')
+    flash(f'{get_labels()["track"]} "{rl.name}" 已更新', 'success')
     return redirect(url_for('admin.roguelikes'))
 
 
@@ -2861,7 +2830,7 @@ def delete_roguelike(rl_id):
     name = rl.name
     db.session.delete(rl)
     db.session.commit()
-    flash(f'肉鸽 "{name}" 已删除', 'success')
+    flash(f'{get_labels()["track"]} "{name}" 已删除', 'success')
     return redirect(url_for('admin.roguelikes'))
 
 
@@ -3077,7 +3046,8 @@ def manage_rules():
     all_rules = Rule.query.order_by(Rule.sort_order).all()
     all_roguelikes = get_active_roguelikes()
     form = RuleForm()
-    form.roguelike_key.choices = [('', '-- 主规则（不关联肉鸽）--')] + [(r.key, r.name) for r in all_roguelikes]
+    form.roguelike_key.choices = [('', f"-- 主规则（不关联{get_labels()['track']}）--")] + [
+        (track.key, track.name) for track in all_roguelikes]
     return render_template('admin/rules.html', rules=all_rules, form=form, all_roguelikes=all_roguelikes)
 
 
@@ -3160,13 +3130,14 @@ def start_tournament():
         return redirect(url_for('admin.dashboard'))
     if not has_enabled_track():
         from season_safety import SeasonError
-        raise SeasonError(NO_TRACKS)
+        raise SeasonError(no_tracks_message())
 
     # 验证所有队伍是否满足参赛条件
     setting = Setting.get_instance()
     teams = Team.query.filter_by(tournament_id=tournament.id).all()
     team_size = get_team_size()
     enabled_keys = {track.key for track in get_active_roguelikes()}
+    track_label = get_labels()['track']
     errors = []
     for team in teams:
         members = TeamMember.query.filter_by(team_id=team.id).all()
@@ -3176,7 +3147,7 @@ def start_tournament():
         # 检查队员是否都选了肉鸽
         for m in members:
             if m.roguelike not in enabled_keys:
-                errors.append(f'队伍「{team.team_name}」的 {m.user.nickname} 须选择已启用的赛道')
+                errors.append(f'队伍「{team.team_name}」的 {m.user.nickname} 须选择已启用的{track_label}')
 
     if errors:
         flash('以下队伍不满足参赛条件：<br>' + '<br>'.join(errors), 'danger')
@@ -3201,7 +3172,7 @@ def run_matching():
         return redirect(url_for('admin.dashboard'))
     if not has_enabled_track():
         from season_safety import SeasonError
-        raise SeasonError(NO_TRACKS)
+        raise SeasonError(no_tracks_message())
     # 执行自动匹配
     result = _auto_match()
     if result['success']:
@@ -3328,7 +3299,7 @@ def new_season():
         if warning:
             flash(warning, 'warning')
     if not has_enabled_track():
-        flash(f'{NO_TRACKS}，本届报名开关保持关闭', 'warning')
+        flash(f'{no_tracks_message()}，本届报名开关保持关闭', 'warning')
     return redirect(url_for('admin.tournament_settings'))
 
 
@@ -3373,7 +3344,7 @@ def resume_registration():
         return redirect(url_for('admin.dashboard'))
     if not has_enabled_track():
         from season_safety import SeasonError
-        raise SeasonError(NO_TRACKS)
+        raise SeasonError(no_tracks_message())
     Setting.get_instance().registration_open = True
     tournament.status = 'registration'
     db.session.commit()
@@ -3643,11 +3614,12 @@ def manual_match():
         flash('不能选择同一队伍的两名选手', 'danger')
         return redirect(url_for('admin.schedule'))
 
+    track_label = get_labels()['track']
     if roguelike not in {track.key for track in get_active_roguelikes()}:
-        flash('请选择已启用的赛道', 'danger')
+        flash(f'请选择已启用的{track_label}', 'danger')
         return redirect(url_for('admin.schedule'))
     if ma.roguelike != roguelike or mb.roguelike != roguelike:
-        flash('两名选手须已选择该赛道', 'danger')
+        flash(f'两名选手须已选择该{track_label}', 'danger')
         return redirect(url_for('admin.schedule'))
 
     date_str = request.form.get('match_date', '').strip() or event_now().date().isoformat()
@@ -3832,7 +3804,7 @@ def schedule_quick_exhibition():
     duration_minutes = request.form.get('duration_minutes', type=int) or 30
 
     if not roguelike:
-        return jsonify({'error': '请先在左侧选择肉鸽'}), 400
+        return jsonify({'error': f"请先在左侧选择{get_labels()['track']}"}), 400
 
     scheduled_time = None
     if scheduled_time_str:
@@ -4094,7 +4066,7 @@ def send_match_note(match_id):
 @tournament_bp.route('/match/<int:match_id>/submit-result', methods=['GET', 'POST'])
 @login_required_with_role('player', 'captain')
 def submit_result(match_id):
-    from season_safety import capture_match_rule, set_score, SeasonError
+    from season_safety import capture_match_rule, get_match_scoring_rule, set_score, SeasonError
     match = require_player_match_action(match_id, 'submit_result')
     side = 'a' if current_user.id == match.player_a_id else 'b'
     if request.method == 'POST':
@@ -4130,7 +4102,8 @@ def submit_result(match_id):
             raise
         flash('整场成绩已保存，等待确认结束并结算', 'success')
         return redirect(url_for('tournament.match_detail', match_id=match.id))
-    return render_template('tournament/submit_result.html', match=match, historical_rule=json.loads(match.scoring_rule) if match.scoring_rule else None)
+    return render_template('tournament/submit_result.html', match=match,
+                           difficulty_rule=get_match_scoring_rule(match))
 
 
 # ============================================================
@@ -4206,7 +4179,6 @@ def create_app(config_name=None, overrides=None):
     # 注册模板全局函数
     app.jinja_env.globals['get_roguelike_name'] = get_roguelike_name
     app.jinja_env.globals['get_match_track_name'] = get_match_track_name
-    app.jinja_env.globals['get_roguelike_by_key'] = get_roguelike_by_key
     app.jinja_env.globals['get_tournament_status'] = get_tournament_status
     app.jinja_env.filters['event_time'] = format_event_time
     app.jinja_env.globals['admin_result_denial'] = admin_result_denial
@@ -4273,8 +4245,9 @@ def create_app(config_name=None, overrides=None):
             'registration_problem': registration_denial(
                 tournament, tracks_enabled=tracks_enabled,
                 registration_open=bool(setting.registration_open) if setting else True),
-            'no_track_message': NO_TRACKS,
+            'tracks_enabled': tracks_enabled,
             'active_season_id': tournament.id if tournament else None,
+            'event_year': event_now().year,
             'labels': labels,
             'team_size': team_size,
             'theme': {

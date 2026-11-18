@@ -17,7 +17,11 @@ FINISHED_SCHEDULING_ACTIONS = {
     'admin.schedule_update_time', 'admin.schedule_split_match', 'admin.schedule_delete_match',
     'admin.schedule_confirm_match', 'admin.schedule_insert_exhibition', 'admin.schedule_quick_exhibition',
 }
-NO_TRACKS = '没有启用赛道，不能开放参赛'
+
+
+def no_tracks_message():
+    from app import get_labels
+    return f"没有启用{get_labels(use_historical=False)['track']}，不能开放参赛"
 
 
 def has_enabled_track():
@@ -32,7 +36,7 @@ def registration_denial(season, *, tracks_enabled=None, registration_open=None):
     if tracks_enabled is None:
         tracks_enabled = has_enabled_track()
     if not tracks_enabled:
-        return NO_TRACKS
+        return no_tracks_message()
     if registration_open is None:
         registration_open = Setting.get_instance().registration_open
     if not registration_open:

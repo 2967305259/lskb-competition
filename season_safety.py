@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import json
+from math import isfinite
 import uuid
 
 from flask import abort, current_app, g, jsonify, render_template, request
@@ -106,6 +107,34 @@ def scoring_rule(roguelike):
             'track_id': roguelike.id, 'track_key': roguelike.key}
 
 
+def get_default_difficulty():
+    return {
+        'difficulty_min': current_app.config['DEFAULT_DIFFICULTY_MIN'],
+        'difficulty_max': current_app.config['DEFAULT_DIFFICULTY_MAX'],
+        'difficulty_step': current_app.config['DEFAULT_DIFFICULTY_STEP'],
+    }
+
+
+def parse_track_difficulty(form, track=None):
+    defaults = get_default_difficulty() if track is None else {
+        'difficulty_min': track.difficulty_min,
+        'difficulty_max': track.difficulty_max,
+        'difficulty_step': track.difficulty_step,
+    }
+    try:
+        minimum = int(form.get('difficulty_min', defaults['difficulty_min']))
+        maximum = int(form.get('difficulty_max', defaults['difficulty_max']))
+        step = float(form.get('difficulty_step', defaults['difficulty_step']))
+    except (TypeError, ValueError) as exc:
+        raise SeasonError('难度配置必须为有限有效数值', 400) from exc
+    if not 0 <= minimum <= maximum <= 10000:
+        raise SeasonError('难度区间无效', 400)
+    if not isfinite(step):
+        raise SeasonError('难度配置必须为有限有效数值', 400)
+    multiplier({'minimum': minimum, 'maximum': maximum, 'step': step}, maximum)
+    return {'difficulty_min': minimum, 'difficulty_max': maximum, 'difficulty_step': step}
+
+
 def multiplier(rule, difficulty):
     try:
         difficulty = int(difficulty)
@@ -122,10 +151,9 @@ def multiplier(rule, difficulty):
         raise SeasonError('历史难度规则无效，须核对', 400) from exc
 
 
-def capture_match_rule(match):
-    """Only a genuinely new/unscored active match can read the current global rule."""
+def get_match_scoring_rule(match):
+    """Read the rule for a verified whole match without changing its snapshot."""
     a = ns()
-    match = verify_match_ownership(match)
     if match.scoring_rule:
         return json.loads(match.scoring_rule)
     require_writable(match.tournament_id)
@@ -133,11 +161,20 @@ def capture_match_rule(match):
         raise SeasonError(f'比赛 {match.id} 已有成绩但无历史规则，请先运行核对报告')
     rl = a.Roguelike.query.filter_by(key=match.roguelike).first()
     if rl is None:
-        raise SeasonError('比赛赛道不存在')
+        raise SeasonError(f"比赛所用{a.get_labels()['track']}不存在，须先核对")
+    return scoring_rule(rl)
+
+
+def capture_match_rule(match):
+    """Bind a verified whole match to its rule and context on first write."""
+    a = ns()
+    match = verify_match_ownership(match)
+    rule = get_match_scoring_rule(match)
+    if match.scoring_rule:
+        return rule
     season = a.db.session.get(a.Tournament, match.tournament_id)
     save_context(season)
     match.context_version = season.snapshot_version
-    rule = scoring_rule(rl)
     rule['context_version'] = match.context_version
     match.scoring_rule = json_dump(rule)
     return rule
@@ -170,8 +207,7 @@ def build_context(season):
     settings = a.Setting.query.first()
     return {'version': 1, 'name': season.name, 'season_number': season.season_number,
             'bonus_score': season.bonus_score, 'team_size': settings.team_size if settings and settings.team_size else current_app.config['TEAM_SIZE'],
-            'positions': a.get_team_positions(), 'labels': {k: current_app.config[v] for k, v in (
-                ('track', 'TRACK_LABEL'), ('field1', 'MEMBER_FIELD1_LABEL'), ('field2', 'MEMBER_FIELD2_LABEL'))},
+            'positions': a.get_team_positions(), 'labels': a.get_labels(use_historical=False),
             'advance_count': settings.advance_count if settings else 0,
             'score_contract': 'whole-match;confirmed-settlement;ties-inclusive;competition-ranking',
             'tracks': {r.key: {'id': r.id, 'key': r.key, 'name': r.name, 'rule': scoring_rule(r), 'active': r.is_active}
@@ -456,17 +492,6 @@ def _guard_request():
         # Never discard the only surviving source of a legacy season's unknown rules.
         if a.Tournament.query.filter_by(is_active=False, context_snapshot=None).first():
             raise SeasonError('存在未核对的往届规则，请先保存人工确认的历史上下文')
-    if endpoint in ('admin.add_roguelike', 'admin.edit_roguelike'):
-        rl = a.db.session.get(a.Roguelike, args['rl_id']) if 'rl_id' in args else None
-        try:
-            minimum = int(request.form.get('difficulty_min', rl.difficulty_min if rl else 12))
-            maximum = int(request.form.get('difficulty_max', rl.difficulty_max if rl else 18))
-            step = request.form.get('difficulty_step', str(rl.difficulty_step) if rl else '0.1')
-            if not 0 <= minimum <= maximum <= 10000:
-                raise SeasonError('难度区间无效', 400)
-            multiplier({'minimum': minimum, 'maximum': maximum, 'step': step}, maximum)
-        except (ValueError, TypeError) as exc:
-            raise SeasonError('难度配置必须为有限有效数值', 400) from exc
     if endpoint in ('admin.edit_roguelike', 'admin.delete_roguelike'):
         rl = a.db.session.get(a.Roguelike, args['rl_id'])
         if rl is None:
@@ -475,7 +500,7 @@ def _guard_request():
         for snapshot in a.SeasonContextVersion.query.all():
             referenced = referenced or rl.key in json.loads(snapshot.context).get('tracks', {})
         if referenced and (endpoint == 'admin.delete_roguelike' or request.form.get('key', rl.key).strip() != rl.key):
-            raise SeasonError('已引用赛道 key 不可修改或删除，请改为停用')
+            raise SeasonError(f"已引用{a.get_labels()['track']}的标识不可修改或删除，请改为停用")
         for match in a.Match.query.filter_by(roguelike=rl.key, parent_id=None).all():
             if (match.player_a_score is not None or match.player_b_score is not None) and not match.scoring_rule:
                 raise SeasonError(f'比赛 {match.id} 的历史倍率尚未核对，禁止先改全局难度')

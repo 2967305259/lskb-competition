@@ -19,7 +19,7 @@
     // ========== 赛事配置（由 base.html 注入，缺省值保证独立调试可用） ==========
     const CFG = window.EVENT_CONFIG || {};
     const EVENT_NAME = CFG.name || '本站赛事';
-    const TRACK_LABEL = CFG.track || '肉鸽';
+    const TRACK_LABEL = CFG.track || '参赛项目';
     const URLS = Object.assign({
         home: '/',
         teams: '/teams',

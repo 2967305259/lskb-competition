@@ -17,7 +17,7 @@
                     
                     <div class="mb-4">
                         <p class="text-muted">
-                            请选择一个{{ labels.track }}副本进行挑战
+                            请选择一个{{ labels.track }}参加比赛
                         </p>
                         {% if taken_roguelikes %}
                             <div class="alert alert-warning py-2 mb-0 mt-2">
@@ -32,7 +32,7 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label"><i class="fas fa-dragon"></i> {{ labels.track }}主题</label>
+                        <label class="form-label" for="{{ form.roguelike.id }}"><i class="fas fa-dragon"></i> {{ form.roguelike.label.text }}</label>
                         {% if form.roguelike.errors %}
                             {{ form.roguelike(class="form-select is-invalid") }}
                             <div class="invalid-feedback d-block">
@@ -45,17 +45,16 @@
                         {% endif %}
                     </div>
 
+                    {% for field, icon, label in [(form.squad, 'fa-shield-alt', labels.field1), (form.operator, 'fa-user', labels.field2)] %}
                     <div class="mb-3">
-                        <label class="form-label"><i class="fas fa-shield-alt"></i> 所选{{ labels.field1 }}</label>
-                        {{ form.squad(class="form-control", placeholder="如：后勤" + labels.field1 + "、突击战术" + labels.field1 + "等") }}
-                        <div class="form-text text-muted">请输入你使用的{{ labels.field1 }}名称（手动输入）</div>
+                        <label class="form-label" for="{{ field.id }}"><i class="fas {{ icon }}"></i> {{ field.label.text }}</label>
+                        {{ field(class="form-control is-invalid" if field.errors else "form-control") }}
+                        <div class="form-text text-muted">请输入{{ label }}名称（选填）</div>
+                        {% for error in field.errors %}
+                        <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
                     </div>
-
-                    <div class="mb-3">
-                        <label class="form-label"><i class="fas fa-user"></i> {{ labels.field2 }}</label>
-                        {{ form.operator(class="form-control", placeholder="如：维什戴尔、缄默德克萨斯等") }}
-                        <div class="form-text text-muted">请输入开局选择的干员名称（手动输入）</div>
-                    </div>
+                    {% endfor %}
                     
                     {% if roguelike %}
                         <div class="alert alert-info">

@@ -179,7 +179,7 @@
                         </div>
                     </div>
                     {% if transition and not transition.has_enabled_track %}
-                    <p class="alert alert-warning mt-3">没有启用赛道。可以换季，新一届报名初始关闭。</p>
+                    <p class="alert alert-warning mt-3">没有启用{{ labels.track }}。可以换季，新一届报名初始关闭。</p>
                     {% endif %}
                     {% if transition and transition.unfinished %}
                     <div class="alert alert-warning mt-3">

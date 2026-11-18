@@ -25,14 +25,9 @@
                     <div class="mb-4">
                         <label class="form-label"><i class="fas fa-fire"></i> 难度选择</label>
                         <select class="form-select" name="difficulty" required>
-                            {% if historical_rule %}
-                            {% for d in range(historical_rule.minimum, historical_rule.maximum + 1) %}
-                            <option value="{{ d }}">{{ d }} 难（使用该整场保存的难度规则）</option>
+                            {% for d in range(difficulty_rule.minimum, difficulty_rule.maximum + 1) %}
+                            <option value="{{ d }}">{{ d }} 难{% if match.scoring_rule %}（使用该整场保存的难度规则）{% endif %}</option>
                             {% endfor %}
-                            {% else %}
-                            {% set rl = get_roguelike_by_key(match.roguelike) %}
-                            {% if rl %}{% for d in range(rl.difficulty_min, rl.difficulty_max + 1) %}<option value="{{ d }}">{{ d }} 难</option>{% endfor %}{% endif %}
-                            {% endif %}
                         </select>
                     </div>
 

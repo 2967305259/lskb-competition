@@ -84,9 +84,9 @@ def build_season_workbook(tournament, rankings, advancement):
     teams = sorted((row['team'] for row in rankings), key=lambda team: team.id)
     team_size = get_team_size()
     track_label = get_labels()['track']
-    registration.append(['队伍名称', '队长昵称']
-                        + [f'成员{i + 1}' for i in range(team_size)]
-                        + [track_label + '选择', '参赛宣言', '个人积分'])
+    append_text_safe(registration, ['队伍名称', '队长昵称']
+                     + [f'成员{i + 1}' for i in range(team_size)]
+                     + [track_label + '选择', '参赛宣言', '个人积分'])
     for team in teams:
         members = TeamMember.query.filter_by(team_id=team.id).order_by(TeamMember.id).all()
         names = [member.user.nickname for member in members[:team_size]]
@@ -100,10 +100,10 @@ def build_season_workbook(tournament, rankings, advancement):
         ])
 
     match_sheet = workbook.create_sheet('比赛结果')
-    match_sheet.append(['届数', '整场 ID', track_label, 'A 队伍', 'A 选手',
-                        'A 原始分', 'A 难度', 'A 倍率', 'A 已结算积分',
-                        'B 队伍', 'B 选手', 'B 原始分', 'B 难度', 'B 倍率', 'B 已结算积分',
-                        '比赛状态', '胜负结果', '结算状态', '审核状态', '规则快照版本'])
+    append_text_safe(match_sheet, ['届数', '整场 ID', track_label, 'A 队伍', 'A 选手',
+                     'A 原始分', 'A 难度', 'A 倍率', 'A 已结算积分',
+                     'B 队伍', 'B 选手', 'B 原始分', 'B 难度', 'B 倍率', 'B 已结算积分',
+                     '比赛状态', '胜负结果', '结算状态', '审核状态', '规则快照版本'])
     match_query = formal_query(Match, db, tournament.id)
     for match in match_query.order_by(Match.id):
         verify_match_ownership(match)
