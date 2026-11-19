@@ -436,6 +436,7 @@ def log_system_action(action, detail=''):
         ip_address=request.remote_addr if request else None
     )
     db.session.add(log)
+    return log
 
 
 def get_advanced_teams(rankings=None):
@@ -1645,11 +1646,6 @@ def upload_avatar():
     except Exception as e:
         flash(f'头像保存失败: {str(e)}', 'danger')
         return redirect(url_for('player.profile'))
-    # 删除旧头像
-    if current_user.avatar:
-        old_path = os.path.join(current_app.config['UPLOAD_ROOT'], 'avatars', current_user.avatar)
-        if os.path.exists(old_path):
-            os.remove(old_path)
     current_user.avatar = filename
     db.session.commit()
     flash('头像上传成功', 'success')
@@ -2208,11 +2204,6 @@ def upload_avatar():
     except Exception as e:
         flash(f'头像保存失败: {str(e)}', 'danger')
         return redirect(url_for('captain.dashboard'))
-    # 删除旧头像
-    if current_user.avatar:
-        old_path = os.path.join(current_app.config['UPLOAD_ROOT'], 'avatars', current_user.avatar)
-        if os.path.exists(old_path):
-            os.remove(old_path)
     current_user.avatar = filename
     db.session.commit()
     flash('头像上传成功', 'success')
@@ -2247,11 +2238,6 @@ def upload_team_avatar():
     except Exception as e:
         flash(f'头像保存失败: {str(e)}', 'danger')
         return redirect(url_for('captain.dashboard'))
-    # 删除旧队伍头像
-    if team.team_photo:
-        old_path = os.path.join(current_app.config['UPLOAD_ROOT'], 'teams', team.team_photo)
-        if os.path.exists(old_path):
-            os.remove(old_path)
     team.team_photo = filename
     db.session.commit()
     flash('队伍头像上传成功', 'success')
@@ -2653,10 +2639,6 @@ def update_member_info(team_id, member_id):
             except Exception as e:
                 flash(f'头像保存失败: {str(e)}', 'danger')
                 return redirect(url_for('admin.team_detail', team_id=team_id))
-            if member.user.avatar:
-                old = os.path.join(current_app.config['UPLOAD_ROOT'], 'avatars', member.user.avatar)
-                if os.path.exists(old):
-                    os.remove(old)
             member.user.avatar = filename
 
     # 更新肉鸽
@@ -2722,10 +2704,6 @@ def update_team_info(team_id):
             except Exception as e:
                 flash(f'头像保存失败: {str(e)}', 'danger')
                 return redirect(url_for('admin.team_detail', team_id=team_id))
-            if team.team_photo:
-                old = os.path.join(current_app.config['UPLOAD_ROOT'], 'teams', team.team_photo)
-                if os.path.exists(old):
-                    os.remove(old)
             team.team_photo = filename
 
     db.session.commit()
@@ -2928,6 +2906,57 @@ def admin_data_tools():
 
     batches = backup_inventory() if current_user.is_super_admin() else []
     return render_template('admin/data_tools.html', batches=batches)
+
+
+@admin_bp.route('/data-tools/cleanup/preview', methods=['POST'])
+@login_required_with_role('admin')
+def preview_cleanup():
+    from data_tools import backup_inventory
+    from retention import build_cleanup_plan, cleanup_options, cleanup_token
+
+    if not current_user.is_super_admin():
+        abort(403)
+    options = cleanup_options(request.form)
+    plan = build_cleanup_plan(options)
+    token = cleanup_token(options, plan, current_user.id) if (plan.files or plan.log_ids) else None
+    response = current_app.make_response(render_template('admin/data_tools.html', batches=backup_inventory(),
+                                                        cleanup_plan=plan, cleanup_options=options, cleanup_token=token))
+    response.cache_control.no_store = True
+    return response
+
+
+@admin_bp.route('/data-tools/cleanup/confirm', methods=['POST'])
+@login_required_with_role('admin')
+def apply_cleanup():
+    from retention import confirm_cleanup
+
+    if not current_user.is_super_admin():
+        abort(403)
+    if request.form.get('confirm') != '1':
+        raise SeasonError('请勾选确认后再执行清理', 400)
+    report = confirm_cleanup(request.form.get('cleanup_token', ''), current_user.id)
+    files = sum(report['deleted_files'].values())
+    logs = report['deleted_system_logs']
+    failed = len(report['failed_files'])
+    if failed:
+        flash(f'已删除 {files} 个素材文件和 {logs} 条系统日志，{failed} 个文件未删除。请检查后重新预览。', 'warning')
+    else:
+        flash(f'已删除 {files} 个素材文件和 {logs} 条系统日志。', 'success')
+    return redirect(url_for('admin.admin_data_tools'))
+
+
+@admin_bp.route('/data-tools/score-logs')
+@login_required_with_role('admin')
+def export_score_logs():
+    from season_safety import json_dump
+
+    if not current_user.is_super_admin():
+        abort(403)
+    records = db.session.execute(db.select(ScoreLog.__table__).order_by(ScoreLog.id)).mappings()
+    payload = BytesIO(json_dump([dict(record) for record in records]).encode('utf-8'))
+    response = send_file(payload, mimetype='application/json', as_attachment=True, download_name='score-logs.json')
+    response.cache_control.no_store = True
+    return response
 
 
 @admin_bp.route('/data-tools/backup', methods=['POST'])

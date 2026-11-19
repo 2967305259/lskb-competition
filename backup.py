@@ -60,34 +60,38 @@ def _mysql_command(engine, executable):
     return args, env
 
 
-def verify_media_references(engine, config):
-    """A directory existing is insufficient when database attachments are missing."""
+def media_references(conn, config):
     uploads = Path(config['UPLOAD_ROOT']).resolve()
     image = Path(config['IMAGE_DIR']).resolve()
-    expected = []
+    inspector = inspect(conn)
+    tables = set(inspector.get_table_names())
+    for table, column, folder in (('users', 'avatar', 'avatars'), ('teams', 'team_photo', 'teams')):
+        if table in tables and column in {c['name'] for c in inspector.get_columns(table)}:
+            rows = conn.execute(text(
+                f'SELECT {column} FROM {table} WHERE {column} IS NOT NULL AND {column} != :empty'), {'empty': ''})
+            yield from ((uploads, Path(folder) / row[0]) for row in rows)
+    if 'matches' in tables and 'match_note' in {c['name'] for c in inspector.get_columns('matches')}:
+        for row in conn.execute(text('SELECT match_note FROM matches WHERE match_note IS NOT NULL')):
+            yield from ((uploads, Path('screenshots') / name) for name in re.findall(
+                r'/static/uploads/screenshots/([A-Za-z0-9_.-]+)', row[0]))
+    if 'carousel_items' in tables:
+        for row in conn.execute(text('SELECT file_path FROM carousel_items')):
+            path = row[0] or ''
+            if path.startswith('/static/uploads/'):
+                yield uploads, Path(path.removeprefix('/static/uploads/'))
+            elif path.startswith('/carousel-media/'):
+                yield image, Path(path.removeprefix('/carousel-media/'))
+            elif path.startswith('image/'):
+                yield image, Path(path.removeprefix('image/'))
+
+
+def verify_media_references(engine, config):
+    """A directory existing is insufficient when database attachments are missing."""
     with engine.connect() as conn:
-        tables = set(inspect(conn).get_table_names())
-        for table, column, folder in (('users', 'avatar', 'avatars'), ('teams', 'team_photo', 'teams')):
-            if table in tables and column in {c['name'] for c in inspect(conn).get_columns(table)}:
-                expected.extend((uploads, Path(folder) / row[0]) for row in conn.execute(text(
-                    f'SELECT {column} FROM {table} WHERE {column} IS NOT NULL AND {column} != :empty'), {'empty': ''}))
-        if 'matches' in tables and 'match_note' in {c['name'] for c in inspect(conn).get_columns('matches')}:
-            for row in conn.execute(text('SELECT match_note FROM matches WHERE match_note IS NOT NULL')):
-                expected.extend((uploads, Path('screenshots') / name) for name in re.findall(
-                    r'/static/uploads/screenshots/([A-Za-z0-9_.-]+)', row[0]))
-        if 'carousel_items' in tables:
-            for row in conn.execute(text('SELECT file_path FROM carousel_items')):
-                path = row[0] or ''
-                if path.startswith('/static/uploads/'):
-                    expected.append((uploads, Path(path.removeprefix('/static/uploads/'))))
-                elif path.startswith('/carousel-media/'):
-                    expected.append((image, Path(path.removeprefix('/carousel-media/'))))
-                elif path.startswith('image/'):
-                    expected.append((image, Path(path.removeprefix('image/'))))
-    for root, relative in expected:
-        target = (root / relative).resolve()
-        if not target.is_relative_to(root) or not target.is_file():
-            raise RuntimeError('素材引用缺失，备份不完整: ' + str(relative))
+        for root, relative in media_references(conn, config):
+            target = (root / relative).resolve()
+            if not target.is_relative_to(root) or not target.is_file():
+                raise RuntimeError('素材引用缺失，备份不完整: ' + str(relative))
 
 
 def create_backup(engine, config, reason='manual'):
