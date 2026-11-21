@@ -3316,6 +3316,8 @@ def new_season():
             flash(warning, 'warning')
     if not has_enabled_track():
         flash(f'{no_tracks_message()}，本届报名开关保持关闭', 'warning')
+    else:
+        flash('本届报名开关保持关闭，请核对规则和赛道后手动开放', 'info')
     return redirect(url_for('admin.tournament_settings'))
 
 

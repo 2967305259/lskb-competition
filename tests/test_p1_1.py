@@ -33,6 +33,10 @@ def prepare_previous_configuration(application):
 def test_new_season_wizard_inherits_selected_values_and_carousel(application, client):
     prepare_previous_configuration(application)
     data = transition_data(application, client, True)
+    preview = client.get('/admin/tournament-settings').get_data(as_text=True)
+    assert '归档会保留上届快照' in preview
+    for path in ('/admin/rules', '/admin/roguelikes', '/admin/registration'):
+        assert f'href="{path}"' in preview
     data.update({
         'inherit_registration_window': '1',
         'inherit_tournament_window': '1',
@@ -53,6 +57,8 @@ def test_new_season_wizard_inherits_selected_values_and_carousel(application, cl
         assert setting.advance_count == 4
         assert setting.team_size == 5
         assert setting.allow_incomplete_teams is True
+        assert setting.registration_open is False
+        assert old.context_snapshot and new.context_snapshot
         assert a.CarouselItem.query.filter_by(tournament_id=old.id).count() == 2
         copied = a.CarouselItem.query.filter_by(tournament_id=new.id).order_by(a.CarouselItem.sort_order).all()
         assert len(copied) == 2
@@ -65,10 +71,14 @@ def test_new_season_wizard_inherits_selected_values_and_carousel(application, cl
             'advance_count', 'team_size', 'allow_incomplete_teams', 'carousel',
         }
         assert detail['carousel_copied'] == 2
+        assert detail['inherited_values']['registration_open'] is False
     home = client.get('/').get_data(as_text=True)
     assert '<video src="/carousel-media/clip.mp4"' in home and '继承视频' in home
     assert '/carousel-media/1.png' not in home
     assert client.get('/carousel-media/clip.mp4').data == b'fixture-video'
+    assert client.post('/admin/registration', data={'registration_open': 'open'}).status_code == 302
+    with application.app_context():
+        assert a.Setting.get_instance().registration_open is True
 
 
 def test_new_season_wizard_without_inheritance_keeps_legacy_defaults(application, client):

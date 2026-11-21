@@ -359,7 +359,7 @@ def switch_season():
         settings.team_size = old_team_size
     if inherit_incomplete:
         settings.allow_incomplete_teams = old_allow_incomplete
-    settings.registration_open = has_enabled_track()
+    settings.registration_open = False
     if inherit_carousel:
         previous_items = a.CarouselItem.query.filter_by(tournament_id=old_id).order_by(
             a.CarouselItem.sort_order, a.CarouselItem.id).all()
