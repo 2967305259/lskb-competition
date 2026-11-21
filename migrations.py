@@ -5,10 +5,10 @@ from pathlib import Path
 from sqlalchemy import MetaData, Table, inspect, text
 from backup import create_backup, maintenance_lock
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 # These additions cover the supported pre-P0 schema. Other missing base columns are an error.
 ADDITIONS = {
-    'users': {'has_completed_onboarding': '0', 'tutorial_step': '0'},
+    'users': {'has_completed_onboarding': '0', 'tutorial_step': '0', 'anonymized_at': 'NULL'},
     'teams': {'tournament_id': 'NULL'},
     'team_members': {'position': 'NULL', 'squad': "''", 'operator': "''"},
     'settings': {'team_size': 'NULL', 'allow_incomplete_teams': '0'},

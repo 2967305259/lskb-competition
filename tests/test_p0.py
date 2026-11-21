@@ -469,6 +469,8 @@ def test_wal_backup_restore_and_custom_media_route(application, tmp_path, client
             assert conn.exec_driver_sql('PRAGMA journal_mode=WAL').scalar() == 'wal'
         avatar = Path(application.config['UPLOAD_ROOT']) / 'avatars' / 'still-used.png'
         avatar.write_bytes(b'avatar-content')
+        db.session.get(a.User, application.test_ids['users'][0]).avatar = avatar.name
+        db.session.commit()
         batch = create_backup(db.engine, application.config)
         engine = create_engine('sqlite:///' + str(tmp_path / 'wal-restored.db'))
         restore_backup(batch, engine, tmp_path / 'wal-media', 'p0-v1')

@@ -110,10 +110,16 @@
                 {% endif %}
             </div>
             <div class="card-body">
-                {% if match.match_note %}
-                    <pre style="white-space: pre-wrap; background: #1a1a1a; padding: 15px; border-radius: 4px; color: #e0e0e0; font-family: inherit;">{{ match.match_note }}</pre>
+                {% if notes %}
+                    <pre style="white-space: pre-wrap; background: #1a1a1a; padding: 15px; border-radius: 4px; color: #e0e0e0; font-family: inherit;">{{ notes }}</pre>
                 {% else %}
                     <p class="text-muted text-center mb-0">暂无留言</p>
+                {% endif %}
+                {% if evidence %}
+                <h3 class="h6 mt-3">成绩截图</h3>
+                <ul class="mb-0">
+                    {% for path in evidence %}<li><a href="{{ path }}">查看截图 {{ loop.index }}</a></li>{% endfor %}
+                </ul>
                 {% endif %}
             </div>
         </div>

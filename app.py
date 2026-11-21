@@ -84,7 +84,7 @@ class Config:
     BACKUP_KEEP = 5
     UPLOAD_ROOT = os.environ.get('UPLOAD_ROOT', os.path.join(BASE_DIR, 'app', 'static', 'uploads'))
     IMAGE_DIR = os.environ.get('IMAGE_DIR', os.path.join(BASE_DIR, 'image'))
-    APP_VERSION = os.environ.get('APP_VERSION') or 'season-release-v1'
+    APP_VERSION = os.environ.get('APP_VERSION') or 'account-privacy-v1'
     LEGACY_APP_VERSION = os.environ.get('LEGACY_APP_VERSION', '8238f20')
     REMEMBER_COOKIE_DURATION = timedelta(days=7)
     PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
@@ -626,6 +626,7 @@ class User(UserMixin, db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # 一个用户可在多个赛事中分别担任队长，故为列表；请用 team 属性取当前赛事的队伍
+    anonymized_at = db.Column(db.DateTime, nullable=True)
     teams = db.relationship('Team', backref='captain', foreign_keys='Team.captain_id')
     team_memberships = db.relationship('TeamMember', backref='user', cascade='all, delete-orphan')
     invitations = db.relationship('Invitation', backref='user', cascade='all, delete-orphan')
@@ -645,7 +646,7 @@ class User(UserMixin, db.Model):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+        return self.anonymized_at is None and check_password_hash(self.password_hash, password)
 
     def is_super_admin(self):
         return self.role == 'super_admin'
@@ -1243,9 +1244,13 @@ def carousel_media_serve(filename):
         abort(404)
     img_dir = Path(os.path.realpath(current_app.config['IMAGE_DIR']))
     real = Path(os.path.realpath(img_dir / filename))
-    if not real.is_relative_to(img_dir) or not real.is_file():
+    upload_root = Path(current_app.config['UPLOAD_ROOT']).resolve()
+    if (not real.is_relative_to(img_dir) or real.is_relative_to(upload_root)
+            or real.suffix.lower() not in SUPPORTED_MEDIA_EXTENSIONS or not real.is_file()):
         abort(404)
-    return send_file(real)
+    response = send_file(real)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @main_bp.route('/teams')
@@ -1438,6 +1443,20 @@ def change_password():
         else:
             return redirect(url_for('player.dashboard'))
     return render_template('auth/change_password.html', form=form)
+
+
+@auth_bp.get('/privacy')
+@login_required
+def account_privacy():
+    return render_template('auth/privacy.html')
+
+
+@auth_bp.post('/privacy/export')
+@login_required
+def export_my_account():
+    from privacy import download_personal_record
+
+    return download_personal_record(current_user)
 
 
 # ============================================================
@@ -1897,17 +1916,15 @@ def api_onboarding_status():
 @login_required
 def api_players():
     """获取所有选手数据（JSON）—— 包括队长"""
-    players = User.query.filter(User.role.in_(['player', 'captain'])).all()
+    players = User.query.filter(User.role.in_(['player', 'captain']), User.anonymized_at.is_(None)).all()
     result = []
     for p in players:
         tm = p.get_team_membership()
-        result.append({
+        row = {
             'id': p.id,
-            'username': p.username,
             'nickname': p.nickname,
             'avatar': url_for('static', filename='uploads/avatars/' + p.avatar, _external=True) if p.avatar else None,
             'role': p.role,
-            'created_at': p.created_at.isoformat() if p.created_at else None,
             'team': {
                 'id': tm.team_id if tm else None,
                 'name': tm.team.team_name if tm else None,
@@ -1917,11 +1934,17 @@ def api_players():
                 'operator': tm.operator or '' if tm else '',
                 'final_score': tm.final_score if tm else 0,
             } if tm else None,
-        })
+        }
+        if current_user.is_admin() or current_user.id == p.id:
+            row.update(username=p.username, created_at=p.created_at.isoformat() if p.created_at else None)
+        result.append(row)
     return jsonify({'players': result, 'total': len(result)})
 
 
 def player_detail_response(player):
+    if player.is_admin() and not (current_user.is_admin() or current_user.id == player.id):
+        abort(404)
+    private = current_user.is_admin() or current_user.id == player.id
     scope = requested_record_scope()
     membership = player.get_team_membership() if Tournament.get_active() else None
     stats = get_player_stats(player.id, scope=scope, recent_limit=20)
@@ -1939,11 +1962,11 @@ def player_detail_response(player):
     return jsonify({
         'player': {
             'id': player.id,
-            'username': player.username,
             'nickname': player.nickname,
             'avatar': url_for('static', filename='uploads/avatars/' + player.avatar, _external=True) if player.avatar else None,
             'role': player.role,
-            'created_at': player.created_at.isoformat() if player.created_at else None,
+            **({'username': player.username, 'created_at': player.created_at.isoformat() if player.created_at else None}
+               if private and player.anonymized_at is None else {}),
             'team': {
                 'id': membership.team_id,
                 'name': membership.team.team_name,
@@ -1952,7 +1975,7 @@ def player_detail_response(player):
                 'roguelike': membership.roguelike,
                 'squad': membership.squad or '',
                 'operator': membership.operator or '',
-                'declaration': membership.declaration,
+                **({'declaration': membership.declaration} if private else {}),
                 'final_score': membership.final_score,
             } if membership else None,
         },
@@ -1972,7 +1995,12 @@ def api_player_detail(user_id):
 def api_player_by_name(name):
     player = User.query.filter_by(nickname=name).first()
     if player is None:
-        player = User.query.filter_by(username=name).first_or_404()
+        lookup = User.query.filter_by(username=name, anonymized_at=None)
+        if not current_user.is_admin():
+            lookup = lookup.filter_by(id=current_user.id)
+        player = lookup.first()
+        if player is None:
+            return jsonify(error='未找到选手'), 404
     return player_detail_response(player)
 
 
@@ -2116,10 +2144,8 @@ def search_players():
     if form.validate_on_submit():
         keyword = form.search_keyword.data
         query = User.query.filter(
-            User.role.in_(['player', 'captain', 'admin', 'super_admin']),
-            db.or_(
-                User.username.ilike(f'%{keyword}%'),
-                User.nickname.ilike(f'%{keyword}%')))
+            User.role.in_(['player', 'captain', 'admin', 'super_admin']), User.anonymized_at.is_(None),
+            User.nickname.ilike(f'%{keyword}%'))
         valid_players = []
         for player in query.all():
             if player.id == current_user.id:
@@ -2146,6 +2172,8 @@ def invite_player(player_id):
         flash('队伍已满员', 'danger')
         return redirect(url_for('captain.search_players'))
     player = User.query.get_or_404(player_id)
+    if player.anonymized_at:
+        abort(404)
     if player.id == current_user.id:
         flash('不能邀请自己', 'warning')
         return redirect(url_for('captain.search_players'))
@@ -2303,7 +2331,6 @@ def api_teams():
                 'avatar': url_for('static', filename='uploads/avatars/' + m.user.avatar, _external=True) if m.user.avatar else None,
                 'roguelike': m.roguelike,
                 'position': m.position,
-                'declaration': m.declaration,
                 'final_score': m.final_score,
             } for m in members]
         })
@@ -2336,7 +2363,6 @@ def api_team_detail(team_id):
                 'avatar': url_for('static', filename='uploads/avatars/' + m.user.avatar, _external=True) if m.user.avatar else None,
                 'roguelike': m.roguelike,
                 'position': m.position,
-                'declaration': m.declaration,
                 'final_score': m.final_score,
             } for m in members]
         }
@@ -2516,37 +2542,30 @@ def reset_user_password(user_id):
 @admin_bp.route('/user/<int:user_id>/delete', methods=['POST'])
 @login_required_with_role('admin')
 def delete_user(user_id):
+    from privacy import delete_unreferenced_account
+
     user = User.query.get_or_404(user_id)
-    if user.id == current_user.id:
-        flash('不能删除自己', 'warning')
-        return redirect(url_for('admin.users'))
-    if user.is_super_admin():
-        flash('不能删除超级管理员', 'danger')
-        return redirect(url_for('admin.users'))
-    nickname = user.nickname
-    # 有比赛/成绩记录的用户禁止删除（外键 NOT NULL，强删会破坏赛事数据）
-    player_matches = Match.query.filter(
-        (Match.player_a_id == user.id) | (Match.player_b_id == user.id)).count()
-    if player_matches or ScoreLog.query.filter_by(modified_by=user.id).count():
-        flash(f'无法删除【{nickname}】：该用户已产生比赛或成绩记录，删除会破坏赛事数据', 'danger')
-        return redirect(url_for('admin.users'))
-    # 该用户在所有赛季担任队长且已有比赛的队伍，一律禁止删除
-    for team in user.teams:
-        team_matches = Match.query.filter(
-            (Match.team_a_id == team.id) | (Match.team_b_id == team.id)).count()
-        if team_matches:
-            flash(f'无法删除【{nickname}】：其队伍「{team.team_name}」已有比赛记录，请先删除相关比赛', 'danger')
-            return redirect(url_for('admin.users'))
-    # 清理无级联配置的关联数据（时间偏好、各赛季队伍）
-    TimePreference.query.filter_by(player_id=user.id).delete()
-    for team in list(user.teams):
-        db.session.delete(team)
-    db.session.delete(user)
-    db.session.commit()
-    log_system_action('delete_user', f'删除用户 {nickname}({user.username})')
-    db.session.commit()
-    flash(f'已删除用户 【{nickname}】', 'success')
+    delete_unreferenced_account(user)
+    flash('已删除未被赛事或审计引用的账号', 'success')
     return redirect(url_for('admin.users'))
+
+
+@admin_bp.post('/user/<int:user_id>/anonymize')
+@super_admin_required
+def anonymize_user(user_id):
+    from privacy import anonymize_account, request_reference
+
+    anonymize_account(User.query.get_or_404(user_id), request_reference(request.form.get('reference')))
+    flash('账号已匿名化，成绩和审计引用已保留', 'success')
+    return redirect(url_for('admin.users'))
+
+
+@admin_bp.post('/user/<int:user_id>/privacy/export')
+@super_admin_required
+def export_user_account(user_id):
+    from privacy import download_personal_record, request_reference
+
+    return download_personal_record(User.query.get_or_404(user_id), request_reference(request.form.get('reference')))
 
 
 @admin_bp.route('/teams')
@@ -2658,6 +2677,8 @@ def update_member_info(team_id, member_id):
 
     # 更新头像
     if 'avatar' in request.files and request.files['avatar'].filename:
+        if member.user.anonymized_at:
+            raise SeasonError('该账号已匿名化，头像已停止展示')
         file = request.files['avatar']
         allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
         ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
@@ -2688,7 +2709,7 @@ def update_member_info(team_id, member_id):
     # A target total is converted into an independently auditable delta.
     manual_score = request.form.get('final_score', '').strip()
     if manual_score:
-        from season_safety import SeasonError, json_dump
+        from season_safety import json_dump
         reason = request.form.get('reason', '').strip()
         adjustment, before, after = create_score_adjustment(
             member.id, current_user.id, reason, target_total=manual_score)
@@ -2979,6 +3000,8 @@ def update_release_pack(action):
 @admin_bp.get('/release-packs/<int:release_id>/<file_format>')
 @super_admin_required
 def download_release_pack(release_id, file_format):
+    from backup import maintenance_lock
+    from privacy import record_download
     from season_releases import published_releases, release_markdown
 
     release = published_releases().filter_by(id=release_id).first_or_404()
@@ -2991,6 +3014,9 @@ def download_release_pack(release_id, file_format):
     filename = f'season-{release.tournament.season_number}-release-{release.version}.{file_format}'
     response = send_file(BytesIO((data + '\n').encode('utf-8')), mimetype=mimetype,
                          as_attachment=True, download_name=filename)
+    with maintenance_lock(current_app.config):
+        record_download('download_season_release', {'season_id': release.tournament_id,
+                                                   'version': release.version, 'format': file_format})
     response.cache_control.no_store = True
     return response
 
@@ -3035,12 +3061,16 @@ def apply_cleanup():
 @admin_bp.route('/data-tools/score-logs')
 @login_required_with_role('admin')
 def export_score_logs():
+    from backup import maintenance_lock
+    from privacy import record_download
     from season_safety import json_dump
 
     if not current_user.is_super_admin():
         abort(403)
-    records = db.session.execute(db.select(ScoreLog.__table__).order_by(ScoreLog.id)).mappings()
-    payload = BytesIO(json_dump([dict(record) for record in records]).encode('utf-8'))
+    with maintenance_lock(current_app.config):
+        records = [dict(record) for record in db.session.execute(db.select(ScoreLog.__table__).order_by(ScoreLog.id)).mappings()]
+        payload = BytesIO(json_dump(records).encode('utf-8'))
+        record_download('download_score_logs', {'rows': len(records)})
     response = send_file(payload, mimetype='application/json', as_attachment=True, download_name='score-logs.json')
     response.cache_control.no_store = True
     return response
@@ -3083,6 +3113,7 @@ def create_backup_batch():
 def download_backup(batch, filename):
     from backup import maintenance_lock
     from data_tools import INVENTORY_ERRORS, backup_download_file
+    from privacy import record_download
 
     if not current_user.is_super_admin():
         abort(403)
@@ -3092,6 +3123,7 @@ def download_backup(batch, filename):
             response = send_file(path, as_attachment=True, download_name=download_name)
         except INVENTORY_ERRORS:
             return '备份文件不可用。', 404
+        record_download('download_backup', {'batch': batch, 'file': filename})
     response.cache_control.no_store = True
     return response
 
@@ -3102,6 +3134,7 @@ def export_excel():
     from backup import maintenance_lock
     from data_tools import build_season_workbook
     from season_safety import active_season
+    from privacy import record_download
 
     with maintenance_lock(current_app.config):
         tournament = active_season()
@@ -3112,6 +3145,7 @@ def export_excel():
         workbook.save(output)
         output.seek(0)
         filename = f'{get_event_name()}赛事数据_{datetime.now():%Y%m%d_%H%M%S}.xlsx'
+        record_download('download_season_excel', {'season_id': tournament.id})
     response = send_file(output,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                          as_attachment=True, download_name=filename)
@@ -4038,6 +4072,7 @@ def my_matches():
 def match_detail(match_id):
     """比赛详情"""
     from season_safety import root_match
+    from privacy import can_read_evidence, screenshot_names, EVIDENCE_LINE
     match = root_match(Match.query.get_or_404(match_id))
     is_participant = (current_user.id == match.player_a_id or
                       current_user.id == match.player_b_id)
@@ -4050,7 +4085,10 @@ def match_detail(match_id):
     season = match.tournament if scope == 'current' else None
     allowed = {action: player_match_denial(action, match, current_user.id, season) is None
                for action in ('schedule_match', 'confirm_schedule', 'submit_result', 'forfeit_match', 'send_match_note')}
-    return render_template('tournament/match_detail.html', match=match,
+    notes = '\n'.join(line for line in (match.match_note or '').splitlines() if not EVIDENCE_LINE.fullmatch(line))
+    evidence = [url_for('p0_media', filename=f'screenshots/{name}') for name in screenshot_names(match.match_note)
+                if can_read_evidence(name)]
+    return render_template('tournament/match_detail.html', match=match, notes=notes, evidence=evidence,
                            is_participant=is_participant, allowed=allowed, season_scope=scope)
 
 
@@ -4153,11 +4191,12 @@ def send_match_note(match_id):
     match = require_player_match_action(match_id, 'send_match_note')
     form = MatchNoteForm()
     if form.validate_on_submit():
-        note = form.match_note.data
+        note = ' '.join(form.match_note.data.splitlines())
+        author = ' '.join(current_user.nickname.splitlines())
         if match.match_note:
-            match.match_note += f'\n[{event_now().strftime("%m-%d %H:%M")}] {current_user.nickname}: {note}'
+            match.match_note += f'\n[{event_now().strftime("%m-%d %H:%M")}] {author}: {note}'
         else:
-            match.match_note = f'[{event_now().strftime("%m-%d %H:%M")}] {current_user.nickname}: {note}'
+            match.match_note = f'[{event_now().strftime("%m-%d %H:%M")}] {author}: {note}'
         db.session.commit()
         flash('留言已发送', 'success')
     return redirect(url_for('tournament.match_detail', match_id=match_id))
@@ -4188,7 +4227,7 @@ def submit_result(match_id):
                 path = os.path.join(directory, filename)
                 staged.append(path)
                 file.save(path)
-                match.match_note = (match.match_note or '') + f'\n[截图] {current_user.nickname}: /static/uploads/screenshots/{filename}'
+                match.match_note = (match.match_note or '') + f'\n[截图] /static/uploads/screenshots/{filename}'
             setattr(match, 'player_' + side + '_result', 'submitted')
             if not match.forfeit_side and match.player_a_score is not None and match.player_b_score is not None:
                 match.status = 'submitted'
@@ -4213,7 +4252,7 @@ def submit_result(match_id):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return User.query.filter_by(id=int(user_id), anonymized_at=None).first()
 
 
 # ============================================================

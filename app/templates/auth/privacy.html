@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}账号与隐私{% endblock %}
+{% block content %}
+<h2>账号与隐私</h2>
+<p>本届和往届展示你的当前昵称和已关联的头像。比赛截图由参赛双方和管理员按比赛权限查看。</p>
+<p>个人数据副本包含账号资料、参赛记录、自己的成绩、申请和时间偏好。申请删除或匿名化时，请联系赛事管理员核验身份并登记。</p>
+<form method="post" action="{{ url_for('auth.export_my_account') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-primary">下载我的个人数据</button>
+</form>
+{% endblock %}

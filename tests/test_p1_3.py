@@ -126,6 +126,8 @@ def test_web_backup_download_and_isolated_restore(application, client, tmp_path)
                 for path in ('/', '/tournament/', '/history'):
                     assert restored_client.get(path).status_code == 200
                 screenshot = next((media / 'uploads' / 'screenshots').iterdir())
+                assert restored_client.get(f'/static/uploads/screenshots/{screenshot.name}').status_code == 404
+                login(restored_client, ids['users'][0])
                 media_samples[f'screenshots/{screenshot.name}'] = b'image'
                 for name, content in media_samples.items():
                     assert restored_client.get(f'/static/uploads/{name}').data == content

@@ -412,6 +412,10 @@ def switch_season():
 
 def _guard_request():
     a = ns()
+    if request.endpoint == 'static':
+        from posixpath import normpath
+        if normpath((request.view_args or {}).get('filename', '')).split('/')[0] == 'uploads':
+            return '', 404
     if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
         return
     g.maintenance = maintenance_lock(current_app.config)
@@ -460,21 +464,14 @@ def _guard_request():
         if item is None:
             abort(404)
         require_writable(item.tournament_id)
-    if endpoint == 'admin.delete_user':
-        user_id = args['user_id']
-        if a.ScoreAdjustment.query.filter(a.db.or_(a.ScoreAdjustment.actor_id == user_id, a.ScoreAdjustment.revoked_by == user_id)).first():
-            raise SeasonError('该用户被积分调整审计引用，不能删除')
-        member_ids = [m.id for m in a.TeamMember.query.filter_by(user_id=user_id).all()]
-        if member_ids and a.ScoreAdjustment.query.filter(a.ScoreAdjustment.member_id.in_(member_ids)).first():
-            raise SeasonError('该成员被积分调整账本引用，不能删除')
-        historical = a.TeamMember.query.join(a.Team).filter(a.TeamMember.user_id == user_id,
-                         a.db.or_(a.Team.tournament_id != active_season().id, a.Team.tournament_id.is_(None))).first()
-        owned = a.Team.query.filter(a.Team.captain_id == user_id,
-                         a.db.or_(a.Team.tournament_id != active_season().id, a.Team.tournament_id.is_(None))).first()
-        if historical or owned:
-            raise SeasonError('该账号有关联往届/待核对成员或队伍，不能删除')
+    if endpoint in ('admin.promote_user', 'admin.demote_user', 'admin.promote_to_admin',
+                    'admin.demote_from_admin', 'admin.reset_user_password'):
+        user = a.User.query.get_or_404(args['user_id'])
+        if user.anonymized_at:
+            raise SeasonError('该账号已匿名化')
     if endpoint.startswith('admin.') and endpoint not in (
-            'admin.new_season', 'admin.create_backup_batch', 'admin.preview_cleanup', 'admin.apply_cleanup'):
+            'admin.new_season', 'admin.create_backup_batch', 'admin.preview_cleanup', 'admin.apply_cleanup',
+            'admin.delete_user', 'admin.anonymize_user', 'admin.export_user_account'):
         active_season()
     if endpoint in FINISHED_SCHEDULING_ACTIONS and active_season().status == 'finished':
         raise SeasonError('本届赛事已结束，已停止排赛')
@@ -638,13 +635,8 @@ def install_safety(app):
 
     @app.route('/static/uploads/<path:filename>', endpoint='p0_media')
     def media(filename):
-        from pathlib import Path
-        from flask import send_from_directory
-        root = Path(current_app.config['UPLOAD_ROOT']).resolve()
-        target = (root / filename).resolve()
-        if not target.is_relative_to(root):
-            abort(404)
-        return send_from_directory(root, filename)
+        from privacy import protected_upload
+        return protected_upload(filename)
 
 
 def audit_state(match):

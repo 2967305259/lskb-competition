@@ -50,9 +50,9 @@ def test_match_and_team_workflows_do_not_query_legacy_notifications(application,
         with application.app_context():
             assert a.db.session.get(a.JoinRequest, request_id).status == 'rejected'
 
-        login(client, ids['admin'])
-        deletion = client.post(f'/admin/user/{applicant_id}/delete', follow_redirects=True)
-        assert deletion.status_code == 200 and '已删除用户' in deletion.get_data(as_text=True)
+        login(client, ids['super'])
+        deletion = client.post(f'/admin/user/{applicant_id}/anonymize', data={'reference': '已核验申请'}, follow_redirects=True)
+        assert deletion.status_code == 200 and '账号已匿名化' in deletion.get_data(as_text=True)
     finally:
         event.remove(engine, 'before_cursor_execute', capture)
 
@@ -61,6 +61,6 @@ def test_match_and_team_workflows_do_not_query_legacy_notifications(application,
         match = a.db.session.get(a.Match, ids['match'])
         assert match.settlement_state == 'settled' and match.winner_id == ids['users'][0]
         assert match.confirmed_a and match.confirmed_b and '确认比赛时段' in match.match_note
-        assert a.db.session.get(a.User, applicant_id) is None
-        assert a.db.session.get(a.JoinRequest, request_id) is None
+        assert a.db.session.get(a.User, applicant_id).anonymized_at is not None
+        assert a.db.session.get(a.JoinRequest, request_id).status == 'rejected'
         assert not a.TimePreference.query.filter_by(player_id=applicant_id).count()

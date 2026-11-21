@@ -52,7 +52,7 @@
                         {% endif %}
                     </td>
                     {% if captain %}
-                    <td>{{ record.user.nickname ~ ' (@' ~ record.user.username ~ ')' if record.user else '—' }}</td>
+                    <td>{{ record.user.nickname if record.user else '—' }}</td>
                     {% endif %}
                     <td>{{ record.created_at|event_time or '—' }}</td>
                     <td>{{ invitation_status_badge(record.status) if invitation else join_request_status_badge(record.status) }}</td>

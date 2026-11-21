@@ -265,7 +265,8 @@ def validate_manifest(manifest, *, imported=False):
     _fields(payload, ('format_version', 'application_version', 'schema_version', 'score_contract',
                       'identity', 'environment', 'configuration', 'publication', 'source'), '发布包内容')
     _require(type(payload['format_version']) is int and payload['format_version'] == FORMAT_VERSION, '发布包格式版本不兼容')
-    _require(type(payload['schema_version']) is int and payload['schema_version'] == SCHEMA_VERSION, '发布包数据库结构版本不兼容')
+    _require(type(payload['schema_version']) is int and 5 <= payload['schema_version'] <= SCHEMA_VERSION,
+             '发布包数据库结构版本不兼容')
     _require(payload['score_contract'] == SCORING, '整场结算、取整或晋级合同不兼容')
     _text(payload['application_version'], 200, '应用版本', required=True)
     _identity(payload['identity'])
