@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}素材盘点{% endblock %}
+{% block content %}
+<a href="{{ url_for('admin.admin_data_tools') }}" class="btn btn-outline-secondary mb-3">返回数据工具</a>
+<h2>素材盘点</h2>
+<p>已核对 {{ report.files|length }} 个文件。JSON 清单包含完整路径、大小、SHA-256 和已有上传元数据，可用于迁移前后比对。</p>
+<p><a class="btn btn-primary" href="{{ url_for('admin.media_inventory', format='json') }}">下载 JSON 清单</a></p>
+{% for title, entries in [('引用缺失', report.missing), ('未被引用', report.orphans), ('内容变化', report.changed)] %}
+<section class="card p-3 mb-3">
+    <h3 class="h5">{{ title }}（{{ entries|length }}）</h3>
+    {% if entries %}
+    <ul class="mb-0">
+        {% for entry in entries[:30] %}<li><code class="text-break">{{ entry.root }}/{{ entry.path }}</code></li>{% endfor %}
+    </ul>
+    {% if entries|length > 30 %}<p class="mt-2 mb-0">页面显示前 30 条，完整结果见 JSON。</p>{% endif %}
+    {% endif %}
+</section>
+{% endfor %}
+<section class="card p-3">
+    <h3 class="h5">内容重复（{{ report.duplicates|length }} 组）</h3>
+    {% for group in report.duplicates[:20] %}
+    <p class="mb-1">SHA-256 <code class="text-break">{{ group.sha256 }}</code> · {{ group.files|length }} 个文件</p>
+    {% endfor %}
+    {% if report.duplicates|length > 20 %}<p class="mt-2 mb-0">页面显示前 20 组，完整结果见 JSON。</p>{% endif %}
+</section>
+{% endblock %}

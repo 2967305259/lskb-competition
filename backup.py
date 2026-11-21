@@ -86,6 +86,8 @@ def media_references(conn, config):
                 yield image, Path(path.removeprefix('/carousel-media/'))
             elif path.startswith('image/'):
                 yield image, Path(path.removeprefix('image/'))
+            elif path and not path.startswith('/'):
+                yield image, Path(path)
     if 'season_releases' in tables:
         roots = {'image': image, 'uploads': uploads}
         for row in conn.execute(text('SELECT manifest FROM season_releases WHERE version > 0')):
@@ -96,10 +98,18 @@ def media_references(conn, config):
 def verify_media_references(engine, config):
     """A directory existing is insufficient when database attachments are missing."""
     with engine.connect() as conn:
-        for root, relative in media_references(conn, config):
+        uploads = Path(config['UPLOAD_ROOT']).resolve()
+        tracked = {}
+        if inspect(conn).has_table('upload_assets'):
+            tracked = {path: (size, sha) for path, size, sha in conn.execute(
+                text('SELECT relative_path, size_bytes, sha256 FROM upload_assets'))}
+        for root, relative in set(media_references(conn, config)):
             target = (root / relative).resolve()
             if not target.is_relative_to(root) or not target.is_file():
                 raise RuntimeError('素材引用缺失，备份不完整: ' + str(relative))
+            if root == uploads and (record := tracked.get(relative.as_posix())):
+                if (target.stat().st_size, digest(target)) != record:
+                    raise RuntimeError('素材内容与上传记录不一致: ' + str(relative))
 
 
 def create_backup(engine, config, reason='manual'):

@@ -50,6 +50,7 @@ from season_phase import (admin_result_denial, admin_schedule_protected,
                           event_local, event_now, event_zone, format_event_time,
                           has_enabled_track, no_tracks_message, parse_event_time, player_match_denial,
                           registration_denial, window_warnings)
+from media_lifecycle import MAX_SCREENSHOTS, save_upload, upload_batch
 
 # ============================================================
 # 配置
@@ -84,7 +85,7 @@ class Config:
     BACKUP_KEEP = 5
     UPLOAD_ROOT = os.environ.get('UPLOAD_ROOT', os.path.join(BASE_DIR, 'app', 'static', 'uploads'))
     IMAGE_DIR = os.environ.get('IMAGE_DIR', os.path.join(BASE_DIR, 'image'))
-    APP_VERSION = os.environ.get('APP_VERSION') or 'account-privacy-v1'
+    APP_VERSION = os.environ.get('APP_VERSION') or 'material-lifecycle-v1'
     LEGACY_APP_VERSION = os.environ.get('LEGACY_APP_VERSION', '8238f20')
     REMEMBER_COOKIE_DURATION = timedelta(days=7)
     PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
@@ -92,6 +93,8 @@ class Config:
     WTF_CSRF_TIME_LIMIT = None
     ITEMS_PER_PAGE = 20
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
+    UPLOAD_USER_MAX_MB = int(os.environ.get('UPLOAD_USER_MAX_MB', '256'))
+    UPLOAD_TOTAL_MAX_MB = int(os.environ.get('UPLOAD_TOTAL_MAX_MB', '4096'))
     DEBUG = False
     TESTING = False
 
@@ -955,6 +958,19 @@ class CarouselItem(db.Model):
         return f'<CarouselItem {self.title or self.file_path}>'
 
 
+class UploadAsset(db.Model):
+    """Metadata for files accepted through an upload form."""
+    __tablename__ = 'upload_assets'
+    id = db.Column(db.Integer, primary_key=True)
+    relative_path = db.Column(db.String(240), nullable=False, unique=True)
+    original_name = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(40), nullable=False)
+    size_bytes = db.Column(db.Integer, nullable=False)
+    sha256 = db.Column(db.String(64), nullable=False, index=True)
+    uploader_id = db.Column(db.Integer, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
 class SystemLog(db.Model):
     """系统日志"""
     __tablename__ = 'system_logs'
@@ -1672,34 +1688,21 @@ def profile():
                            form=form)
 
 
+def _upload_profile_avatar(return_endpoint):
+    file = request.files.get('avatar')
+    if not file or not file.filename:
+        flash('请选择文件', 'warning')
+        return redirect(url_for(return_endpoint))
+    with upload_batch() as staged:
+        current_user.avatar = save_upload(file, 'avatars', staged)
+    flash('头像上传成功', 'success')
+    return redirect(url_for(return_endpoint))
+
+
 @player_bp.route('/upload-avatar', methods=['POST'])
 @login_required_with_role('player', 'captain')
 def upload_avatar():
-    if 'avatar' not in request.files:
-        flash('请选择文件', 'warning')
-        return redirect(url_for('player.profile'))
-    file = request.files['avatar']
-    if file.filename == '':
-        flash('请选择文件', 'warning')
-        return redirect(url_for('player.profile'))
-    allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-    if ext not in allowed_ext:
-        flash('仅支持 PNG/JPG/GIF/WEBP 格式', 'danger')
-        return redirect(url_for('player.profile'))
-    # 生成唯一文件名
-    filename = f'{uuid.uuid4().hex}.{ext}'
-    filepath = os.path.join(current_app.config['UPLOAD_ROOT'], 'avatars', filename)
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    try:
-        file.save(filepath)
-    except Exception as e:
-        flash(f'头像保存失败: {str(e)}', 'danger')
-        return redirect(url_for('player.profile'))
-    current_user.avatar = filename
-    db.session.commit()
-    flash('头像上传成功', 'success')
-    return redirect(url_for('player.profile'))
+    return _upload_profile_avatar('player.profile')
 
 
 @player_bp.route('/time-preferences', methods=['GET', 'POST'])
@@ -2242,63 +2245,22 @@ def profile():
 @captain_bp.route('/upload-avatar', methods=['POST'])
 @login_required_with_role('captain')
 def upload_avatar():
-    if 'avatar' not in request.files:
-        flash('请选择文件', 'warning')
-        return redirect(url_for('captain.dashboard'))
-    file = request.files['avatar']
-    if file.filename == '':
-        flash('请选择文件', 'warning')
-        return redirect(url_for('captain.dashboard'))
-    allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-    if ext not in allowed_ext:
-        flash('仅支持 PNG/JPG/GIF/WEBP 格式', 'danger')
-        return redirect(url_for('captain.dashboard'))
-    # 生成唯一文件名
-    filename = f'{uuid.uuid4().hex}.{ext}'
-    filepath = os.path.join(current_app.config['UPLOAD_ROOT'], 'avatars', filename)
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    try:
-        file.save(filepath)
-    except Exception as e:
-        flash(f'头像保存失败: {str(e)}', 'danger')
-        return redirect(url_for('captain.dashboard'))
-    current_user.avatar = filename
-    db.session.commit()
-    flash('头像上传成功', 'success')
-    return redirect(url_for('captain.dashboard'))
+    return _upload_profile_avatar('captain.dashboard')
 
 
 @captain_bp.route('/upload-team-avatar', methods=['POST'])
 @login_required_with_role('captain')
 def upload_team_avatar():
-    """上传队伍头像"""
     team = current_user.team
     if not team:
         flash('您还未创建队伍', 'warning')
         return redirect(url_for('captain.dashboard'))
-    if 'team_avatar' not in request.files:
+    file = request.files.get('team_avatar')
+    if not file or not file.filename:
         flash('请选择文件', 'warning')
         return redirect(url_for('captain.dashboard'))
-    file = request.files['team_avatar']
-    if file.filename == '':
-        flash('请选择文件', 'warning')
-        return redirect(url_for('captain.dashboard'))
-    allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-    if ext not in allowed_ext:
-        flash('仅支持 PNG/JPG/GIF/WEBP 格式', 'danger')
-        return redirect(url_for('captain.dashboard'))
-    filename = f'team_{uuid.uuid4().hex}.{ext}'
-    filepath = os.path.join(current_app.config['UPLOAD_ROOT'], 'teams', filename)
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    try:
-        file.save(filepath)
-    except Exception as e:
-        flash(f'头像保存失败: {str(e)}', 'danger')
-        return redirect(url_for('captain.dashboard'))
-    team.team_photo = filename
-    db.session.commit()
+    with upload_batch() as staged:
+        team.team_photo = save_upload(file, 'teams', staged)
     flash('队伍头像上传成功', 'success')
     return redirect(url_for('captain.dashboard'))
 
@@ -2675,62 +2637,48 @@ def update_member_info(team_id, member_id):
         flash(f"请选择已启用的{get_labels()['track']}", 'danger')
         return redirect(url_for('admin.team_detail', team_id=team_id))
 
-    # 更新头像
-    if 'avatar' in request.files and request.files['avatar'].filename:
-        if member.user.anonymized_at:
-            raise SeasonError('该账号已匿名化，头像已停止展示')
-        file = request.files['avatar']
-        allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-        if ext in allowed_ext:
-            filename = f'{uuid.uuid4().hex}.{ext}'
-            filepath = os.path.join(current_app.config['UPLOAD_ROOT'], 'avatars', filename)
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            try:
-                file.save(filepath)
-            except Exception as e:
-                flash(f'头像保存失败: {str(e)}', 'danger')
-                return redirect(url_for('admin.team_detail', team_id=team_id))
-            member.user.avatar = filename
+    with upload_batch() as staged:
+        file = request.files.get('avatar')
+        if file and file.filename:
+            if member.user.anonymized_at:
+                raise SeasonError('该账号已匿名化，头像已停止展示')
+            member.user.avatar = save_upload(file, 'avatars', staged)
 
-    # 更新肉鸽
-    if roguelike:
-        member.roguelike = roguelike
+        # 更新肉鸽
+        if roguelike:
+            member.roguelike = roguelike
 
-    # 更新分队 & 干员
-    member.squad = (request.form.get('squad', '') or '').strip()
-    member.operator = (request.form.get('operator', '') or '').strip()
+        # 更新分队 & 干员
+        member.squad = (request.form.get('squad', '') or '').strip()
+        member.operator = (request.form.get('operator', '') or '').strip()
 
-    # 更新宣言
-    declaration = request.form.get('declaration', '').strip()
-    if declaration:
-        member.declaration = declaration
+        # 更新宣言
+        declaration = request.form.get('declaration', '').strip()
+        if declaration:
+            member.declaration = declaration
 
-    # A target total is converted into an independently auditable delta.
-    manual_score = request.form.get('final_score', '').strip()
-    if manual_score:
-        from season_safety import json_dump
-        reason = request.form.get('reason', '').strip()
-        adjustment, before, after = create_score_adjustment(
-            member.id, current_user.id, reason, target_total=manual_score)
-        if adjustment:
-            recalculate_all_scores(member.team.tournament_id)
-            log_system_action('score_adjustment', json_dump({
-                'adjustment_id': adjustment.id, 'member': member.id,
-                'tournament': member.team.tournament_id, 'delta': adjustment.delta,
-                'reason': reason, 'before': before, 'after': after,
-            }))
+        # A target total is converted into an independently auditable delta.
+        manual_score = request.form.get('final_score', '').strip()
+        if manual_score:
+            from season_safety import json_dump
+            reason = request.form.get('reason', '').strip()
+            adjustment, before, after = create_score_adjustment(
+                member.id, current_user.id, reason, target_total=manual_score)
+            if adjustment:
+                recalculate_all_scores(member.team.tournament_id)
+                log_system_action('score_adjustment', json_dump({
+                    'adjustment_id': adjustment.id, 'member': member.id,
+                    'tournament': member.team.tournament_id, 'delta': adjustment.delta,
+                    'reason': reason, 'before': before, 'after': after,
+                }))
 
-    # 更新队伍宣言
-    team_slogan = request.form.get('team_slogan', '').strip()
-    if team_slogan:
-        team = Team.query.get(team_id)
-        if team:
-            team.team_slogan = team_slogan
-
-    db.session.commit()
-    log_system_action('update_member_info', f'管理员更新队员 {member.user.nickname} 的信息')
-    db.session.commit()
+        # 更新队伍宣言
+        team_slogan = request.form.get('team_slogan', '').strip()
+        if team_slogan:
+            team = Team.query.get(team_id)
+            if team:
+                team.team_slogan = team_slogan
+        log_system_action('update_member_info', f'管理员更新队员 {member.user.nickname} 的信息')
     flash(f'队员 {member.user.nickname} 的信息已更新', 'success')
     return redirect(url_for('admin.team_detail', team_id=team_id))
 
@@ -2741,26 +2689,12 @@ def update_team_info(team_id):
     """管理员编辑队伍信息：宣言、头像"""
     team = Team.query.get_or_404(team_id)
 
-    team.team_slogan = (request.form.get('team_slogan', '') or '').strip()
-
-    if 'team_avatar' in request.files and request.files['team_avatar'].filename:
-        file = request.files['team_avatar']
-        allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-        if ext in allowed_ext:
-            filename = f'team_{uuid.uuid4().hex}.{ext}'
-            filepath = os.path.join(current_app.config['UPLOAD_ROOT'], 'teams', filename)
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            try:
-                file.save(filepath)
-            except Exception as e:
-                flash(f'头像保存失败: {str(e)}', 'danger')
-                return redirect(url_for('admin.team_detail', team_id=team_id))
-            team.team_photo = filename
-
-    db.session.commit()
-    log_system_action('update_team_info', f'管理员更新队伍 {team.team_name} 信息')
-    db.session.commit()
+    with upload_batch() as staged:
+        team.team_slogan = (request.form.get('team_slogan', '') or '').strip()
+        file = request.files.get('team_avatar')
+        if file and file.filename:
+            team.team_photo = save_upload(file, 'teams', staged)
+        log_system_action('update_team_info', f'管理员更新队伍 {team.team_name} 信息')
     flash('队伍信息已更新', 'success')
     return redirect(url_for('admin.team_detail', team_id=team_id))
 
@@ -2869,52 +2803,44 @@ def add_carousel():
     if not tournament:
         flash('没有活跃赛事', 'warning')
         return redirect(url_for('admin.carousel'))
-    media_type = request.form.get('media_type', 'image')
-    file_path = request.form.get('file_path', '').strip()
-    title = request.form.get('title', '').strip()
-    link_url = request.form.get('link_url', '').strip()
-    sort_order = request.form.get('sort_order', '0')
-    if not file_path:
-        flash('文件路径不能为空', 'danger')
-        return redirect(url_for('admin.carousel'))
-    try:
-        item = CarouselItem(
-            tournament_id=tournament.id,
-            media_type=media_type,
-            file_path=file_path,
-            title=title or None,
-            link_url=link_url or None,
-            sort_order=int(sort_order),
-            is_active=True
-        )
-        db.session.add(item)
-        db.session.commit()
-        log_system_action('add_carousel', f'添加轮播图: {title or file_path}')
-        db.session.commit()
-        flash('轮播图已添加', 'success')
-    except ValueError:
-        flash('排序值必须为数字', 'danger')
+    item = CarouselItem(tournament_id=tournament.id, media_type='image', sort_order=0, is_active=True)
+    _save_carousel(item, is_new=True)
+    flash('轮播图已添加', 'success')
     return redirect(url_for('admin.carousel'))
+
+
+def _save_carousel(item, *, is_new=False):
+    media_type = request.form.get('media_type', item.media_type)
+    if media_type not in ('image', 'video'):
+        raise SeasonError('请选择有效轮播媒体类型', 400)
+    file = request.files.get('media')
+    file_path = request.form.get('file_path', item.file_path or '').strip()
+    if not (file and file.filename) and not file_path:
+        raise SeasonError('请选择素材文件或填写文件路径', 400)
+    try:
+        sort_order = int(request.form.get('sort_order', item.sort_order))
+    except (ValueError, TypeError) as error:
+        raise SeasonError('排序值必须为数字', 400) from error
+    with upload_batch() as staged:
+        if file and file.filename:
+            name = save_upload(file, 'carousel', staged, media_type=media_type)
+            file_path = '/static/uploads/carousel/' + name
+        item.media_type = media_type
+        item.file_path = file_path
+        item.title = request.form.get('title', '').strip() or None
+        item.link_url = request.form.get('link_url', '').strip() or None
+        item.sort_order = sort_order
+        if is_new:
+            db.session.add(item)
+        else:
+            item.is_active = request.form.get('is_active') == '1'
+        log_system_action('add_carousel' if is_new else 'edit_carousel', item.title or item.file_path)
 
 
 @admin_bp.route('/carousel/<int:item_id>/edit', methods=['POST'])
 @login_required_with_role('admin')
 def edit_carousel(item_id):
-    """编辑轮播图"""
-    item = CarouselItem.query.get_or_404(item_id)
-    item.media_type = request.form.get('media_type', item.media_type)
-    item.file_path = request.form.get('file_path', item.file_path).strip()
-    item.title = request.form.get('title', '').strip() or None
-    item.link_url = request.form.get('link_url', '').strip() or None
-    try:
-        item.sort_order = int(request.form.get('sort_order', item.sort_order))
-    except ValueError:
-        flash('排序值必须为数字', 'danger')
-        return redirect(url_for('admin.carousel'))
-    item.is_active = request.form.get('is_active') == '1'
-    db.session.commit()
-    log_system_action('edit_carousel', f'编辑轮播图: {item.title or item.file_path}')
-    db.session.commit()
+    _save_carousel(CarouselItem.query.get_or_404(item_id))
     flash('轮播图已更新', 'success')
     return redirect(url_for('admin.carousel'))
 
@@ -2958,6 +2884,25 @@ def admin_data_tools():
 
     batches = backup_inventory() if current_user.is_super_admin() else []
     return render_template('admin/data_tools.html', batches=batches)
+
+
+@admin_bp.get('/data-tools/media')
+@super_admin_required
+def media_inventory():
+    from backup import maintenance_lock
+    from media_lifecycle import inventory
+    from privacy import record_download
+
+    with maintenance_lock(current_app.config):
+        report = inventory()
+        if request.args.get('format') == 'json':
+            output = BytesIO(json.dumps(report, ensure_ascii=False, indent=2).encode('utf-8'))
+            record_download('download_media_inventory', {'files': len(report['files'])})
+            response = send_file(output, mimetype='application/json', as_attachment=True, download_name='media-inventory.json')
+        else:
+            response = current_app.make_response(render_template('admin/media_inventory.html', report=report))
+    response.cache_control.no_store = True
+    return response
 
 
 @admin_bp.get('/release-packs')
@@ -4212,33 +4157,17 @@ def submit_result(match_id):
         # Validate before touching uploads; duplicates and archived IDs create no files.
         capture_match_rule(match)
         set_score(match, side, request.form.get('score'), request.form.get('difficulty'))
-        files = request.files.getlist('screenshots')
-        staged = []
-        try:
+        files = [file for file in request.files.getlist('screenshots') if file and file.filename]
+        if len(files) > MAX_SCREENSHOTS:
+            raise SeasonError(f'每次最多上传 {MAX_SCREENSHOTS} 张成绩截图', 400)
+        with upload_batch() as staged:
             for file in files:
-                if not file or not file.filename:
-                    continue
-                ext = file.filename.rsplit('.', 1)[-1].lower()
-                if ext not in {'png', 'jpg', 'jpeg', 'webp'}:
-                    raise SeasonError('截图格式无效', 400)
-                filename = f'screenshot_{match.id}_{current_user.id}_{uuid.uuid4().hex}.{ext}'
-                directory = os.path.join(current_app.config['UPLOAD_ROOT'], 'screenshots')
-                os.makedirs(directory, exist_ok=True)
-                path = os.path.join(directory, filename)
-                staged.append(path)
-                file.save(path)
+                filename = save_upload(file, 'screenshots', staged, match_id=match.id)
                 match.match_note = (match.match_note or '') + f'\n[截图] /static/uploads/screenshots/{filename}'
             setattr(match, 'player_' + side + '_result', 'submitted')
             if not match.forfeit_side and match.player_a_score is not None and match.player_b_score is not None:
                 match.status = 'submitted'
             current_user.status = 6
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            for path in staged:
-                if os.path.isfile(path):
-                    os.remove(path)
-            raise
         flash('整场成绩已保存，等待确认结束并结算', 'success')
         return redirect(url_for('tournament.match_detail', match_id=match.id))
     return render_template('tournament/submit_result.html', match=match,

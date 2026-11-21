@@ -20,7 +20,7 @@ def test_prepare_reports_storage_paths_and_reuses_read_only_media(tmp_path):
         'SUPER_ADMIN_USERNAME': '',
     })
     runner = app.test_cli_runner()
-    paths = [database.parent, images, uploads, *(uploads / name for name in ('avatars', 'teams', 'screenshots'))]
+    paths = [database.parent, images, uploads, *(uploads / name for name in ('avatars', 'teams', 'screenshots', 'carousel'))]
     first = runner.invoke(args=['prepare'])
     assert first.exit_code == 0, first.output
     for path in paths:

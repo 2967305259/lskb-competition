@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: ${APP_VERSION:-account-privacy-v1}
+        APP_VERSION: ${APP_VERSION:-material-lifecycle-v1}
         MYSQL_IMAGE: ${MYSQL_IMAGE:-mysql:8.0}
     image: ${IMAGE:-lskb-p0}:${IMAGE_TAG:-local}
     restart: unless-stopped
@@ -43,6 +43,8 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD explicitly}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-lskb_signup}
       STATE_DIR: /app/.runtime
+      UPLOAD_USER_MAX_MB: ${UPLOAD_USER_MAX_MB:-256}
+      UPLOAD_TOTAL_MAX_MB: ${UPLOAD_TOTAL_MAX_MB:-4096}
       BACKUP_DIR: /app/backups
     volumes:
       - uploads:/app/app/static/uploads

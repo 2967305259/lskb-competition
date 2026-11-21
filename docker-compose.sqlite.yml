@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: ${APP_VERSION:-account-privacy-v1}
+        APP_VERSION: ${APP_VERSION:-material-lifecycle-v1}
         MYSQL_IMAGE: ${MYSQL_IMAGE:-mysql:8.0}
     image: ${IMAGE:-lskb-p0}:${IMAGE_TAG:-local}
     restart: unless-stopped
@@ -38,6 +38,8 @@ services:
       DEFAULT_DIFFICULTY_STEP: ${DEFAULT_DIFFICULTY_STEP:-0.1}
       BRAND_PRIMARY_COLOR: ${BRAND_PRIMARY_COLOR:-#0d6efd}
       STATE_DIR: /app/.runtime
+      UPLOAD_USER_MAX_MB: ${UPLOAD_USER_MAX_MB:-256}
+      UPLOAD_TOTAL_MAX_MB: ${UPLOAD_TOTAL_MAX_MB:-4096}
       BACKUP_DIR: /app/backups
     volumes:
       - sqlite_data:/app/.db

@@ -9,7 +9,7 @@ FROM python:3.12-slim-trixie
 
 ARG EVENT_NAME=冷水坑杯
 ARG SEASON_NUMBER=3
-ARG APP_VERSION=account-privacy-v1
+ARG APP_VERSION=material-lifecycle-v1
 
 LABEL maintainer="lskb"
 LABEL description="${EVENT_NAME} #${SEASON_NUMBER} 比赛管理系统"
@@ -28,6 +28,7 @@ RUN --mount=type=bind,from=mysql_client,source=/usr/bin,target=/mysql-tools \
     --mount=type=secret,id=pip_ca \
     apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
+    ffmpeg \
     libncurses6 libssl3t64 libstdc++6 zlib1g \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
     && echo $TZ > /etc/timezone \
@@ -46,7 +47,7 @@ RUN --mount=type=bind,target=/source \
     && cp -a /source/app /source/image /app/ \
     && install /source/docker-entrypoint.sh /docker-entrypoint.sh \
     && mkdir -p /app/.db /app/.runtime /app/backups /app/app/static/uploads/avatars \
-       /app/app/static/uploads/teams /app/app/static/uploads/screenshots
+       /app/app/static/uploads/teams /app/app/static/uploads/screenshots /app/app/static/uploads/carousel
 
 # 暴露端口
 EXPOSE 19198

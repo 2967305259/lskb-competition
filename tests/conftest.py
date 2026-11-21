@@ -1,4 +1,5 @@
 from copy import deepcopy
+from io import BytesIO
 import os
 from pathlib import Path
 from shutil import copyfile
@@ -6,6 +7,7 @@ import sys
 import uuid
 
 import pytest
+from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 
@@ -14,6 +16,12 @@ import app as models
 from app import create_app, db
 from management import initialize_database
 from migrations import migrate_database
+
+
+def png_bytes():
+    buffer = BytesIO()
+    Image.new('RGB', (2, 2), 'red').save(buffer, format='PNG')
+    return buffer.getvalue()
 
 
 def make_test_app(root, uri):
@@ -25,7 +33,7 @@ def make_test_app(root, uri):
               'SUPER_ADMIN_USERNAME': 'super', 'SUPER_ADMIN_PASSWORD': 'isolated-password'}
     if make_url(uri).get_backend_name() == 'mysql' and (command := os.environ.get('P0_MYSQLDUMP')):
         config['MYSQLDUMP_COMMAND'] = command
-    for path in [root / 'image'] + [root / 'uploads' / name for name in ('avatars', 'teams', 'screenshots')]:
+    for path in [root / 'image'] + [root / 'uploads' / name for name in ('avatars', 'teams', 'screenshots', 'carousel')]:
         path.mkdir(parents=True)
     (root / 'image' / '1.png').write_bytes(b'fixture-media')
     return create_app('testing', config)

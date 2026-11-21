@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, text
 
 import app as a
 from backup import restore_backup, verify_backup
-from conftest import login
+from conftest import login, png_bytes
 from test_p0 import complete, settle, submit
 
 
@@ -128,7 +128,7 @@ def test_web_backup_download_and_isolated_restore(application, client, tmp_path)
                 screenshot = next((media / 'uploads' / 'screenshots').iterdir())
                 assert restored_client.get(f'/static/uploads/screenshots/{screenshot.name}').status_code == 404
                 login(restored_client, ids['users'][0])
-                media_samples[f'screenshots/{screenshot.name}'] = b'image'
+                media_samples[f'screenshots/{screenshot.name}'] = png_bytes()
                 for name, content in media_samples.items():
                     assert restored_client.get(f'/static/uploads/{name}').data == content
                     assert (Path(application.config['UPLOAD_ROOT']) / name).read_bytes() == content

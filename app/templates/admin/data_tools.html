@@ -13,6 +13,7 @@
 
 {% if current_user.is_super_admin() %}
 <p><a class="btn btn-outline-primary" href="{{ url_for('admin.release_packs') }}">赛事发布包</a></p>
+<p><a class="btn btn-outline-primary" href="{{ url_for('admin.media_inventory') }}">素材盘点</a></p>
 <section class="card mb-4">
     <div class="card-body">
         <h3 class="h5">数据库与素材备份</h3>
@@ -65,6 +66,10 @@
                     <input class="form-check-input" type="checkbox" id="cleanup-teams" name="teams" value="1" {% if options.teams %}checked{% endif %}>
                     <label class="form-check-label" for="cleanup-teams">未被引用的队伍照片</label>
                 </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="cleanup-carousel" name="carousel" value="1" {% if options.carousel %}checked{% endif %}>
+                    <label class="form-check-label" for="cleanup-carousel">未被引用的已上传轮播素材</label>
+                </div>
                 <div class="row g-2 mt-1">
                     <div class="col-md-6">
                         <label class="form-label" for="cleanup-screenshots">未被引用且可确认比赛归属的截图</label>
@@ -102,6 +107,7 @@
                 <li>头像 <strong>{{ counts.get('avatars', 0) }}</strong> 个</li>
                 <li>队伍照片 <strong>{{ counts.get('teams', 0) }}</strong> 个</li>
                 <li>比赛截图 <strong>{{ counts.get('screenshots', 0) }}</strong> 个</li>
+                <li>轮播素材 <strong>{{ counts.get('carousel', 0) }}</strong> 个</li>
                 <li>系统日志 <strong>{{ cleanup_plan.log_ids|length }}</strong> 条{% if options.cutoff %}（早于 {{ options.cutoff[:19]|replace('T', ' ') }} UTC）{% endif %}</li>
             </ul>
             {% if cleanup_plan.files %}

@@ -32,7 +32,7 @@ def _missing_requirements():
     for pkg in REQUIREMENTS:
         name = re.split(r'[<>=!~]', pkg, maxsplit=1)[0].strip().replace('-', '_').lower()
         try:
-            __import__(name)
+            __import__('PIL' if name == 'pillow' else name)
         except ImportError:
             missing.append(pkg)
     return missing

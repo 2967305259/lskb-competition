@@ -8,7 +8,7 @@ import re
 import pytest
 
 import app as a
-from conftest import login
+from conftest import login, png_bytes
 from retention import CLEANUP_ACTION
 from test_p0 import transition_data
 
@@ -262,7 +262,7 @@ def test_replacing_photos_and_switching_season_preserve_files_by_default(applica
         a.db.session.commit()
     login(client, ids['users'][0])
     for path, field in (('/captain/upload-avatar', 'avatar'), ('/captain/upload-team-avatar', 'team_avatar')):
-        assert client.post(path, data={field: (BytesIO(b'new image'), 'new.png')}).status_code == 302
+        assert client.post(path, data={field: (BytesIO(png_bytes()), 'new.png')}).status_code == 302
     assert avatar.is_file() and photo.is_file()
     assert client.post('/admin/new-season', data=transition_data(application, client, force=True)).status_code == 302
     assert avatar.is_file() and photo.is_file()

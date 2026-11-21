@@ -229,6 +229,7 @@ def prepare_directory(directory, label):
 
 
 def register_commands(app):
+    from media_lifecycle import ASSET_FOLDERS
     @app.cli.command('prepare')
     def prepare():
         """Migrate once before workers; seed defaults only on an explicitly prepared empty instance."""
@@ -237,7 +238,7 @@ def register_commands(app):
             prepare_directory(app.config['IMAGE_DIR'], '轮播素材')
             uploads = Path(app.config['UPLOAD_ROOT'])
             prepare_directory(uploads, '上传')
-            for name in ('avatars', 'teams', 'screenshots'):
+            for name in ASSET_FOLDERS:
                 prepare_directory(uploads / name, '上传')
             batch = migrate_database(a.db.engine, app.config,
                 prepare_sqlite_directory=lambda path: prepare_directory(path, 'SQLite 数据库'))
@@ -252,6 +253,21 @@ def register_commands(app):
     def report_command():
         """Report missing ownership/rules/outcomes without modifying any business row."""
         click.echo(json.dumps(data_report(), ensure_ascii=False, indent=2))
+
+    @app.cli.command('media-report')
+    @click.option('--baseline', type=click.Path(exists=True, dir_okay=False, path_type=Path))
+    def media_report(baseline):
+        """Inspect paths and hashes, optionally against an inventory from before migration."""
+        from media_lifecycle import compare_inventory, inventory
+
+        try:
+            with maintenance_lock(app.config):
+                report = inventory()
+            if baseline:
+                report['comparison'] = compare_inventory(report, json.loads(baseline.read_text(encoding='utf-8')))
+        except (OSError, KeyError, TypeError, ValueError) as error:
+            raise click.ClickException(f'素材盘点失败：{error}') from error
+        click.echo(json.dumps(report, ensure_ascii=False, indent=2))
 
     @app.cli.command('deployment-info')
     def deployment_info():

@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import inspect, text, create_engine
 import app as a
 from app import db
-from conftest import login
+from conftest import login, png_bytes
 from backup import create_backup, verify_backup, restore_backup
 from migrations import migrate_database, assert_schema_current
 from scoring import recalculate_all_scores
@@ -24,7 +24,7 @@ def submit(application, client, side, score):
     ids = application.test_ids
     login(client, ids['users'][side])
     return client.post(f"/tournament/match/{ids['match']}/submit-result", data={
-        'score': str(score), 'difficulty': '14', 'screenshots': (BytesIO(b'image'), 'score.png')})
+        'score': str(score), 'difficulty': '14', 'screenshots': (BytesIO(png_bytes()), 'score.png')})
 
 
 def settle(application, client):
@@ -287,7 +287,7 @@ def test_current_rebuild_does_not_touch_archive(application, client):
     for user_id, score in zip(ids['users'], (101, 80)):
         login(client, user_id)
         assert client.post(f'/tournament/match/{new_match}/submit-result', data={
-            'score': str(score), 'difficulty': '12', 'screenshots': (BytesIO(b'image'), 'score.png'),
+            'score': str(score), 'difficulty': '12', 'screenshots': (BytesIO(png_bytes()), 'score.png'),
         }).status_code == 302
     login(client, ids['admin'])
     assert client.post(f'/admin/match/{new_match}/edit-result', data={'action': 'win_a'}).status_code == 302
@@ -348,7 +348,7 @@ def test_backup_and_isolated_restore(application, client, tmp_path):
                 login(restored_client, application.test_ids['admin'])
                 assert restored_client.get(f"/tournament/match/{application.test_ids['match']}").status_code == 200
                 screenshot = next((tmp_path / 'restored-media' / 'uploads' / 'screenshots').iterdir())
-                assert restored_client.get('/static/uploads/screenshots/' + screenshot.name).data == b'image'
+                assert restored_client.get('/static/uploads/screenshots/' + screenshot.name).data == png_bytes()
             with restored.app_context():
                 db.session.remove()
                 db.engine.dispose()

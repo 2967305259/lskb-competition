@@ -119,8 +119,12 @@ class Stack:
 
 
 SEED = '''
+from io import BytesIO
 from pathlib import Path
+import re
+import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from app import CarouselItem, Match, ScoreLog, Team, TeamMember, Tournament, User, create_app, db
 from backup import maintenance_lock
 from season_safety import apply_outcome, capture_match_rule, set_score
@@ -160,15 +164,30 @@ with app.app_context(), maintenance_lock(app.config):
     db.session.add(CarouselItem(tournament_id=season.id, file_path='image/cover.png', title='Smoke carousel'))
     recalculate_all_scores(season.id)
     db.session.commit()
+    operator_id = User.query.filter_by(username='operator').one().id
+
+with TemporaryDirectory(prefix='lskb-smoke-clip-') as directory, app.test_client() as client:
+    clip = Path(directory) / 'sample.webm'
+    subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=32x32:r=10:d=0.3',
+                    '-c:v', 'libvpx-vp9', str(clip)], check=True, capture_output=True, timeout=15)
+    with client.session_transaction() as session:
+        session['_user_id'] = str(operator_id)
+        session['_fresh'] = True
+    page = client.get('/admin/carousel').get_data(as_text=True)
+    token = re.search('name="csrf_token" value="([^"]+)"', page).group(1)
+    response = client.post('/admin/carousel/add', data={'csrf_token': token, 'media_type': 'video',
+        'title': 'Managed smoke clip', 'media': (BytesIO(clip.read_bytes()), 'sample.webm')})
+    assert response.status_code == 302, response.get_data(as_text=True)
 '''
 
 
 RESTORE = '''
+from hashlib import sha256
 from pathlib import Path
 import os
 import sqlite3
 import sys
-from app import Match, ScoreLog, Team, User, create_app, db
+from app import Match, ScoreLog, Team, UploadAsset, User, create_app, db
 from migrations import assert_schema_current
 
 app = create_app()
@@ -191,13 +210,24 @@ with target.app_context():
     assert Match.query.one().player_a_score == 100
     assert Team.query.filter_by(team_name=sys.argv[1] + '-a').one().team_score == 60000
     assert ScoreLog.query.one().new_result == 'fixture final score'
+    operator_id = User.query.filter_by(username='operator').one().id
+    clip = UploadAsset.query.filter_by(original_name='sample.webm').one()
+    clip_path, checksum = clip.relative_path, clip.sha256
+    assert clip.mime_type == 'video/webm'
     version = (db.session.execute(db.text('SELECT VERSION()')).scalar() if db.engine.dialect.name == 'mysql'
                else sqlite3.sqlite_version)
 with target.test_client() as client:
     assert client.get('/').status_code == 200
+    evidence_url = '/static/uploads/screenshots/score.png'
+    assert client.get(evidence_url).status_code == 404
+    public_clip = client.get('/static/uploads/' + clip_path)
+    assert public_clip.status_code == 200 and sha256(public_clip.data).hexdigest() == checksum
+    with client.session_transaction() as session:
+        session['_user_id'] = str(operator_id)
+        session['_fresh'] = True
     for path, content in [('/static/uploads/avatars/player.png', b'avatar'),
                           ('/static/uploads/teams/team.png', b'team photo'),
-                          ('/static/uploads/screenshots/score.png', b'score evidence'),
+                          (evidence_url, b'score evidence'),
                           ('/carousel-media/cover.png', b'carousel')]:
         assert client.get(path).data == content + sys.argv[1].encode()
 print(version)

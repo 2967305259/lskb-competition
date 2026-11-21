@@ -18,8 +18,8 @@ from season_safety import SeasonError, json_dump, match_scope_of, root_match
 
 CLEANUP_ACTION = 'retention_cleanup'
 TOKEN_TTL = 15 * 60
-UPLOAD_URL = re.compile(r'(?:^|[^A-Za-z0-9_])static/uploads/((?:avatars|teams|screenshots)/[A-Za-z0-9_.-]+)')
-MEDIA_FILENAME = re.compile(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:png|jpe?g|gif|webp)', re.IGNORECASE)
+UPLOAD_URL = re.compile(r'(?:^|[^A-Za-z0-9_])static/uploads/((?:avatars|teams|screenshots|carousel)/[A-Za-z0-9_.-]+)')
+MEDIA_FILENAME = re.compile(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(?:png|jpe?g|gif|webp|mp4|webm|mov)', re.IGNORECASE)
 SCREENSHOT_NAME = re.compile(
     r'screenshot_([1-9][0-9]{0,17})_([1-9][0-9]{0,17})_[A-Za-z0-9_-]+\.(?:png|jpe?g|webp)', re.IGNORECASE)
 
@@ -52,7 +52,7 @@ def cleanup_options(form):
     screenshot = form.get('screenshots', '')
     if screenshot not in ('', 'older_seasons', 'approved'):
         raise SeasonError('请选择有效的截图清理条件', 400)
-    options = {folder: form.get(folder) == '1' for folder in ('avatars', 'teams')}
+    options = {folder: form.get(folder) == '1' for folder in ('avatars', 'teams', 'carousel')}
     options['screenshots'] = screenshot
     if screenshot == 'older_seasons':
         recent = form.get('recent_seasons', type=int)
@@ -143,11 +143,11 @@ def build_cleanup_plan(options):
 
     root = Path(current_app.config['UPLOAD_ROOT']).resolve()
     files = []
-    if any(options[folder] for folder in ('avatars', 'teams', 'screenshots')):
+    if any(options.get(folder) for folder in ('avatars', 'teams', 'screenshots', 'carousel')):
         try:
             protected = _protected_uploads(root)
-            for folder in ('avatars', 'teams'):
-                if options[folder]:
+            for folder in ('avatars', 'teams', 'carousel'):
+                if options.get(folder):
                     files.extend(_orphan_files(root, folder, protected))
             if options['screenshots']:
                 files.extend(_screenshot_files(_orphan_files(root, 'screenshots', protected), options))
