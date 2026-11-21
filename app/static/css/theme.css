@@ -74,6 +74,14 @@ body {
     min-height: 0;
 }
 
+.archive-card-header h5 {
+    min-width: 0;
+}
+
+.archive-card-header .badge {
+    flex-shrink: 0;
+}
+
 @media (max-width: 991.98px) {
     .navbar-brand {
         max-width: calc(100% - 4.5rem);

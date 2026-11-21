@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block title %}每届运营交接包{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('admin.admin_data_tools') }}">返回数据工具</a></p>
+<h2>每届运营交接包</h2>
+{% if package %}
+{% set season = package.season %}
+<nav class="mb-3" aria-label="选择交接届次">
+    <ul class="nav nav-pills gap-1">
+        {% for item in seasons %}
+        <li class="nav-item">
+            <a class="nav-link{% if item.id == season.id %} active{% endif %}" href="{{ url_for('admin.season_handoff', season_id=item.id) }}"{% if item.id == season.id %} aria-current="page"{% endif %}>第 {{ item.season_number }} 届</a>
+        </li>
+        {% endfor %}
+    </ul>
+</nav>
+<h3>{{ season.name }}</h3>
+<p>第 {{ season.number }} 届，{{ '当前赛季' if season.is_active else '往届赛季' if season.is_active == false else '归档状态待核对' }}。交接说明版本 {{ package.revision }}{% if package.notes_updated_at_utc %}，更新于 {{ package.notes_updated_at_utc }}{% endif %}。</p>
+<p>
+    <a class="btn btn-outline-primary" href="{{ url_for('admin.season_handoff', season_id=season.id, format='md') }}">下载 Markdown</a>
+    <a class="btn btn-outline-primary" href="{{ url_for('admin.season_handoff', season_id=season.id, format='json') }}">下载 JSON</a>
+</p>
+
+<div class="row g-3">
+<div class="col-lg-6">
+<section class="card h-100">
+    <div class="card-body">
+        <h4 class="h5">版本与赛事依据</h4>
+        <dl>
+            <dt>当前应用与数据库结构</dt><dd>{{ package.deployment.application_version }} / {{ package.deployment.schema_version }}</dd>
+            <dt>当前镜像</dt><dd>{{ package.deployment.image or '未登记部署镜像' }}</dd>
+            <dt>规则</dt>
+            <dd>
+                {% if package.rules.url %}<a href="{{ package.rules.url }}">查看规则</a>，{% endif %}
+                {% if package.rules.snapshot_version %}快照 {{ package.rules.snapshot_version }}{% else %}快照待核对{% endif %}
+                {% if package.rules.titles %}（{{ package.rules.titles | join('、') }}）{% endif %}
+            </dd>
+            <dt>已发布配置</dt>
+            <dd>
+                {% if package.published_config %}
+                {% set release = package.published_config %}
+                版本 {{ release.version }}，应用 {{ release.application_version }}，数据库结构 {{ release.schema_version }}，规则快照 {{ release.rule_context_version }}。
+                <div><code>{{ release.sha256 }}</code></div>
+                <a href="{{ release.files.json }}">配置 JSON</a> · <a href="{{ release.files.md }}">配置 Markdown</a>
+                {% else %}本届暂无发布包。{% endif %}
+            </dd>
+            {% if package.configuration_source %}
+            <dt>导入的配置来源</dt><dd>版本 {{ package.configuration_source.version }}，<code>{{ package.configuration_source.sha256 }}</code></dd>
+            {% endif %}
+            <dt>结果与导出</dt>
+            <dd>
+                {% if season.results_url %}<a href="{{ season.results_url }}">查看赛事结果</a> · {% endif %}
+                {% if package.exports.excel_url %}<a href="{{ package.exports.excel_url }}">本届赛事 Excel</a> · {% else %}完整 Excel 待确认历史规则及晋级名额。{% endif %}
+                <a href="{{ package.exports.score_log_url }}">积分审计全库导出</a>
+            </dd>
+        </dl>
+        {% if package.exports.excel_downloads %}
+        <details><summary>Excel 下载审计（{{ package.exports.excel_downloads | length }} 条）</summary>
+            <ul>
+            {% for download in package.exports.excel_downloads %}
+                <li>#{{ download.audit_id }} · 账号 #{{ download.operator_id }} · {{ download.at_utc }}</li>
+            {% endfor %}
+            </ul>
+        </details>
+        {% endif %}
+    </div>
+</section>
+</div>
+
+<div class="col-lg-6">
+<section class="card h-100">
+    <div class="card-body">
+        <h4 class="h5">备份与恢复演练</h4>
+        {% if package.backups %}
+        <ul>
+            {% for batch in package.backups %}
+            <li class="mb-2">
+                <strong>{{ batch.batch }}</strong> · {{ batch.created_at }}
+                <div>{{ batch.database_type }} · 应用 {{ batch.code_version }} · 数据库结构 {{ batch.schema_version }}</div>
+                {% for name, link in batch.files.items() %}
+                <a class="me-2" href="{{ link }}">{{ name }}</a>
+                {% endfor %}
+            </li>
+            {% endfor %}
+        </ul>
+        <form method="post" action="{{ url_for('admin.save_season_handoff', season_id=season.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="revision" value="{{ package.revision }}">
+            <input type="hidden" name="operation" value="recovery">
+            <div class="mb-2">
+                <label for="handoff-batch" class="form-label">演练所用批次</label>
+                <select class="form-select" id="handoff-batch" name="batch" required>
+                    <option value="">请选择</option>
+                    {% for batch in package.backups %}<option value="{{ batch.batch }}">{{ batch.batch }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="mb-2">
+                <label for="handoff-result" class="form-label">演练结果</label>
+                <select class="form-select" id="handoff-result" name="result" required>
+                    <option value="">请选择</option><option value="passed">通过</option><option value="failed">失败</option>
+                </select>
+            </div>
+            <div class="mb-2">
+                <label for="handoff-reference" class="form-label">隔离恢复记录或凭证编号</label>
+                <textarea class="form-control" id="handoff-reference" name="reference" maxlength="500" required rows="2"></textarea>
+            </div>
+            <button type="submit" class="btn btn-outline-primary">记录演练结果</button>
+        </form>
+        {% else %}
+        <p>备份目录中暂无本届可下载的完整批次。</p>
+        {% endif %}
+        <ul class="mt-3 mb-0">
+            {% for entry in package.restores %}
+            <li class="mb-2 text-break">
+                {{ '通过' if entry.result == 'passed' else '失败' }} · {{ entry.batch }}{% if not entry.batch_available %}（批次已不可用）{% endif %}
+                <div>{{ entry.at_utc }} · 账号 #{{ entry.operator_id }} · 应用 {{ entry.code_version }} · 数据库结构 {{ entry.schema_version }}</div>
+                <div>{{ entry.reference }}</div>
+            </li>
+            {% else %}<li>尚无已登记的恢复演练。</li>{% endfor %}
+        </ul>
+    </div>
+</section>
+</div>
+
+<div class="col-lg-6">
+<section class="card h-100">
+    <div class="card-body">
+        <h4 class="h5">未结算与人工调整</h4>
+        {% if package.transition and package.transition.forced_reason %}
+        <p>强制换季原因是「{{ package.transition.forced_reason }}」。换季时未结算的整场编号为 {{ package.transition.unfinished_ids | join('、') or '无' }}。</p>
+        {% endif %}
+        <ul>
+            {% for match in package.unfinished_matches %}
+            <li><a href="{{ match.url }}">整场 #{{ match.id }}</a> · {{ match.status }} / {{ match.settlement_state }}</li>
+            {% else %}<li>当前无未结算整场。</li>{% endfor %}
+        </ul>
+        {% if package.adjustments %}
+        <div class="table-responsive" data-scroll-label="人工调整审计">
+            <table class="table table-sm">
+                <thead><tr><th scope="col">记录</th><th scope="col">调整</th><th scope="col">依据</th></tr></thead>
+                <tbody>
+                    {% for adjustment in package.adjustments %}
+                    <tr>
+                        <td>#{{ adjustment.id }}<br>{{ adjustment.at_utc }}</td>
+                        <td>队员 #{{ adjustment.member_id }}，{{ '%+d' | format(adjustment.delta) }}，{{ '已撤销' if adjustment.revoked else '有效' }}</td>
+                        <td>账号 #{{ adjustment.actor_id }} · {{ adjustment.reason }}
+                            {% if adjustment.revoked %}<br>撤销账号 #{{ adjustment.revoked_by }} · {{ adjustment.revoke_reason }}{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}<p>无人工调整记录。</p>{% endif %}
+
+        <h4 class="h5 mt-3">历史待核对项</h4>
+        {% set reconciliation = package.reconciliation %}
+        <ul class="mb-0">
+            {% if reconciliation.missing_rules_snapshot %}<li>缺本届规则快照。</li>{% endif %}
+            {% for match in reconciliation.matches %}<li>比赛 #{{ match.match_id }}，{{ '已登记届次' if match.season_id else '归属待核对' }}，{{ match.messages | join('、') }}</li>{% endfor %}
+            {% if reconciliation.unassigned_team_ids %}<li>未定届次的队伍编号为 {{ reconciliation.unassigned_team_ids | join('、') }}。</li>{% endif %}
+            {% if reconciliation.member_ids_to_review %}<li>待核对积分的队员编号为 {{ reconciliation.member_ids_to_review | join('、') }}。</li>{% endif %}
+            {% if not (reconciliation.missing_rules_snapshot or reconciliation.matches or reconciliation.unassigned_team_ids or reconciliation.member_ids_to_review) %}<li>当前无待核对项。</li>{% endif %}
+        </ul>
+        {% if reconciliation.correction_url %}<a href="{{ reconciliation.correction_url }}">往届纠错</a>{% endif %}
+    </div>
+</section>
+</div>
+
+<div class="col-lg-6">
+<section class="card h-100">
+    <div class="card-body">
+        <h4 class="h5">下一届待办</h4>
+        <ol>{% for step in package.next_steps %}<li>{{ step }}</li>{% endfor %}</ol>
+        {% if package.next_season %}
+        <p><a href="{{ package.next_season.handoff_url }}">第 {{ package.next_season.season_number }} 届交接包</a></p>
+        {% if package.next_season['items'] is not none %}
+        <ul>
+            {% for todo in package.next_season['items'] if not todo.done %}
+            <li><a href="{{ todo.url }}">{{ todo.message }}</a></li>
+            {% else %}<li>当前待办已齐备。</li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% endif %}
+        <a href="{{ url_for('admin.tournament_settings') }}">打开赛事设置</a>
+    </div>
+</section>
+</div>
+</div>
+
+<section class="card my-3">
+    <div class="card-body">
+        <h4 class="h5">交接说明</h4>
+        <form method="post" action="{{ url_for('admin.save_season_handoff', season_id=season.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="revision" value="{{ package.revision }}">
+            <input type="hidden" name="operation" value="notes">
+            {% for key, label in note_fields.items() %}
+            <div class="mb-2">
+                <label for="handoff-{{ key }}" class="form-label">{{ label }}</label>
+                <textarea class="form-control" name="{{ key }}" id="handoff-{{ key }}" maxlength="2000" rows="3">{{ package.notes.get(key, '') }}</textarea>
+            </div>
+            {% endfor %}
+            <button class="btn btn-primary" type="submit">保存交接说明</button>
+        </form>
+    </div>
+</section>
+{% else %}
+<p>暂无赛事。</p>
+{% endif %}
+{% endblock %}

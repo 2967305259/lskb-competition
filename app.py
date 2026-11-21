@@ -85,7 +85,8 @@ class Config:
     BACKUP_KEEP = 5
     UPLOAD_ROOT = os.environ.get('UPLOAD_ROOT', os.path.join(BASE_DIR, 'app', 'static', 'uploads'))
     IMAGE_DIR = os.environ.get('IMAGE_DIR', os.path.join(BASE_DIR, 'image'))
-    APP_VERSION = os.environ.get('APP_VERSION') or 'material-lifecycle-v1'
+    APP_VERSION = os.environ.get('APP_VERSION') or 'season-handoff-v1'
+    DEPLOYMENT_IMAGE = os.environ.get('DEPLOYMENT_IMAGE') or None
     LEGACY_APP_VERSION = os.environ.get('LEGACY_APP_VERSION', '8238f20')
     REMEMBER_COOKIE_DURATION = timedelta(days=7)
     PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
@@ -585,6 +586,16 @@ class SeasonRelease(db.Model):
     manifest = db.Column(db.Text().with_variant(LONGTEXT(), 'mysql'), nullable=False)
     tournament = db.relationship('Tournament')
     __table_args__ = (db.UniqueConstraint('tournament_id', 'version', name='uq_season_release_version'),)
+
+
+class SeasonHandoff(db.Model):
+    __tablename__ = 'season_handoffs'
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournaments.id'), unique=True, nullable=False)
+    revision = db.Column(db.Integer, nullable=False)
+    notes = db.Column(db.Text().with_variant(LONGTEXT(), 'mysql'), nullable=False)
+    recoveries = db.Column(db.Text().with_variant(LONGTEXT(), 'mysql'), nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False)
 
 
 class Roguelike(db.Model):
@@ -2886,6 +2897,54 @@ def admin_data_tools():
     return render_template('admin/data_tools.html', batches=batches)
 
 
+@admin_bp.get('/data-tools/handoff')
+@super_admin_required
+def handoff_index():
+    season = Tournament.query.order_by(Tournament.is_active.desc(), Tournament.season_number.desc()).first()
+    if season:
+        return redirect(url_for('admin.season_handoff', season_id=season.id))
+    return render_template('admin/season_handoff.html', package=None)
+
+
+@admin_bp.get('/data-tools/handoff/<int:season_id>')
+@super_admin_required
+def season_handoff(season_id):
+    from backup import maintenance_lock
+    from privacy import record_download
+    from season_handoff import NOTE_FIELDS, build_handoff, handoff_markdown
+
+    export_format = request.args.get('format')
+    if export_format not in (None, 'json', 'md'):
+        abort(404)
+    with maintenance_lock(current_app.config):
+        season = Tournament.query.get_or_404(season_id)
+        package = build_handoff(season)
+        if export_format:
+            record_download('download_season_handoff', {'season_id': season_id, 'format': export_format,
+                                                        'revision': package['revision']})
+            content = (json.dumps(package, ensure_ascii=False, indent=2) + '\n'
+                       if export_format == 'json' else handoff_markdown(package))
+            response = send_file(BytesIO(content.encode('utf-8')),
+                                 mimetype='application/json' if export_format == 'json' else 'text/markdown',
+                                 as_attachment=True, download_name=f"season-{season.season_number}-handoff.{export_format}")
+        else:
+            seasons = Tournament.query.order_by(Tournament.season_number.desc()).all()
+            response = current_app.make_response(render_template('admin/season_handoff.html',
+                seasons=seasons, package=package, note_fields=NOTE_FIELDS))
+    response.cache_control.no_store = True
+    return response
+
+
+@admin_bp.post('/data-tools/handoff/<int:season_id>')
+@super_admin_required
+def save_season_handoff(season_id):
+    from season_handoff import update_handoff
+
+    update_handoff(Tournament.query.get_or_404(season_id), request.form)
+    flash('已保存交接记录。', 'success')
+    return redirect(url_for('admin.season_handoff', season_id=season_id))
+
+
 @admin_bp.get('/data-tools/media')
 @super_admin_required
 def media_inventory():
@@ -3077,20 +3136,40 @@ def download_backup(batch, filename):
 @login_required_with_role('admin')
 def export_excel():
     from backup import maintenance_lock
-    from data_tools import build_season_workbook
     from season_safety import active_season
+    with maintenance_lock(current_app.config):
+        return _season_excel_response(active_season())
+
+
+@admin_bp.get('/data-tools/handoff/<int:season_id>/excel')
+@super_admin_required
+def handoff_excel(season_id):
+    from backup import maintenance_lock
+    with maintenance_lock(current_app.config):
+        return _season_excel_response(Tournament.query.get_or_404(season_id))
+
+
+def _season_excel_response(tournament):
+    from data_tools import build_season_workbook
     from privacy import record_download
 
-    with maintenance_lock(current_app.config):
-        tournament = active_season()
-        rankings = get_team_rankings(tournament.id)
-        advancement = qualification(rankings, Setting.get_instance().advance_count or 0)
-        workbook = build_season_workbook(tournament, rankings, advancement)
-        output = BytesIO()
-        workbook.save(output)
-        output.seek(0)
-        filename = f'{get_event_name()}赛事数据_{datetime.now():%Y%m%d_%H%M%S}.xlsx'
-        record_download('download_season_excel', {'season_id': tournament.id})
+    if tournament.is_active:
+        quota = Setting.get_instance().advance_count or 0
+    else:
+        if tournament.is_active is None:
+            raise SeasonError('该届归档状态待核对')
+        context = historical_context(tournament)
+        quota = context.get('advance_count')
+        if quota is None:
+            raise SeasonError('往届晋级名额尚未核对，无法生成完整导出')
+        use_season_read_context(tournament)
+    rankings = get_team_rankings(tournament.id)
+    workbook = build_season_workbook(tournament, rankings, qualification(rankings, quota))
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    filename = f'{get_event_name()}赛事数据_{datetime.now():%Y%m%d_%H%M%S}.xlsx'
+    record_download('download_season_excel', {'season_id': tournament.id})
     response = send_file(output,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                          as_attachment=True, download_name=filename)

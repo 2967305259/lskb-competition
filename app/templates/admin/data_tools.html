@@ -12,6 +12,7 @@
 </section>
 
 {% if current_user.is_super_admin() %}
+<p><a class="btn btn-outline-primary" href="{{ url_for('admin.handoff_index') }}">每届运营交接包</a></p>
 <p><a class="btn btn-outline-primary" href="{{ url_for('admin.release_packs') }}">赛事发布包</a></p>
 <p><a class="btn btn-outline-primary" href="{{ url_for('admin.media_inventory') }}">素材盘点</a></p>
 <section class="card mb-4">

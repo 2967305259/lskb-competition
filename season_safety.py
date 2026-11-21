@@ -482,7 +482,7 @@ def _guard_request():
             raise SeasonError('该账号已匿名化')
     if endpoint.startswith('admin.') and endpoint not in (
             'admin.new_season', 'admin.create_backup_batch', 'admin.preview_cleanup', 'admin.apply_cleanup',
-            'admin.delete_user', 'admin.anonymize_user', 'admin.export_user_account'):
+            'admin.delete_user', 'admin.anonymize_user', 'admin.export_user_account', 'admin.save_season_handoff'):
         active_season()
     if endpoint in FINISHED_SCHEDULING_ACTIONS and active_season().status == 'finished':
         raise SeasonError('本届赛事已结束，已停止排赛')

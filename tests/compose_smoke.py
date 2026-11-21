@@ -52,6 +52,7 @@ class CSRFToken(HTMLParser):
 class Stack:
     def __init__(self, root, backend, image, port, mysql_image):
         self.backend = backend
+        self.image = image
         self.name = f'p37-{backend}-{uuid.uuid4().hex[:8]}'
         self.event = 'Compose ' + backend
         self.root = root / backend
@@ -187,7 +188,7 @@ from pathlib import Path
 import os
 import sqlite3
 import sys
-from app import Match, ScoreLog, Team, UploadAsset, User, create_app, db
+from app import Match, ScoreLog, SeasonHandoff, Team, UploadAsset, User, create_app, db
 from migrations import assert_schema_current
 
 app = create_app()
@@ -210,6 +211,7 @@ with target.app_context():
     assert Match.query.one().player_a_score == 100
     assert Team.query.filter_by(team_name=sys.argv[1] + '-a').one().team_score == 60000
     assert ScoreLog.query.one().new_result == 'fixture final score'
+    assert sys.argv[1] + '-handoff' in SeasonHandoff.query.one().notes
     operator_id = User.query.filter_by(username='operator').one().id
     clip = UploadAsset.query.filter_by(original_name='sample.webm').one()
     clip_path, checksum = clip.relative_path, clip.sha256
@@ -243,6 +245,11 @@ def assert_http_data(stack, other):
 
 
 def backup_and_recreate(stack, other, app_version):
+    handoff_path = '/admin/data-tools/handoff'
+    handoff_page = stack.request(handoff_path)
+    handoff_url = re.search(rb'href="(/admin/data-tools/handoff/\d+)" aria-current="page"', handoff_page)[1].decode()
+    note = f'{stack.backend}-handoff'
+    stack.form(handoff_url, handoff_url, {'operation': 'notes', 'revision': '0', 'operations': note})
     page = stack.form('/admin/data-tools', '/admin/data-tools/backup', {})
     link = re.search(rb'href="(/admin/data-tools/backup/[^"/]+/manifest\.json)"', page)
     assert link, stack.compose('logs', '--tail', '30', 'app')
@@ -255,7 +262,7 @@ def backup_and_recreate(stack, other, app_version):
     batch.mkdir()
     for name in ('manifest.json', *manifest['files']):
         (batch / name).write_bytes(stack.request(prefix + name))
-    assert manifest['rows']['matches'] == 1 and manifest['rows']['score_logs'] == 1
+    assert manifest['rows']['matches'] == manifest['rows']['score_logs'] == manifest['rows']['season_handoffs'] == 1
     if other.opener is not None:
         try:
             other.request(manifest_path)
@@ -269,6 +276,11 @@ def backup_and_recreate(stack, other, app_version):
     stack.start()
     assert stack.compose('ps', '-q', 'app') != original
     assert_http_data(stack, other)
+    handoff = json.loads(stack.request(handoff_url + '?format=json'))
+    assert handoff['deployment'] == {'application_version': app_version, 'schema_version': manifest['schema_version'],
+                                      'image': stack.image}
+    assert handoff['notes']['operations'] == note
+    assert handoff['backups'][0]['batch'] == manifest['batch']
     for path in batch.iterdir():
         assert stack.request(prefix + path.name) == path.read_bytes()
     assert stack.app_python(
@@ -291,7 +303,7 @@ def backup_and_recreate(stack, other, app_version):
     database_version = stack.app_python(RESTORE, stack.backend)
     assert_http_data(stack, other)
     return {'database_version': database_version, 'deployment': stack.info(),
-            'recreated': True, 'download_and_restore': True}
+            'recreated': True, 'download_and_restore': True, 'handoff_restored': True}
 
 
 def main(image, backend, mysql_image):

@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy import MetaData, Table, inspect, text
 from backup import create_backup, maintenance_lock
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 # These additions cover the supported pre-P0 schema. Other missing base columns are an error.
 ADDITIONS = {
     'users': {'has_completed_onboarding': '0', 'tutorial_step': '0', 'anonymized_at': 'NULL'},
@@ -140,7 +140,7 @@ def migrate_database(engine, config, *, prepare_sqlite_directory=None):
                         if not default_clause:
                             conn.exec_driver_sql(f'UPDATE {table} SET {name}={default} WHERE {name} IS NULL')
                 if current:
-                    for table in ('season_releases', 'upload_assets'):
+                    for table in ('season_releases', 'upload_assets', 'season_handoffs'):
                         db.metadata.tables[table].create(bind=conn, checkfirst=True)
                 else:
                     db.metadata.create_all(bind=conn)

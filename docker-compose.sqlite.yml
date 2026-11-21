@@ -4,13 +4,14 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: ${APP_VERSION:-material-lifecycle-v1}
+        APP_VERSION: ${APP_VERSION:-season-handoff-v1}
         MYSQL_IMAGE: ${MYSQL_IMAGE:-mysql:8.0}
     image: ${IMAGE:-lskb-p0}:${IMAGE_TAG:-local}
     restart: unless-stopped
     ports:
       - "${PORT:-19198}:${PORT:-19198}"
     environment:
+      DEPLOYMENT_IMAGE: ${IMAGE:-lskb-p0}:${IMAGE_TAG:-local}
       FLASK_ENV: production
       LEGACY_APP_VERSION: ${LEGACY_APP_VERSION:-8238f20}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY explicitly}
