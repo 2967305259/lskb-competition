@@ -13,7 +13,7 @@ def _app_ns(*names):
 
 
 def _auto_match():
-    """自动匹配：按肉鸽分组，位置优先匹配"""
+    """按启用赛道分组，按查询顺序匹配不同队伍的选手。"""
     Team, TeamMember, Tournament, Roguelike = _app_ns('Team', 'TeamMember', 'Tournament', 'Roguelike')
     tournament = Tournament.get_active()
     if not tournament:

@@ -1,8 +1,6 @@
 # 冷水坑杯 #3 比赛管理系统
 
-> 工作区版本：P0 v1（2026-11-14），来源 GitHub `8238f20`。已补齐按季重算、倍率/规则快照、显式迁移、换季备份与幂等、归档写保护和超管专项纠错。范围与验证见 [P0 实施与验证](docs/P0实施与验证.md)。
->
-> 原生运行请使用 Python 3.12，先安装依赖并执行 `FLASK_SKIP_DOTENV=1 python -m flask --app 'app:create_app()' prepare`，再运行 `python run.py`。导入与应用工厂不初始化数据库。生产 WSGI 入口为 `wsgi:app`，Docker 启动脚本会在创建 worker 前单进程准备数据库。
+> 本文与 [复用指南](docs/复用指南.md) 记录当前可操作功能。改造范围、验收记录和待办见 [改造最终参考](docs/改造最终参考.md)。[初版需求 00–19](冷水坑杯3-项目需求文档-初版/00-项目概述.md) 留作历史设计资料。
 
 
 《明日方舟》冷水坑杯 #3 赛事管理系统是一个基于 Flask + SQLite/MySQL 的 Web 应用，用于管理赛事报名、队伍创建、比赛匹配、积分计算等全流程。
@@ -19,13 +17,13 @@
 
 ### 队伍系统
 - ✅ 队长创建队伍
-- ✅ 4人队伍结构（队长1人 + 队员3人）
+- ✅ 队伍人数可配置，默认 4 人（含队长）
 - ✅ 队伍名称、口号、照片管理
 - ✅ 队长邀请选手 + 选手主动申请加入（双向）
 - ✅ 位置分配：冷水位、普通位①、普通位②、坑位
 
 ### 比赛系统
-- ✅ 自动匹配（按肉鸽分组，同队回避）
+- ✅ 正式排赛支持同赛道、跨队自动匹配，以及后台手动排赛
 - ✅ 比赛时间协商与确认
 - ✅ 双方独立难度选择
 - ✅ 比赛结果提交与管理员裁定（修改留痕 ScoreLog）
@@ -33,20 +31,20 @@
 - ✅ 选手间留言沟通
 
 ### 积分系统
-- ✅ 最终积分 = 原始成绩 × 难度倍率
+- ✅ 管理员确认整场结算后计分，计算 `原始成绩 × 难度倍率` 后向零取整
 - ✅ 难度倍率 = 1 + (难度 - 肉鸽最低难度) × 难度阶级
 - ✅ 每个肉鸽独立配置难度范围与倍率
-- ✅ 队伍积分 = 队员积分之和 × 加成倍率
+- ✅ 队伍积分 = 队员比赛积分及有效人工调整之和 × 当届队伍倍率
 - ✅ 当前赛季积分重建（往届只允许超管专项纠错）
 
 ### 肉鸽系统
-- ✅ 动态肉鸽管理（增删改查）
+- ✅ 赛道可以新增、编辑、停用，未被引用时可删除
 - ✅ 每队人数上限控制
 - ✅ 独立难度配置（最低/最高/阶级）
 
 ### 排行榜
-- ✅ 队伍排行榜（积分 > 特殊分 > 小分）
-- ✅ 晋级名单管理
+- ✅ 队伍排行榜按总分排名，并列占位跳号
+- ✅ 晋级线同分队伍全部晋级
 - ✅ 赛事结果展示（冠亚季军）
 - ✅ 往届赛事归档（`/history`：历届积分榜、队员积分榜、比赛结果，只读）
 
@@ -55,12 +53,11 @@
 - ✅ 用户管理（角色升降级、重置密码、删除）
 - ✅ 队伍管理（查看、删除、积分修改）
 - ✅ 比赛管理（结果修改、审核、成绩日志）
-- ✅ 肉鸽管理（动态增删改查）
-- ✅ 当届轮播管理（支持图片、视频、链接与排序，当届未配置时回退到 `image/`）
-- ✅ 积分配置（胜负平积分、加成倍率）
+- ✅ 当届轮播管理（支持图片、视频、链接与排序，条目为空时读取 `IMAGE_DIR`，有条目但全停用时隐藏）
+- ✅ 晋级名额和当届队伍倍率配置
 - ✅ 报名控制（开放/关闭）
 - ✅ 赛事流程控制（报名→匹配→比赛→结束）
-- ✅ Excel 报名表导出
+- ✅ 当届 Excel 导出（报名、比赛结果、队伍积分与队员积分）
 - ✅ 操作审计日志（SystemLog）
 
 ### 前端设计
@@ -72,28 +69,29 @@
 
 ## 系统需求
 
-- Python 3.10+
+- Python 3.12（本项目验证版本）
 - pip 包管理器
 - （可选）MySQL 8 用于生产环境
 
 ## 快速启动
 
+原生启动前先把实例配置导出到进程环境，包括初始 `ADMIN_PASSWORD`。同一组配置用于准备和启动。开发默认使用 SQLite，监听端口默认 `19198`。
+
 ```bash
-# 先准备：原生入口不会自动读取 .env。首次创建管理员前请导出 ADMIN_PASSWORD
 python -m pip install -r requirements.txt
-FLASK_SKIP_DOTENV=1 python -m flask --app 'app:create_app()' prepare
-
-# 方式一：使用 run.py（依赖清单来自 requirements.txt）
+export FLASK_ENV=development FLASK_SKIP_DOTENV=1
+python -m flask --app 'app:create_app()' prepare
 python run.py
-
-# 方式二：手动安装依赖后启动
-pip install -r requirements.txt
-python app.py
 ```
 
-> `main.py` 只是 `run.py` 的转发入口（兼容旧脚本）；`Docker` 部署用 `docker compose`，配置模板见 [.env.example](.env.example)。
+| 用途 | 入口 |
+|---|---|
+| 初始化、迁移和空库播种 | `python -m flask --app 'app:create_app()' prepare` |
+| 原生开发 | `python run.py`，`python main.py` 为兼容转发，`python app.py` 为兼容直跑入口 |
+| 原生生产 | 设置 `FLASK_ENV=production`，导出 `SECRET_KEY` 和 `ADMIN_PASSWORD`。执行 `prepare` 后，由 Gunicorn 加载 `wsgi:app` |
+| Compose 生产 | 从 [.env.example](.env.example) 填写实例配置后使用对应的 Compose 文件。入口脚本在启动 worker 前执行一次 `prepare` |
 
-应用将在 `http://localhost:19198` 启动
+应用导入、工厂和 WSGI worker 不建表、不迁移、不播种。原生生产使用 `python -m pip install gunicorn==21.2.0` 安装 Gunicorn，再运行 `gunicorn --bind "0.0.0.0:${PORT:-19198}" --workers 4 wsgi:app`。部署、升级和恢复步骤见 [复用指南](docs/复用指南.md#原生和-compose-部署)。
 
 ## 环境变量配置（复用到新赛事）
 
@@ -128,6 +126,8 @@ python app.py
 >
 > 换赛事 / 换赛季的完整操作清单、配置优先级、必须手改的写死项与已知限制，见 [docs/复用指南.md](docs/复用指南.md)。
 
+选手资料和「我的比赛」默认显示本届正式比赛，可切换至累计范围。往届结果和规则通过归档按届查询。[战绩与归档](docs/复用指南.md#63-往届赛事归档页)
+
 ## 初始账号与登录
 
 显式执行 `prepare` 时，空赛事库按 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 创建初始管理员。若需要初始超级管理员，同时设置 `SUPER_ADMIN_USERNAME` 和 `SUPER_ADMIN_PASSWORD`。
@@ -142,6 +142,7 @@ python app.py
 ├── app.py                   # 单文件后端（配置/模型/表单/路由/工厂）
 ├── run.py                   # 启动脚本（依赖清单来自 requirements.txt）
 ├── main.py                  # 转发入口（等价 python run.py，兼容旧脚本）
+├── wsgi.py                  # 已准备数据库的生产 WSGI 入口
 ├── .env.example             # 赛事复用配置模板（复制为 .env）
 ├── app/
 │   ├── templates/           # Jinja2 模板
@@ -156,12 +157,10 @@ python app.py
 │       └── css/theme.css    # 主题样式（原 base.html 内联样式）
 ├── image/                   # 轮播图片/视频
 ├── docs/                    # 复用指南（换赛事操作手册）
-├── .db/                     # SQLite 数据库（自动创建）
+├── .db/                     # SQLite 默认数据库目录，由 prepare 创建
 ├── requirements.txt         # 依赖清单
 └── README.md
 ```
-
-> 所有后端代码整合在 `app.py` 中，便于 Docker 打包部署。
 
 ## 数据库
 
@@ -179,6 +178,8 @@ python app.py
 
 ### 管理员流程
 1. 登录后台 → 2. 管理赛事流程 → 3. 裁定比赛结果 → 4. 导出数据
+
+正式比赛由后台「执行匹配」或「日程管理」写入。后台「分组抽取器」读取已创建的比赛，在浏览器随机分组供现场展示。`抽取/` 是需要手动更新选手 JSON、赛道映射及头像的独立工具。[排赛与抽签工具](docs/复用指南.md#64-排赛与抽签工具)
 
 ## 安全特性
 

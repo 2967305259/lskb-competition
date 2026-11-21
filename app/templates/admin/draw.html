@@ -16,14 +16,14 @@
 {% block content %}
 <a href="{{ url_for('admin.dashboard') }}" class="btn btn-light rounded-pill mb-3"><i class="fas fa-arrow-left"></i> 返回后台</a>
 <h2 class="mb-3"><i class="fas fa-random"></i> 分组抽取器</h2>
-<p class="text-muted mb-4">基于已创建的比赛，随机分配选手到各组</p>
+<p class="text-muted mb-4">从已创建的正式比赛读取选手，在浏览器随机分组供现场展示。分组结果不会保存到正式赛程。</p>
 
 <div class="row g-4">
     <div class="col-lg-3">
         <div class="group-card">
             <h5><i class="fas fa-cog"></i> 抽签设置</h5>
             <div class="mb-3">
-                <label class="form-label small">每场比赛选手数</label>
+                <label for="matchSize" class="form-label small">每组展示人数</label>
                 <select id="matchSize" class="form-select form-select-sm">
                     <option value="2">2 人 (1v1)</option>
                     <option value="4">4 人</option>
@@ -33,10 +33,6 @@
             <button class="btn btn-sm btn-outline-secondary w-100 mt-2" onclick="location.reload()"><i class="fas fa-undo"></i> 重置</button>
         </div>
 
-        <div class="group-card mt-3">
-            <h5><i class="fas fa-info-circle"></i> 说明</h5>
-            <p class="small text-muted mb-0">系统从日程管理中的比赛读取对战数据，将所有参与的选手列表随机打乱后按设定人数分组。</p>
-        </div>
     </div>
 
     <div class="col-lg-9">

@@ -4,7 +4,10 @@
 赛事报名管理系统 - 启动脚本
 自动检测 Python 环境，安装依赖，启动服务
 """
-import os, sys, subprocess
+import os
+import re
+import subprocess
+import sys
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 sys.path.insert(0, BASE_DIR)
@@ -24,15 +27,15 @@ def _load_requirements():
 REQUIREMENTS = _load_requirements()
 
 
-def _check_imports():
-    """检查所有依赖是否可导入"""
+def _missing_requirements():
+    missing = []
     for pkg in REQUIREMENTS:
-        name = pkg.split("==")[0].replace("-", "_").lower()
+        name = re.split(r'[<>=!~]', pkg, maxsplit=1)[0].strip().replace('-', '_').lower()
         try:
             __import__(name)
         except ImportError:
-            return False
-    return True
+            missing.append(pkg)
+    return missing
 
 
 def _ensure_pip(python_exe):
@@ -102,17 +105,11 @@ def _install(python_exe, packages):
 # ==== 入口 ====
 if __name__ == '__main__':
     # 安装缺失依赖
-    if not _check_imports():
+    missing = _missing_requirements()
+    if missing:
         print("============================================================")
         print("  检测到缺失依赖，正在自动安装...")
         print("============================================================")
-        missing = []
-        for pkg in REQUIREMENTS:
-            name = pkg.split("==")[0].replace("-", "_").lower()
-            try:
-                __import__(name)
-            except ImportError:
-                missing.append(pkg)
         _install(sys.executable, missing)
         print("  依赖安装完成！")
         print("============================================================\n")
