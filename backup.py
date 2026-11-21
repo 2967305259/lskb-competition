@@ -55,8 +55,11 @@ def digest(path):
 def _mysql_command(engine, executable):
     url = engine.url
     env = dict(os.environ, MYSQL_PWD=url.password or '')
-    args = [executable, '--host', url.host or 'localhost', '--port', str(url.port or 3306),
-            '--user', url.username or '', '--default-character-set=utf8mb4']
+    args = [executable, '--user', url.username or '', '--default-character-set=utf8mb4']
+    if socket := url.query.get('unix_socket'):
+        args += ['--protocol=SOCKET', '--socket', socket]
+    else:
+        args += ['--protocol=TCP', '--host', url.host or 'localhost', '--port', str(url.port or 3306)]
     return args, env
 
 
@@ -122,7 +125,7 @@ def create_backup(engine, config, reason='manual'):
             elif dialect == 'mysql':
                 args, env = _mysql_command(engine, config.get('MYSQLDUMP_COMMAND', 'mysqldump'))
                 with db_file.open('wb') as stream:
-                    result = subprocess.run(args + ['--single-transaction', '--routines', '--triggers',
+                    result = subprocess.run(args + ['--single-transaction', '--no-tablespaces', '--routines', '--triggers',
                                                    '--hex-blob', url_database(engine)],
                                             env=env, stdout=stream, stderr=subprocess.PIPE, timeout=120)
                 if result.returncode:

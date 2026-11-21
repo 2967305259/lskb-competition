@@ -132,5 +132,5 @@ if __name__ == '__main__':
     print("============================================================")
     print(f"  启动地址: http://0.0.0.0:{port}")
     print("============================================================")
-    app.run(host='0.0.0.0', port=port, debug=(env == 'development'))
+    app.run(host='0.0.0.0', port=port, debug=(env == 'development'), load_dotenv=False)
 

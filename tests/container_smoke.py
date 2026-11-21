@@ -95,6 +95,7 @@ with app.app_context(),maintenance_lock(app.config):
 ''')
     batch = docker('exec', a, 'python', '-m', 'flask', '--app', 'app:create_app()', 'backup').splitlines()[-1]
     assert batch.startswith('/app/backups/')
+    docker('exec', b, 'test', '!', '-e', batch)
     docker('rm', '-f', a)
     a, base_a, opener_a = start('A')
     admin_login(opener_a, base_a)

@@ -253,6 +253,24 @@ def register_commands(app):
         """Report missing ownership/rules/outcomes without modifying any business row."""
         click.echo(json.dumps(data_report(), ensure_ascii=False, indent=2))
 
+    @app.cli.command('deployment-info')
+    def deployment_info():
+        """Verify the prepared schema and show effective deployment settings."""
+        from app import db
+
+        assert_schema_current(db.engine)
+        url = db.engine.url
+        info = {'app_version': app.config['APP_VERSION'], 'schema_version': SCHEMA_VERSION,
+                'backend': url.get_backend_name(), 'database': url.database,
+                'app_port': app.config['PORT'],
+                'paths': {key: str(Path(app.config[key]).resolve())
+                          for key in ('STATE_DIR', 'BACKUP_DIR', 'UPLOAD_ROOT', 'IMAGE_DIR')}}
+        if url.get_backend_name() == 'mysql':
+            info.update(host=url.host or 'localhost', port=url.port or 3306)
+            if 'unix_socket' in url.query:
+                info['socket'] = url.query['unix_socket']
+        click.echo(json_dump(info))
+
     @app.cli.command('reconcile')
     @click.option('--plan', type=click.Path(exists=True), required=True)
     @click.option('--operator', required=True)
@@ -272,12 +290,15 @@ def register_commands(app):
 
     @app.cli.command('restore-rehearsal')
     @click.option('--batch', type=click.Path(exists=True), required=True)
-    @click.option('--destination-url', required=True)
+    @click.option('--destination-url', envvar='RESTORE_DATABASE_URL', required=True)
     @click.option('--media-destination', type=click.Path(), required=True)
     @click.option('--code-version', default=None, help='必须与备份清单中的源代码版本匹配')
     def restore_command(batch, destination_url, media_destination, code_version):
         from sqlalchemy import create_engine
         # This factory does not initialize/modify the source database.
         engine = create_engine(destination_url)
-        restore_backup(batch, engine, media_destination, code_version or app.config['APP_VERSION'])
+        try:
+            restore_backup(batch, engine, media_destination, code_version or app.config['APP_VERSION'])
+        finally:
+            engine.dispose()
         click.echo('隔离恢复与行数校验通过；请用该版本应用指向恢复目录做页面验证')

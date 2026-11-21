@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 export FLASK_ENV=${FLASK_ENV:-production}
+export FLASK_SKIP_DOTENV=1
 # Preparation is one process, before any worker imports the runtime application.
 python -m flask --app 'app:create_app()' prepare
 if [ "$FLASK_ENV" = production ]; then

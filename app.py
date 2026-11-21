@@ -57,21 +57,26 @@ from season_phase import (admin_result_denial, admin_schedule_protected,
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_DIR = os.path.join(BASE_DIR, '.db')
-DB_FILE = os.environ.get('DB_FILE', os.path.join(DB_DIR, 'lskb.db'))
+
+
+def database_uri_from_environment():
+    if os.environ.get('DATABASE_URL'):
+        return os.environ['DATABASE_URL']
+    backend = os.environ.get('DB_BACKEND') or 'sqlite'
+    if backend == 'mysql':
+        from sqlalchemy.engine import URL
+        return URL.create('mysql+pymysql',
+            username=os.environ.get('MYSQL_USER', 'lskb'), password=os.environ.get('MYSQL_PASSWORD', ''),
+            host=os.environ.get('MYSQL_HOST', 'mysql'), port=int(os.environ.get('MYSQL_PORT', '3306')),
+            database=os.environ.get('MYSQL_DATABASE', 'lskb_signup'), query={'charset': 'utf8mb4'})
+    if backend != 'sqlite':
+        raise RuntimeError('DB_BACKEND 必须为 sqlite 或 mysql')
+    path = os.environ.get('DB_FILE') or os.path.join(DB_DIR, 'lskb.db')
+    return 'sqlite:///' + path.replace('\\', '/')
 
 
 class Config:
     """基础配置"""
-    if os.environ.get('DATABASE_URL'):
-        SQLALCHEMY_DATABASE_URI = os.environ['DATABASE_URL']
-    elif os.environ.get('DB_BACKEND') == 'mysql':
-        from sqlalchemy.engine import URL
-        SQLALCHEMY_DATABASE_URI = URL.create('mysql+pymysql',
-            username=os.environ.get('MYSQL_USER', 'lskb'), password=os.environ.get('MYSQL_PASSWORD', ''),
-            host=os.environ.get('MYSQL_HOST', 'mysql'), port=int(os.environ.get('MYSQL_PORT', '3306')),
-            database=os.environ.get('MYSQL_DATABASE', 'lskb_signup'), query={'charset': 'utf8mb4'})
-    else:
-        SQLALCHEMY_DATABASE_URI = 'sqlite:///' + DB_FILE.replace('\\', '/')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {}
     STATE_DIR = os.environ.get('STATE_DIR', os.path.join(BASE_DIR, '.runtime'))
@@ -79,7 +84,7 @@ class Config:
     BACKUP_KEEP = 5
     UPLOAD_ROOT = os.environ.get('UPLOAD_ROOT', os.path.join(BASE_DIR, 'app', 'static', 'uploads'))
     IMAGE_DIR = os.environ.get('IMAGE_DIR', os.path.join(BASE_DIR, 'image'))
-    APP_VERSION = os.environ.get('APP_VERSION', 'p0-v1')
+    APP_VERSION = os.environ.get('APP_VERSION') or 'p3-7'
     LEGACY_APP_VERSION = os.environ.get('LEGACY_APP_VERSION', '8238f20')
     REMEMBER_COOKIE_DURATION = timedelta(days=7)
     PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
@@ -4178,24 +4183,29 @@ def create_app(config_name=None, overrides=None):
     if overrides:
         app.config.update(overrides)
     configure_credentials(app, production=(config_name == 'production'))
+    if 'SQLALCHEMY_DATABASE_URI' not in app.config:
+        app.config['SQLALCHEMY_DATABASE_URI'] = database_uri_from_environment()
     with app.app_context():
         event_zone()  # Fail at startup on a misspelled timezone.
     from sqlalchemy.engine import make_url
     uri = make_url(app.config['SQLALCHEMY_DATABASE_URI'])
+    backend = uri.get_backend_name()
     if config_name == 'testing':
         # Explicitly supplied temporary paths belong to this factory, never module globals.
         app.config['WTF_CSRF_ENABLED'] = False
     options = dict(app.config.get('SQLALCHEMY_ENGINE_OPTIONS') or {})
-    if uri.get_backend_name() == 'sqlite':
+    options.setdefault('hide_parameters', True)
+    if backend == 'sqlite':
         options['connect_args'] = dict(options.get('connect_args', {}), check_same_thread=False, timeout=30)
-    else:
+    elif backend == 'mysql':
         options.get('connect_args', {}).pop('check_same_thread', None)
-        if uri.get_backend_name() == 'mysql':
-            options.setdefault('isolation_level', 'READ COMMITTED')
+        options.setdefault('isolation_level', 'READ COMMITTED')
+    else:
+        raise RuntimeError('数据库仅支持 SQLite 或 MySQL')
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = options
 
     db.init_app(app)
-    if uri.get_backend_name() == 'sqlite':
+    if backend == 'sqlite':
         from sqlalchemy import event
         with app.app_context():
             @event.listens_for(db.engine, 'connect')
@@ -4320,4 +4330,4 @@ if __name__ == '__main__':
     from migrations import assert_schema_current
     with runtime_app.app_context():
         assert_schema_current(db.engine)
-    runtime_app.run(host='0.0.0.0', port=runtime_app.config['PORT'])
+    runtime_app.run(host='0.0.0.0', port=runtime_app.config['PORT'], load_dotenv=False)

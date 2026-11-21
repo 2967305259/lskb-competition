@@ -2,7 +2,7 @@
 
 > 工作区版本：P0 v1（2026-11-14），来源 GitHub `8238f20`。已补齐按季重算、倍率/规则快照、显式迁移、换季备份与幂等、归档写保护和超管专项纠错。范围与验证见 [P0 实施与验证](docs/P0实施与验证.md)。
 >
-> 原生运行请使用 Python 3.12，先安装依赖并执行 `python -m flask --app 'app:create_app()' prepare`，再运行 `python run.py`。导入与应用工厂不初始化数据库。生产 WSGI 入口为 `wsgi:app`，Docker 启动脚本会在创建 worker 前单进程准备数据库。
+> 原生运行请使用 Python 3.12，先安装依赖并执行 `FLASK_SKIP_DOTENV=1 python -m flask --app 'app:create_app()' prepare`，再运行 `python run.py`。导入与应用工厂不初始化数据库。生产 WSGI 入口为 `wsgi:app`，Docker 启动脚本会在创建 worker 前单进程准备数据库。
 
 
 《明日方舟》冷水坑杯 #3 赛事管理系统是一个基于 Flask + SQLite/MySQL 的 Web 应用，用于管理赛事报名、队伍创建、比赛匹配、积分计算等全流程。
@@ -81,7 +81,7 @@
 ```bash
 # 先准备：原生入口不会自动读取 .env。首次创建管理员前请导出 ADMIN_PASSWORD
 python -m pip install -r requirements.txt
-python -m flask --app 'app:create_app()' prepare
+FLASK_SKIP_DOTENV=1 python -m flask --app 'app:create_app()' prepare
 
 # 方式一：使用 run.py（依赖清单来自 requirements.txt）
 python run.py
@@ -165,9 +165,9 @@ python app.py
 
 ## 数据库
 
-默认使用 SQLite（`.db/lskb.db`），生产环境通过 `DATABASE_URL` 环境变量切换 MySQL。
+原生默认使用 SQLite（`.db/lskb.db`）。MySQL 可用 `DB_BACKEND=mysql` 和独立连接字段配置，显式 `DATABASE_URL` 优先。两种数据库均由 `prepare` 显式准备和迁移。
 
-> SQLite 会在启动时自动把 `teams` 表的唯一约束从「全局唯一」重建为「赛事内唯一」，旧数据保留。若使用 MySQL，需手动执行等价迁移：删除 `team_name`、`captain_id` 的单列唯一约束，改加 `(tournament_id, team_name)` 与 `(tournament_id, captain_id)` 两个联合唯一索引。
+分别使用 `docker-compose.sqlite.yml` 或 `docker-compose.yml` 部署，按实例设置项目名、端口和素材路径。运行后可用 `deployment-info` 核对实际数据库、目录和版本。 [原生和 Compose 部署示例](docs/复用指南.md#原生和-compose-部署)
 
 ## 用户指南
 
@@ -230,6 +230,13 @@ PYTHON=python tests/run_mysql.sh -k mysql
 ```
 
 容器持久化验证使用 `tests/container_smoke.py`，输入为本地测试镜像。验收结果见 [改造最终参考](docs/改造最终参考.md#6-p3-配置部署与运维)。
+
+两套 Compose 的端到端验证会创建并清理独立测试项目和卷。空间有限时可分别传入 `--backend sqlite` 和 `--backend mysql`。
+
+```bash
+docker build -t lskb-p3-7-test:local .
+python tests/compose_smoke.py lskb-p3-7-test:local
+```
 
 ## 开发建议
 
