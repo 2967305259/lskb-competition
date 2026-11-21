@@ -9,7 +9,7 @@
             <p class="mb-1">{{ stats.wins }} 胜 · {{ stats.losses }} 负 · {{ stats.draws }} 平</p>
             <p class="text-muted small mb-3">正式整场 {{ stats.formal_matches }} · 已判胜负 {{ stats.decided_matches }} · 已结算 {{ stats.settled_matches }}</p>
             {% if stats.matches %}
-            <div class="table-responsive">
+            <div class="table-responsive" data-scroll-label="选手最近比赛">
                 <table class="table table-hover table-sm">
                     <thead>
                         <tr>

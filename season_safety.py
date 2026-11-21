@@ -28,6 +28,12 @@ class SeasonError(ValueError):
         self.status = status
 
 
+class ScoreInputError(SeasonError):
+    def __init__(self, field, message):
+        super().__init__(message, 400)
+        self.field = field
+
+
 def ns():
     import app
     return app
@@ -140,7 +146,7 @@ def multiplier(rule, difficulty):
     try:
         difficulty = int(difficulty)
         if not int(rule['minimum']) <= difficulty <= int(rule['maximum']):
-            raise SeasonError('难度超出该比赛历史规则区间', 400)
+            raise ScoreInputError('difficulty', '难度超出该比赛历史规则区间')
         step = Decimal(str(rule['step']))
         value = Decimal(1) + (difficulty - int(rule['minimum'])) * step
         if not step.is_finite() or not value.is_finite() or step < 0 or not 0 <= value < 10000:
@@ -186,11 +192,16 @@ def set_score(match, side, raw, difficulty, origin='submitted'):
     try:
         score = int(raw)
     except (TypeError, ValueError) as error:
-        raise SeasonError('成绩必须为整数（0 分有效）', 400) from error
+        raise ScoreInputError('score', '成绩必须为整数（0 分有效）') from error
     if str(raw).strip() != str(score) or abs(score) > 1000000000:
-        raise SeasonError('成绩必须为有效整数', 400)
-    setattr(match, 'player_' + side + '_difficulty', int(difficulty))
-    setattr(match, 'player_' + side + '_multiplier', multiplier(rule, difficulty))
+        raise ScoreInputError('score', '成绩必须为有效整数')
+    try:
+        difficulty_value = int(difficulty)
+    except (TypeError, ValueError) as error:
+        raise ScoreInputError('difficulty', '请选择有效难度') from error
+    rate = multiplier(rule, difficulty_value)
+    setattr(match, 'player_' + side + '_difficulty', difficulty_value)
+    setattr(match, 'player_' + side + '_multiplier', rate)
     setattr(match, 'player_' + side + '_score', score)
     setattr(match, 'score_origin_' + side, origin)
 

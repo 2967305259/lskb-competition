@@ -4061,6 +4061,9 @@ def schedule_match(match_id):
     if form.validate_on_submit():
         try:
             scheduled_time = parse_event_time(form.scheduled_time.data.replace(' ', 'T'))
+        except ValueError as error:
+            form.scheduled_time.errors.append(str(error))
+        else:
             if match.scheduled_time != scheduled_time or not match.scheduled_time_utc:
                 match.confirmed_a = False
                 match.confirmed_b = False
@@ -4079,11 +4082,9 @@ def schedule_match(match_id):
                 match.status = 'scheduled'
                 flash('比赛时间已记录，等待对手确认', 'success')
             db.session.commit()
-        except ValueError:
-            flash('时间格式错误，请使用 YYYY-MM-DD HH:MM 格式', 'danger')
-        return redirect(url_for('tournament.match_detail', match_id=match_id))
+            return redirect(url_for('tournament.match_detail', match_id=match_id))
     return render_template('tournament/schedule_match.html',
-                           form=form, match=match, already_confirmed=already_confirmed)
+                           form=form, match=match, already_confirmed=already_confirmed), (400 if request.method == 'POST' else 200)
 
 
 @tournament_bp.route('/match/<int:match_id>/confirm-schedule', methods=['POST'])
@@ -4150,28 +4151,40 @@ def send_match_note(match_id):
 @tournament_bp.route('/match/<int:match_id>/submit-result', methods=['GET', 'POST'])
 @login_required_with_role('player', 'captain')
 def submit_result(match_id):
-    from season_safety import capture_match_rule, get_match_scoring_rule, set_score, SeasonError
+    from season_safety import capture_match_rule, get_match_scoring_rule, set_score, ScoreInputError
     match = require_player_match_action(match_id, 'submit_result')
     side = 'a' if current_user.id == match.player_a_id else 'b'
+    errors = {}
+    status = 200
+    values = {key: request.form.get(key, '') for key in ('score', 'difficulty')}
     if request.method == 'POST':
         # Validate before touching uploads; duplicates and archived IDs create no files.
         capture_match_rule(match)
-        set_score(match, side, request.form.get('score'), request.form.get('difficulty'))
-        files = [file for file in request.files.getlist('screenshots') if file and file.filename]
-        if len(files) > MAX_SCREENSHOTS:
-            raise SeasonError(f'每次最多上传 {MAX_SCREENSHOTS} 张成绩截图', 400)
-        with upload_batch() as staged:
-            for file in files:
-                filename = save_upload(file, 'screenshots', staged, match_id=match.id)
-                match.match_note = (match.match_note or '') + f'\n[截图] /static/uploads/screenshots/{filename}'
-            setattr(match, 'player_' + side + '_result', 'submitted')
-            if not match.forfeit_side and match.player_a_score is not None and match.player_b_score is not None:
-                match.status = 'submitted'
-            current_user.status = 6
-        flash('整场成绩已保存，等待确认结束并结算', 'success')
-        return redirect(url_for('tournament.match_detail', match_id=match.id))
+        try:
+            set_score(match, side, values['score'], values['difficulty'])
+        except ScoreInputError as error:
+            errors[error.field], status = str(error), error.status
+            db.session.rollback()
+        else:
+            try:
+                with upload_batch() as staged:
+                    files = [file for file in request.files.getlist('screenshots') if file and file.filename]
+                    if len(files) > MAX_SCREENSHOTS:
+                        raise SeasonError(f'每次最多上传 {MAX_SCREENSHOTS} 张成绩截图', 400)
+                    for file in files:
+                        filename = save_upload(file, 'screenshots', staged, match_id=match.id)
+                        match.match_note = (match.match_note or '') + f'\n[截图] /static/uploads/screenshots/{filename}'
+                    setattr(match, 'player_' + side + '_result', 'submitted')
+                    if not match.forfeit_side and match.player_a_score is not None and match.player_b_score is not None:
+                        match.status = 'submitted'
+                    current_user.status = 6
+            except SeasonError as error:
+                errors['screenshots'], status = str(error), error.status
+            else:
+                flash('整场成绩已保存，等待确认结束并结算', 'success')
+                return redirect(url_for('tournament.match_detail', match_id=match.id))
     return render_template('tournament/submit_result.html', match=match,
-                           difficulty_rule=get_match_scoring_rule(match))
+                           difficulty_rule=get_match_scoring_rule(match), values=values, errors=errors), status
 
 
 # ============================================================

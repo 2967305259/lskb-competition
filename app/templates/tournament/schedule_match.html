@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_macros.html' import form_field %}
 
 {% block title %}确认比赛时间{% endblock %}
 
@@ -34,10 +35,7 @@
                 <form method="POST">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label class="form-label">比赛时间</label>
-                        <input type="datetime-local" class="form-control" name="scheduled_time" required>
-                        <small class="text-muted">按 {{ config.EVENT_TIMEZONE }} 填写。</small>
-                        <div class="form-text text-muted">请填写与对手线下商讨后约定的时间</div>
+                        {{ form_field(form.scheduled_time, '按 ' ~ config.EVENT_TIMEZONE ~ ' 填写与对手约定的时间。', input_type='datetime-local') }}
                     </div>
                     <div class="d-grid gap-2">
                         <button type="submit" class="btn btn-primary">

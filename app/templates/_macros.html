@@ -10,9 +10,25 @@
   - match_progress_badge：比赛进度徽章（已确认 / 1-2 已提交 / 2-2 已提交）
 #}
 
+{% macro form_field(field, help_text='', autocomplete='', input_type='', css='form-control', rows=None) %}
+    {% set description = (field.id ~ '-help ' if help_text else '') ~ (field.id ~ '-error' if field.errors else '') %}
+    {% set attrs = {} %}
+    {% if autocomplete %}{% set attrs = dict(attrs, autocomplete=autocomplete) %}{% endif %}
+    {% if input_type %}{% set attrs = dict(attrs, type=input_type) %}{% endif %}
+    {% if rows %}{% set attrs = dict(attrs, rows=rows) %}{% endif %}
+    {% if description|trim %}{% set attrs = dict(attrs, aria_describedby=description|trim) %}{% endif %}
+    {% if field.errors %}{% set attrs = dict(attrs, aria_invalid='true') %}{% endif %}
+    {{ field.label(class='form-label') }}
+    {{ field(class=css ~ (' is-invalid' if field.errors else ''), **attrs) }}
+    {% if help_text %}<div id="{{ field.id }}-help" class="form-text">{{ help_text }}</div>{% endif %}
+    {% if field.errors %}
+        <div id="{{ field.id }}-error" class="invalid-feedback d-block">{{ field.errors|join('。') }}</div>
+    {% endif %}
+{% endmacro %}
+
 {% macro render_pagination(pager, endpoint, extra=None, ul_class='justify-content-center') %}
 {% if pager and pager.pages > 1 %}
-<nav aria-label="Page navigation">
+<nav aria-label="分页">
     <ul class="pagination {{ ul_class }}">
         {% if pager.has_prev %}
             <li class="page-item">

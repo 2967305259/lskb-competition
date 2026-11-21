@@ -18,8 +18,13 @@
 
     // ========== 赛事配置（由 base.html 注入，缺省值保证独立调试可用） ==========
     const CFG = window.EVENT_CONFIG || {};
-    const EVENT_NAME = CFG.name || '本站赛事';
-    const TRACK_LABEL = CFG.track || '参赛项目';
+    function textForMarkup(value) {
+        const element = document.createElement('span');
+        element.textContent = value;
+        return element.innerHTML;
+    }
+    const EVENT_NAME = textForMarkup(CFG.name || '本站赛事');
+    const TRACK_LABEL = textForMarkup(CFG.track || '参赛项目');
     const URLS = Object.assign({
         home: '/',
         teams: '/teams',
@@ -433,6 +438,7 @@
     function cleanupAll() {
         cleanupUI();
         unlockNavbar();
+        document.querySelector('.onboarding-help-btn')?.focus();
     }
 
     // ========== 渲染当前步骤 ==========
@@ -478,7 +484,13 @@
             }
         }
 
+        tooltipEl.setAttribute('role', 'dialog');
+        tooltipEl.setAttribute('aria-modal', 'true');
+        const heading = tooltipEl.querySelector('h3, h5');
+        heading.id = 'onboarding-title';
+        tooltipEl.setAttribute('aria-labelledby', heading.id);
         bindButtons();
+        tooltipEl.querySelector('button')?.focus();
         saveState();
     }
 
@@ -631,6 +643,7 @@
         const btn = createEl('button', 'onboarding-help-btn',
             '<i class="fas fa-question"></i>');
         btn.title = '查看新手引导';
+        btn.setAttribute('aria-label', btn.title);
         btn.addEventListener('click', () => {
             if (state.active) return;  // 已经在教程中
             resetOnboardingOnServer();
@@ -703,6 +716,21 @@
     // ========== 全局事件 ==========
     window.addEventListener('resize', onResizeOrScroll);
     window.addEventListener('scroll', onResizeOrScroll, { passive: true });
+    document.addEventListener('keydown', (event) => {
+        if (!state.active || !tooltipEl) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            skipAll();
+        } else if (event.key === 'Tab') {
+            const controls = tooltipEl.querySelectorAll('button');
+            const first = controls[0];
+            const last = controls[controls.length - 1];
+            if (!tooltipEl.contains(document.activeElement) || document.activeElement === (event.shiftKey ? first : last)) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            }
+        }
+    });
 
     // DOM ready 后初始化
     if (document.readyState === 'loading') {

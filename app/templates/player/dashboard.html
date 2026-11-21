@@ -12,7 +12,7 @@
             <div class="card-body text-center">
                 <div class="mb-3">
                     {% if current_user.avatar %}
-                        <img src="{{ url_for('static', filename='uploads/avatars/' + current_user.avatar) }}"
+                        <img alt="当前账号头像" src="{{ url_for('static', filename='uploads/avatars/' + current_user.avatar) }}"
                              class="rounded-circle" style="width: 80px; height: 80px; object-fit: cover; border: 3px solid #0d6efd;">
                     {% else %}
                         <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto"

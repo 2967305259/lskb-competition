@@ -7,7 +7,12 @@
 <!-- ===== 轮播图区域 ===== -->
 {% if carousel_media %}
 {% set multiple_slides = carousel_media|length > 1 %}
-<div id="homeCarousel" class="carousel slide mb-4"{% if multiple_slides %} data-bs-ride="carousel" data-bs-interval="4000"{% endif %}>
+{% if multiple_slides %}
+<div class="d-flex justify-content-end mb-2">
+    <button type="button" id="carousel-rotation" class="btn btn-outline-secondary btn-sm" aria-controls="homeCarousel" aria-pressed="false" hidden>自动轮播</button>
+</div>
+{% endif %}
+<div id="homeCarousel" class="carousel slide mb-4" aria-label="赛事轮播">
     {% if multiple_slides %}
     <div class="carousel-indicators" style="top: 0; bottom: auto;">
         {% for item in carousel_media %}
@@ -251,32 +256,35 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if carousel_media|length > 1 and (carousel_media|selectattr('type', 'equalto', 'video')|first) %}
+{% if carousel_media|length > 1 %}
 <script>
     (() => {
         if (!window.bootstrap) return;
         const carousel = document.getElementById('homeCarousel');
-        const slideshow = bootstrap.Carousel.getOrCreateInstance(carousel);
+        const rotation = document.getElementById('carousel-rotation');
+        const slideshow = bootstrap.Carousel.getOrCreateInstance(carousel, {interval: 4000, pause: false});
+        const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        let enabled = !motion.matches;
         const activeVideo = () => carousel.querySelector('.carousel-item.active video');
-        for (const video of carousel.querySelectorAll('video')) {
-            video.addEventListener('play', () => slideshow.pause());
-            for (const event of ['pause', 'ended']) {
-                video.addEventListener(event, () => {
-                    if (video === activeVideo()) slideshow.cycle();
-                });
-            }
-        }
-        carousel.addEventListener('mouseleave', () => {
+        const update = () => {
             const video = activeVideo();
-            if (video && !video.paused) slideshow.pause();
-        });
-        carousel.addEventListener('slide.bs.carousel', () => {
-            const video = activeVideo();
-            if (video && !video.paused) {
-                video.pause();
+            if (enabled && !carousel.matches(':hover, :focus-within') && (!video || video.paused)) {
                 slideshow.cycle();
+            } else {
+                slideshow.pause();
             }
-        });
+            rotation.setAttribute('aria-pressed', String(enabled));
+        };
+        rotation.hidden = false;
+        rotation.addEventListener('click', () => { enabled = !enabled; update(); });
+        motion.addEventListener('change', () => { enabled = !motion.matches; update(); });
+        for (const video of carousel.querySelectorAll('video')) {
+            for (const event of ['play', 'pause', 'ended']) video.addEventListener(event, update);
+        }
+        for (const event of ['mouseenter', 'mouseleave', 'focusin', 'slid.bs.carousel']) carousel.addEventListener(event, update);
+        carousel.addEventListener('focusout', () => setTimeout(update, 0));
+        carousel.addEventListener('slide.bs.carousel', () => activeVideo()?.pause());
+        update();
     })();
 </script>
 {% endif %}

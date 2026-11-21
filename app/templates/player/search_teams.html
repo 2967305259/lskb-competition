@@ -8,6 +8,7 @@
             <form method="POST" class="row g-2">
                 {{ form.hidden_tag() }}
                 <div class="col-md-8">
+                    {{ form.search_keyword.label('队伍名称', class='form-label') }}
                     {{ form.search_keyword(class="form-control bg-dark text-light border-secondary", placeholder="输入队伍名称搜索...") }}
                 </div>
                 <div class="col-md-4">

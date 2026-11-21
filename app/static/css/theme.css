@@ -23,6 +23,88 @@ body {
     font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
 }
 
+:focus-visible {
+    outline: 3px solid #ffcf66;
+    outline-offset: 2px;
+}
+
+.skip-to-content {
+    position: fixed;
+    z-index: 1100;
+    top: .5rem;
+    left: .5rem;
+    transform: translateY(-150%);
+    padding: .65rem 1rem;
+    border-radius: .25rem;
+    background: #151515;
+    color: #fff;
+}
+
+.skip-to-content:focus {
+    transform: translateY(0);
+}
+
+body {
+    overflow-wrap: anywhere;
+}
+
+.navbar-brand, .dropdown-toggle {
+    min-width: 0;
+    white-space: normal;
+}
+
+.navbar-brand {
+    max-width: 100%;
+}
+
+.table-responsive[data-scroll-label] {
+    max-width: 100%;
+    padding: 3px;
+}
+
+.table-responsive[data-scroll-label] th,
+.table-responsive[data-scroll-label] td {
+    min-inline-size: 4.5rem;
+    overflow-wrap: anywhere;
+}
+
+.modal-dialog-scrollable .modal-content > form {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+@media (max-width: 991.98px) {
+    .navbar-brand {
+        max-width: calc(100% - 4.5rem);
+    }
+
+    .navbar .nav-link, main button.btn, main a.btn, main input[type=submit] {
+        min-block-size: 44px;
+    }
+
+    .navbar-toggler {
+        min-block-size: 44px;
+        flex-shrink: 0;
+    }
+}
+
+@media (max-width: 575.98px) {
+    #homeCarousel .carousel-item :is(img, video) {
+        height: clamp(160px, 55vw, 260px) !important;
+    }
+
+    .modal-dialog-scrollable {
+        margin: .5rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nav-link, .carousel-item {
+        transition: none;
+    }
+}
+
 .navbar {
     background-color: #0f0f0f !important;
     border-bottom: 2px solid #333;
@@ -173,7 +255,7 @@ body {
 }
 
 .text-muted {
-    color: #808080 !important;
+    color: #a6a6a6 !important;
 }
 
 .btn-sm {

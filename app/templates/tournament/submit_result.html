@@ -23,23 +23,31 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                     <div class="mb-4">
-                        <label class="form-label"><i class="fas fa-fire"></i> 难度选择</label>
-                        <select class="form-select" name="difficulty" required>
+                        <label for="difficulty" class="form-label"><i class="fas fa-fire" aria-hidden="true"></i> 难度选择</label>
+                        <select id="difficulty" class="form-select{% if errors.difficulty %} is-invalid{% endif %}" name="difficulty" required
+                                {% if errors.difficulty %}aria-invalid="true" aria-describedby="difficulty-error"{% endif %}>
                             {% for d in range(difficulty_rule.minimum, difficulty_rule.maximum + 1) %}
-                            <option value="{{ d }}">{{ d }} 难{% if match.scoring_rule %}（使用该整场保存的难度规则）{% endif %}</option>
+                            <option value="{{ d }}"{% if values.difficulty == d|string %} selected{% endif %}>{{ d }} 难{% if match.scoring_rule %}（使用该整场保存的难度规则）{% endif %}</option>
                             {% endfor %}
                         </select>
+                        {% if errors.difficulty %}<div id="difficulty-error" class="invalid-feedback">{{ errors.difficulty }}</div>{% endif %}
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label"><i class="fas fa-star"></i> 整场原始成绩（0 分有效）</label>
-                        <input type="number" class="form-control" name="score" placeholder="如：3200" required>
+                        <label for="score" class="form-label"><i class="fas fa-star" aria-hidden="true"></i> 整场原始成绩（0 分有效）</label>
+                        <input id="score" type="number" class="form-control{% if errors.score %} is-invalid{% endif %}" name="score" value="{{ values.score }}"
+                               placeholder="如：3200" required {% if errors.score %}aria-invalid="true" aria-describedby="score-error"{% endif %}>
+                        {% if errors.score %}<div id="score-error" class="invalid-feedback">{{ errors.score }}</div>{% endif %}
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label"><i class="fas fa-images"></i> 截图上传（可选多张）</label>
-                        <input type="file" class="form-control" name="screenshots" accept="image/*" multiple required>
-                        <small class="text-muted">可同时选择多张成绩截图（PNG/JPG/WEBP）</small>
+                        <label for="screenshots" class="form-label"><i class="fas fa-images" aria-hidden="true"></i> 截图上传</label>
+                        <input id="screenshots" type="file" class="form-control{% if errors.screenshots %} is-invalid{% endif %}" name="screenshots"
+                               accept=".png,.jpg,.jpeg,.webp" multiple required
+                               aria-describedby="screenshots-help{% if errors.screenshots %} screenshots-error{% endif %}"
+                               {% if errors.screenshots %}aria-invalid="true"{% endif %}>
+                        <div id="screenshots-help" class="form-text">选择 1 至 3 张 PNG、JPEG 或 WebP，每张最多 4 MiB。</div>
+                        {% if errors.screenshots %}<div id="screenshots-error" class="invalid-feedback d-block">{{ errors.screenshots }}。请重新选择文件。</div>{% endif %}
                     </div>
 
                     <div class="d-grid">

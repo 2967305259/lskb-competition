@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -27,6 +27,7 @@
     {% endif %}
 </head>
 <body>
+    <a class="skip-to-content" href="#main-content">跳到主要内容</a>
     <!-- 前端复用配置：赛事名 / 术语 / 关键路由，避免 JS 里写死文案 -->
     <script>
         window.EVENT_CONFIG = {
@@ -51,12 +52,13 @@
     {% endif %}
     
     <!-- 导航栏 -->
-    <nav class="navbar navbar-expand-lg navbar-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark" aria-label="主导航">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{ url_for('main.index') }}">
                 <i class="fas fa-crown"></i> {{ event_name }}
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                    aria-controls="navbarNav" aria-expanded="false" aria-label="主菜单">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
@@ -165,14 +167,15 @@
     </nav>
     
     <!-- 主容器 -->
-    <main class="py-4">
+    <main class="py-4" id="main-content" tabindex="-1">
         <div class="container">
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
-                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
-                            <i class="fas fa-exclamation-circle"></i> {{ message }}
-                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show"
+                             role="{{ 'alert' if category in ('error', 'danger', 'warning') else 'status' }}">
+                            <i class="fas fa-exclamation-circle" aria-hidden="true"></i> {{ message }}
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="关闭提示"></button>
                         </div>
                     {% endfor %}
                 {% endif %}
@@ -191,6 +194,7 @@
     
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/accessibility.js') }}" defer></script>
     
     <!-- 新手引导 JS（始终加载，帮助按钮需要） -->
     {% if current_user.is_authenticated and not current_user.is_admin() %}
