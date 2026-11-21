@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: ${APP_VERSION:-p3-7}
+        APP_VERSION: ${APP_VERSION:-season-release-v1}
         MYSQL_IMAGE: ${MYSQL_IMAGE:-mysql:8.0}
     image: ${IMAGE:-lskb-p0}:${IMAGE_TAG:-local}
     restart: unless-stopped

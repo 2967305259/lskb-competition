@@ -19,6 +19,7 @@ from season_phase import (FINISHED_SCHEDULING_ACTIONS, REGISTRATION_ACTIONS, adm
 
 _correction = ContextVar('season_correction', default=None)
 _reconcile = ContextVar('season_reconciliation', default=False)
+SCORE_CONTRACT = 'whole-match;confirmed-settlement;ties-inclusive;competition-ranking'
 
 
 class SeasonError(ValueError):
@@ -209,7 +210,7 @@ def build_context(season):
             'bonus_score': season.bonus_score, 'team_size': settings.team_size if settings and settings.team_size else current_app.config['TEAM_SIZE'],
             'positions': a.get_team_positions(), 'labels': a.get_labels(use_historical=False),
             'advance_count': settings.advance_count if settings else 0,
-            'score_contract': 'whole-match;confirmed-settlement;ties-inclusive;competition-ranking',
+            'score_contract': SCORE_CONTRACT,
             'tracks': {r.key: {'id': r.id, 'key': r.key, 'name': r.name, 'rule': scoring_rule(r), 'active': r.is_active}
                        for r in a.Roguelike.query.order_by(a.Roguelike.id).all()},
             'rules': [{'id': r.id, 'title': r.title, 'content': r.content, 'track': r.roguelike_key}
@@ -522,7 +523,7 @@ def _freeze_context_on_config_edit(session):
             if isinstance(obj, a.Tournament) and obj.id and not obj.is_active:
                 state = inspect(obj)
                 if not state.attrs.is_active.history.has_changes() and not _reconcile.get():
-                    for key in ('name', 'bonus_score', 'context_snapshot', 'snapshot_version'):
+                    for key in ('name', 'bonus_score', 'context_snapshot', 'snapshot_version', 'release_source'):
                         if state.attrs[key].history.has_changes():
                             raise SeasonError('往届上下文不能通过普通提交改写')
         # Recheck after flush so pending new tournaments cannot hide a second active row.

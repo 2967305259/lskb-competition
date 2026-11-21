@@ -12,6 +12,7 @@
 </section>
 
 {% if current_user.is_super_admin() %}
+<p><a class="btn btn-outline-primary" href="{{ url_for('admin.release_packs') }}">赛事发布包</a></p>
 <section class="card mb-4">
     <div class="card-body">
         <h3 class="h5">数据库与素材备份</h3>

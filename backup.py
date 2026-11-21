@@ -86,6 +86,11 @@ def media_references(conn, config):
                 yield image, Path(path.removeprefix('/carousel-media/'))
             elif path.startswith('image/'):
                 yield image, Path(path.removeprefix('image/'))
+    if 'season_releases' in tables:
+        roots = {'image': image, 'uploads': uploads}
+        for row in conn.execute(text('SELECT manifest FROM season_releases WHERE version > 0')):
+            media = json.loads(row[0])['payload']['configuration']['media']
+            yield from ((roots[item['root']], Path(item['path'])) for item in media)
 
 
 def verify_media_references(engine, config):

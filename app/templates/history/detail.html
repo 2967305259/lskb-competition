@@ -9,7 +9,7 @@
 {% if historical_context.rules %}
 <details class="card p-3 mb-3"><summary>该届规则与赛制快照</summary>
 <p>赛事：{{ historical_context.name }} · 队制：{{ historical_context.team_size }} 人 · 队伍倍率：{{ historical_context.bonus_score }}</p>
-{% for rule in historical_context.rules %}<h4>{{ rule.title }}</h4><div>{{ rule.content|safe }}</div>{% endfor %}
+{% for rule in historical_context.rules %}<h4>{{ rule.title }}</h4><div style="white-space: pre-line">{{ rule.content }}</div>{% endfor %}
 {% for key, track in historical_context.tracks.items() %}<p>{{ track.name }}：{{ track.rule.minimum }}–{{ track.rule.maximum }} 难，步长 {{ track.rule.step }}</p>{% endfor %}
 </details>
 {% endif %}
@@ -30,6 +30,9 @@
             {% endif %}
             · 已归档（只读）
         </p>
+        {% if release %}
+        <p class="mt-2 mb-0">赛事发布包 v{{ release.version }} · SHA-256 <code class="text-break">{{ release.checksum }}</code></p>
+        {% endif %}
     </div>
 </div>
 

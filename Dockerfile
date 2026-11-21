@@ -9,7 +9,7 @@ FROM python:3.12-slim-trixie
 
 ARG EVENT_NAME=冷水坑杯
 ARG SEASON_NUMBER=3
-ARG APP_VERSION=p3-7
+ARG APP_VERSION=season-release-v1
 
 LABEL maintainer="lskb"
 LABEL description="${EVENT_NAME} #${SEASON_NUMBER} 比赛管理系统"

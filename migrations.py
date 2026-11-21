@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy import MetaData, Table, inspect, text
 from backup import create_backup, maintenance_lock
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 # These additions cover the supported pre-P0 schema. Other missing base columns are an error.
 ADDITIONS = {
     'users': {'has_completed_onboarding': '0', 'tutorial_step': '0'},
@@ -13,7 +13,7 @@ ADDITIONS = {
     'team_members': {'position': 'NULL', 'squad': "''", 'operator': "''"},
     'settings': {'team_size': 'NULL', 'allow_incomplete_teams': '0'},
     'tournaments': {'context_snapshot': 'NULL', 'snapshot_version': '0', 'archived_at': 'NULL',
-                    'window_times_utc': '0'},
+                    'window_times_utc': '0', 'release_source': 'NULL'},
     'matches': {'tournament_id': 'NULL', 'player_a_difficulty': 'NULL', 'player_b_difficulty': 'NULL',
                 'match_type': "'match'", 'parent_id': 'NULL', 'segment_order': '0',
                 'player_a_multiplier': 'NULL', 'player_b_multiplier': 'NULL', 'scoring_rule': 'NULL', 'legacy_payload': 'NULL', 'context_version': 'NULL',
@@ -139,7 +139,9 @@ def migrate_database(engine, config, *, prepare_sqlite_directory=None):
                         conn.exec_driver_sql(f'ALTER TABLE {table} ADD COLUMN {name} {sql_type}{nullable}{default_clause}')
                         if not default_clause:
                             conn.exec_driver_sql(f'UPDATE {table} SET {name}={default} WHERE {name} IS NULL')
-                if current == 0:
+                if current:
+                    db.metadata.tables['season_releases'].create(bind=conn, checkfirst=True)
+                else:
                     db.metadata.create_all(bind=conn)
                     if engine.dialect.name == 'sqlite':
                         constraints = {tuple(c['column_names']) for c in inspect(conn).get_unique_constraints('teams')}

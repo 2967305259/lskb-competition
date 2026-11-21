@@ -33,7 +33,7 @@ from wtforms.validators import (DataRequired, Length, EqualTo, ValidationError,
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from sqlalchemy.dialects.mysql import LONGTEXT
-from sqlalchemy.orm import contains_eager, joinedload
+from sqlalchemy.orm import contains_eager, joinedload, load_only
 
 # 业务规则模块（积分/倍率、自动匹配）；模块内部延迟导入本文件的模型，无循环依赖
 from scoring import (calculate_multiplier, get_team_rankings, get_season_summaries, qualification,
@@ -84,7 +84,7 @@ class Config:
     BACKUP_KEEP = 5
     UPLOAD_ROOT = os.environ.get('UPLOAD_ROOT', os.path.join(BASE_DIR, 'app', 'static', 'uploads'))
     IMAGE_DIR = os.environ.get('IMAGE_DIR', os.path.join(BASE_DIR, 'image'))
-    APP_VERSION = os.environ.get('APP_VERSION') or 'p3-7'
+    APP_VERSION = os.environ.get('APP_VERSION') or 'season-release-v1'
     LEGACY_APP_VERSION = os.environ.get('LEGACY_APP_VERSION', '8238f20')
     REMEMBER_COOKIE_DURATION = timedelta(days=7)
     PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
@@ -188,6 +188,17 @@ def login_required_with_role(*roles):
 
 def admin_required(func):
     return login_required_with_role('admin')(func)
+
+
+def super_admin_required(func):
+    @admin_required
+    @wraps(func)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_super_admin():
+            abort(403)
+        return func(*args, **kwargs)
+
+    return decorated_function
 
 
 def captain_required(func):
@@ -407,7 +418,7 @@ def get_roguelike_by_key(key):
 
 def get_active_roguelikes():
     """获取所有启用的肉鸽列表"""
-    return Roguelike.query.filter_by(is_active=True).order_by(Roguelike.sort_order).all()
+    return Roguelike.query.filter_by(is_active=True).order_by(Roguelike.sort_order, Roguelike.key).all()
 
 
 def get_roguelike_choices():
@@ -532,6 +543,7 @@ class Tournament(db.Model):
     bonus_score = db.Column(db.Integer, default=500)
     context_snapshot = db.Column(db.Text().with_variant(LONGTEXT(), 'mysql'), nullable=True)
     snapshot_version = db.Column(db.Integer, default=0)
+    release_source = db.Column(db.Text, nullable=True)
     archived_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -559,6 +571,17 @@ class SeasonContextVersion(db.Model):
     context = db.Column(db.Text().with_variant(LONGTEXT(), 'mysql'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     __table_args__ = (db.UniqueConstraint('tournament_id', 'version', name='uq_season_context_version'),)
+
+
+class SeasonRelease(db.Model):
+    __tablename__ = 'season_releases'
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournaments.id'), nullable=False)
+    version = db.Column(db.Integer, nullable=False)  # 0 is the current draft.
+    checksum = db.Column(db.String(64), nullable=False)
+    manifest = db.Column(db.Text().with_variant(LONGTEXT(), 'mysql'), nullable=False)
+    tournament = db.relationship('Tournament')
+    __table_args__ = (db.UniqueConstraint('tournament_id', 'version', name='uq_season_release_version'),)
 
 
 class Roguelike(db.Model):
@@ -1280,11 +1303,14 @@ def history_detail(tournament_id):
     match_query = formal_query(Match, db, tournament.id)
     matches = match_query.order_by(Match.created_at.desc()).all()
     quota = getattr(g, 'historical_context', {}).get('advance_count')
+    release = db.session.query(SeasonRelease.version, SeasonRelease.checksum).filter(
+        SeasonRelease.tournament_id == tournament.id, SeasonRelease.version > 0
+    ).order_by(SeasonRelease.version.desc()).first()
     return render_template('history/detail.html',
                            qualification=qualification(rankings, quota),
                            match_counts=summarize_formal_matches(match_query, Match),
                            historical_context=getattr(g, 'historical_context', {}),
-                           tournament=tournament,
+                           tournament=tournament, release=release,
                            rankings=rankings,
                            members=members,
                            matches=matches,
@@ -2911,6 +2937,62 @@ def admin_data_tools():
 
     batches = backup_inventory() if current_user.is_super_admin() else []
     return render_template('admin/data_tools.html', batches=batches)
+
+
+@admin_bp.get('/release-packs')
+@super_admin_required
+def release_packs():
+    from season_safety import active_season
+    from season_releases import can_apply_release, published_releases, release_draft, validate_manifest
+
+    season = active_season()
+    draft = release_draft(season)
+    manifest = json.loads(draft.manifest) if draft else None
+    try:
+        issues = validate_manifest(manifest) if manifest else []
+    except SeasonError as error:
+        issues = [str(error)]
+    versions = published_releases().join(Tournament).options(
+        load_only(SeasonRelease.id, SeasonRelease.version, SeasonRelease.checksum, SeasonRelease.tournament_id),
+        contains_eager(SeasonRelease.tournament).load_only(Tournament.id, Tournament.name, Tournament.season_number),
+    ).order_by(
+        Tournament.season_number.desc(), SeasonRelease.version.desc()
+    ).paginate(per_page=20)
+    response = current_app.make_response(render_template(
+        'admin/release_packs.html', season=season, manifest=manifest, issues=issues,
+        versions=versions, can_apply=can_apply_release(season),
+        source=json.loads(season.release_source) if season.release_source else None,
+    ))
+    response.cache_control.no_store = True
+    return response
+
+
+@admin_bp.post('/release-packs/<action>')
+@super_admin_required
+def update_release_pack(action):
+    from season_releases import change_release
+
+    flash(change_release(action), 'success')
+    return redirect(url_for('admin.release_packs'))
+
+
+@admin_bp.get('/release-packs/<int:release_id>/<file_format>')
+@super_admin_required
+def download_release_pack(release_id, file_format):
+    from season_releases import published_releases, release_markdown
+
+    release = published_releases().filter_by(id=release_id).first_or_404()
+    if file_format == 'json':
+        data, mimetype = json.dumps(json.loads(release.manifest), ensure_ascii=False, indent=2), 'application/json'
+    elif file_format == 'md':
+        data, mimetype = release_markdown(json.loads(release.manifest)), 'text/markdown'
+    else:
+        abort(404)
+    filename = f'season-{release.tournament.season_number}-release-{release.version}.{file_format}'
+    response = send_file(BytesIO((data + '\n').encode('utf-8')), mimetype=mimetype,
+                         as_attachment=True, download_name=filename)
+    response.cache_control.no_store = True
+    return response
 
 
 @admin_bp.route('/data-tools/cleanup/preview', methods=['POST'])
