@@ -25,23 +25,7 @@
                 <form method="POST">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     
-                    <h6 class="text-primary mb-3"><i class="fas fa-star"></i> 同位置比赛积分</h6>
-                    <div class="row mb-3">
-                        <div class="col-md-4">
-                            <label class="form-label">胜</label>
-                            <input type="number" class="form-control" name="win_score" value="{{ setting.win_score }}" required min="0">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">平</label>
-                            <input type="number" class="form-control" name="draw_score" value="{{ setting.draw_score }}" required min="0">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">负</label>
-                            <input type="number" class="form-control" name="lose_score" value="{{ setting.lose_score }}" required min="0">
-                        </div>
-                    </div>
-
-                    <h6 class="text-primary mb-3"><i class="fas fa-sliders-h"></i> 额外设置</h6>
+                    <h6 class="text-primary mb-3"><i class="fas fa-sliders-h"></i> 积分设置</h6>
                     <div class="row mb-3">
                         <div class="col-md-4">
                             <label class="form-label">加成倍率</label>
@@ -50,14 +34,14 @@
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">晋级名额</label>
-                            <input type="number" class="form-control" name="advance_count" value="{{ form.advance_count.data if form.advance_count.data else 4 }}" required min="1">
-                            <small class="text-muted">排名前 N 的队伍晋级</small>
+                            <input type="number" class="form-control" name="advance_count" value="{{ form.advance_count.data if form.advance_count.data else 0 }}" required min="0">
+                            <small class="text-muted">按名额线积分晋级，同分全部晋级。</small>
                         </div>
                     </div>
                     <div class="alert alert-info mb-3">
-                        <i class="fas fa-info-circle"></i> <strong>难度倍率已迁移至肉鸽管理</strong><br>
-                        每种肉鸽拥有独立的难度配置（最低难度、最高难度、难度阶级）。<br>
-                        请在 <a href="{{ url_for('admin.roguelikes') }}">肉鸽管理</a> 页面为每种肉鸽单独配置。<br>
+                        <i class="fas fa-info-circle"></i> <strong>难度倍率已迁移至{{ labels.track }}管理</strong><br>
+                        每种{{ labels.track }}拥有独立的难度配置（最低难度、最高难度、难度阶级）。<br>
+                        请在 <a href="{{ url_for('admin.roguelikes') }}">{{ labels.track }}管理</a> 页面为每种{{ labels.track }}单独配置。<br>
                         公式：倍率 = 1 + (难度 - 最低难度) × 难度阶级<br>
                         最终积分 = 原始成绩 × 难度倍率
                     </div>
@@ -70,13 +54,13 @@
                 </form>
 
                 <hr>
-                <h6 class="text-danger mb-3"><i class="fas fa-exclamation-triangle"></i> 积分重置</h6>
-                <p class="text-muted small">将清零所有队员和队伍积分，然后根据所有已完成的比赛重新计算。适用于积分出现异常时修复。</p>
+                <h6 class="text-danger mb-3"><i class="fas fa-exclamation-triangle"></i> 重算本届积分</h6>
+                <p class="text-muted small">按本届已结算整场和有效调整重算队员积分，再按本届倍率计算队伍积分。</p>
                 <form method="POST" action="{{ url_for('admin.reset_scores') }}"
-                      onsubmit="return confirm('确定要重置所有积分吗？此操作将清零并重新计算所有积分。');">
+                      onsubmit="return confirm('确定要重算本届积分吗？');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-danger w-100">
-                        <i class="fas fa-undo"></i> 重置所有积分
+                        <i class="fas fa-undo"></i> 重算本届积分
                     </button>
                 </form>
             </div>

@@ -1,8 +1,10 @@
 {% extends "base.html" %}
+{% from "_macros.html" import read_only_notice %}
 
 {% block title %}成绩修改日志{% endblock %}
 
 {% block content %}
+{{ read_only_notice(season_scope, match.tournament) }}
 <div class="row mb-4">
     <div class="col-12">
         <a href="{{ url_for('admin.matches') }}" class="btn btn-light rounded-pill mb-3">

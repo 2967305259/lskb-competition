@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block title %}手动匹配 & 日程管理{% endblock %}
+{% block extra_css %}
+<style>
+    .fc { color: #e0e0e0; }
+    .fc-toolbar-title { font-size: 1rem !important; color: #00bcd4; }
+    .fc-button { background: #0f3460 !important; border-color: #333 !important; font-size: 0.8rem !important; }
+    .fc-button-active { background: #00bcd4 !important; color: #111 !important; }
+    .fc-event { cursor: pointer; border-radius: 6px; padding: 4px 8px; font-size: 0.78rem; border: none; }
+    .fc-event.pending { background: #f39c12; color: #111; }
+    .fc-event.confirmed { background: #3498db; }
+    .fc-event.submitted { background: #9b59b6; }
+    .fc-event.finished { background: #2ecc71; color: #111; }
+    .fc-event.dispute { background: #e74c3c; }
+    .fc-event.exhibition { background: #1abc9c !important; color: #111 !important; border: 2px dashed #16a085 !important; font-weight: bold; }
+    .fc-timegrid-slot { height: 40px !important; }
+    .split-menu { position: fixed; background: #1a1a2e; border: 1px solid #00bcd4; border-radius: 10px; padding: 16px; z-index: 9999; min-width: 200px; box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
+    .split-menu h6 { color: #00bcd4; margin-bottom: 12px; font-size: 0.85rem; }
+    .split-menu button { display: block; width: 100%; margin-bottom: 6px; padding: 8px 12px; border: 1px solid #333; border-radius: 6px; background: #0f3460; color: #e0e0e0; cursor: pointer; font-size: 0.8rem; text-align: left; }
+    .split-menu button:hover { background: #00bcd4; color: #111; }
+    .split-menu button.danger { background: #5c1a1a; border-color: #e74c3c; }
+    .split-menu button.danger:hover { background: #e74c3c; color: #fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('admin.dashboard') }}" class="btn btn-light rounded-pill mb-3"><i class="fas fa-arrow-left"></i> 返回后台</a>
+<h2 class="mb-3"><i class="fas fa-calendar-alt"></i> 手动匹配 & 日程管理</h2>
+
+<div class="row g-4">
+    <!-- 左侧 -->
+    <div class="col-lg-4">
+        <!-- 手动创建比赛 -->
+        <div class="card mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="fas fa-hand-paper"></i> 手动创建比赛</h5></div>
+            <div class="card-body">
+                <p class="small text-muted">排赛时间按 {{ config.EVENT_TIMEZONE }} 显示。未重存的旧排赛时间保留原值，时区待核对。</p>
+                {% if not schedule_open %}<p class="alert alert-warning">当前赛事已停止排赛。</p>{% endif %}
+                <form method="POST" action="{{ url_for('admin.manual_match') }}">
+                    <fieldset {% if not schedule_open %}disabled{% endif %}>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-2">
+                        <label class="form-label small">{{ labels.track }}</label>
+                        <select name="roguelike" id="matchRoguelike" class="form-select form-select-sm" required onchange="filterRoguelike()">
+                            <option value="">-- 请选择 --</option>
+                            {% for rl in roguelikes %}<option value="{{ rl.key }}">{{ rl.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6"><label class="form-label small">选手 A</label>
+                            <select name="player_a_id" id="playerASelect" class="form-select form-select-sm" required>
+                                <option value="">-- 先选{{ labels.track }} --</option>
+                            </select>
+                        </div>
+                        <div class="col-6"><label class="form-label small">选手 B</label>
+                            <select name="player_b_id" id="playerBSelect" class="form-select form-select-sm" required>
+                                <option value="">-- 先选{{ labels.track }} --</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">比赛日期</label>
+                        <input type="date" name="match_date" id="matchDate" value="{{ today }}" class="form-control form-control-sm">
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100"><i class="fas fa-plus"></i> 创建比赛</button>
+                    </fieldset>
+                </form>
+            </div>
+        </div>
+
+        <!-- 比赛列表 -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between"><h5 class="mb-0"><i class="fas fa-list"></i> 比赛列表</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="location.reload()"><i class="fas fa-sync"></i></button>
+            </div>
+            <div class="card-body p-0" style="max-height:400px;overflow-y:auto;">
+                {% if matches %}
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>时间</th><th>对战</th><th>操作</th></tr></thead>
+                    <tbody>
+                    {% for m in matches if not m.parent_id %}
+                    {% set children_list = m.children|selectattr('scheduled_time')|sort(attribute='scheduled_time') %}
+                    <tr>
+                        <td style="font-size:0.78rem;">
+                            <strong>{{ m.player_a.nickname if m.player_a else '?' }}</strong>
+                            <small class="text-muted">({{ m.team_a.team_name if m.team_a else '?' }})</small>
+                            <br>
+                            <strong>{{ m.player_b.nickname if m.player_b else '?' }}</strong>
+                            <small class="text-muted">({{ m.team_b.team_name if m.team_b else '?' }})</small>
+                            <br><small class="text-muted">{{ get_roguelike_name(m.roguelike) }}</small>
+                        </td>
+                        <td style="font-size:0.72rem;">
+                            {% if children_list %}
+                                {% for ch in children_list %}
+                                {% set host_name = ch.player_a.nickname if ch.player_a else '?' %}
+                                {{ (ch.scheduled_time|event_time(ch.scheduled_time_utc, '%m/%d %H:%M')) if ch.scheduled_time else '?' }} {{ host_name }}<br>
+                                {% endfor %}
+                            {% else %}
+                                <span class="text-muted">未安排</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if schedule_open and not admin_schedule_protected(m) %}
+                            <form method="POST" action="{{ url_for('admin.schedule_confirm_match') }}" style="display:inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="match_id" value="{{ m.id }}">
+                                <button class="btn btn-sm btn-outline-success" title="确认比赛">✅</button>
+                            </form>
+                            <form method="POST" action="{{ url_for('admin.schedule_delete_match') }}" style="display:inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="match_id" value="{{ m.id }}">
+                                <button class="btn btn-sm btn-outline-danger">🗑</button>
+                            </form>
+                            {% else %}<span class="text-muted">只读</span>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="text-center py-4 text-muted"><i class="fas fa-inbox" style="font-size:2rem;"></i><p class="mt-2">暂无比赛</p></div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：FullCalendar -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between"><h5 class="mb-0"><i class="fas fa-grip-vertical"></i> 比赛日程</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="calendar.refetchEvents()"><i class="fas fa-sync"></i> 刷新</button>
+            </div>
+            <div class="card-body"><div id="calendar"></div></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script>
+const roguelikePlayers = {{ roguelike_players | tojson }};
+
+function filterRoguelike() {
+    const rl = document.getElementById('matchRoguelike').value;
+    const selA = document.getElementById('playerASelect');
+    const selB = document.getElementById('playerBSelect');
+    selA.innerHTML = '<option value="">-- 选择选手 --</option>';
+    selB.innerHTML = '<option value="">-- 选择选手 --</option>';
+    if (!rl || !roguelikePlayers[rl]) return;
+    roguelikePlayers[rl].forEach(p => {
+        const opt = `<option value="${p.user_id}">${p.nickname} (${p.team_name})</option>`;
+        selA.insertAdjacentHTML('beforeend', opt);
+        selB.insertAdjacentHTML('beforeend', opt);
+    });
+}
+
+const scheduleOpen = {{ schedule_open | tojson }};
+
+let splitMenuEl = null;
+
+function showSplitMenu(event, x, y) {
+    if (splitMenuEl) splitMenuEl.remove();
+    const ep = event.extendedProps;
+    const matchId = event.id;
+    const isExhibition = ep.is_exhibition || event.classNames.includes('exhibition');
+    const title = event.title;
+    
+    splitMenuEl = document.createElement('div');
+    splitMenuEl.className = 'split-menu';
+    splitMenuEl.style.left = Math.min(x, window.innerWidth - 220) + 'px';
+    splitMenuEl.style.top = Math.min(y, window.innerHeight - 300) + 'px';
+    
+    let html = `<h6>📋 ${title}</h6>`;
+    if (!isExhibition) {
+        html += `<button onclick="splitMatch('${matchId}')">✂️ 剪成 2 段</button>`;
+        html += `<button onclick="splitMatch3('${matchId}')">✂️ 剪成 3 段</button>`;
+        html += `<button onclick="splitMatch4('${matchId}')">✂️ 剪成 4 段</button>`;
+    }
+
+    html += `<hr style="border-color:#333;margin:8px 0;">`;
+    html += `<button class="danger" onclick="deleteMatch('${matchId}')">🗑 删除</button>`;
+    
+    splitMenuEl.innerHTML = html;
+    document.body.appendChild(splitMenuEl);
+    setTimeout(() => document.addEventListener('click', function close(e) {
+        if (!splitMenuEl || splitMenuEl.contains(e.target)) return;
+        splitMenuEl.remove(); splitMenuEl = null;
+        document.removeEventListener('click', close);
+    }), 10);
+}
+
+async function splitMatch(matchId) { await doSplit(matchId, 2); }
+async function splitMatch3(matchId) { await doSplit(matchId, 3); }
+async function splitMatch4(matchId) { await doSplit(matchId, 4); }
+
+async function doSplit(matchId, parts) {
+    const r = await fetch("{{ url_for('admin.schedule_split_match') }}", {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':document.querySelector('meta[name=csrf-token]').content},
+        body:`match_id=${matchId}&parts=${parts}`
+    });
+    const d = await r.json();
+    if(d.success){ 
+        calendar.refetchEvents(); 
+        if(splitMenuEl){ splitMenuEl.remove(); splitMenuEl=null; }
+        alert(`已剪成 ${parts} 段`);
+    } else { alert(d.error||'失败'); }
+}
+
+async function deleteMatch(matchId) {
+    if(!confirm('确定删除？')) return;
+    const id = String(matchId).replace('child_','');
+    const formData = new FormData();
+    formData.append('match_id', id);
+    formData.append('csrf_token', document.querySelector('meta[name=csrf-token]').content);
+    const r = await fetch("{{ url_for('admin.schedule_delete_match') }}", {
+        method:'POST',
+        body: formData
+    });
+    if(r.ok){ calendar.refetchEvents(); if(splitMenuEl) splitMenuEl.remove(); splitMenuEl=null; }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    window.calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+        initialView:'timeGridWeek',
+        timeZone:'UTC', // Calendar receives event-zone wall times from the schedule API.
+        now: {{ (today ~ 'T00:00:00') | tojson }},
+        headerToolbar:{left:'prev,next today',center:'title',right:'timeGridWeek,timeGridDay,listWeek'},
+        slotMinTime:'00:00:00', slotMaxTime:'24:00:00', allDaySlot:false, height:800,
+        slotDuration: '00:15:00', slotLabelInterval: '01:00',
+        editable:scheduleOpen, eventDurationEditable:scheduleOpen,
+        events: function(info, cb) {
+            fetch("{{ url_for('admin.schedule_api_matches') }}").then(r=>r.json()).then(data => {
+                const events = [];
+                data.matches.forEach(m => {
+                    events.push({
+                        id: String(m.id), title: (m.player_a||'?') + ' vs ' + (m.player_b||'?'),
+                        start: m.scheduled_time, end: m.scheduled_end,
+                        editable: scheduleOpen && !m.protected,
+                        className: m.is_exhibition ? 'exhibition' : m.status,
+                        extendedProps: m
+                    });
+                    // 子分段
+                    if(m.children) m.children.forEach(ch => {
+                        events.push({
+                            id: 'child_'+ch.id,
+                            title: `${m.player_a||'?'} vs ${m.player_b||'?'}`,
+                            start: ch.start, end: ch.end,
+                            className: m.status,
+                            editable: scheduleOpen && ch.editable,
+                            extendedProps: { ...ch, parent_id: m.id }
+                        });
+                    });
+                });
+                cb(events);
+            });
+        },
+        eventClick: function(info) {
+            if (!scheduleOpen || info.event.startEditable === false) return;
+            const el = info.el;
+            const rect = el.getBoundingClientRect();
+            showSplitMenu(info.event, rect.left + rect.width/2, rect.top);
+        },
+        eventDrop: function(info) {
+            const id = info.event.id.replace('child_','');
+            const d = info.event.start || new Date();
+            const t = d.toISOString().slice(0, 16);
+            const dur = info.event.end ? Math.round((info.event.end-info.event.start)/60000) : 60;
+            fetch("{{ url_for('admin.schedule_update_time') }}", {
+                method:'POST',
+                headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':document.querySelector('meta[name=csrf-token]').content},
+                body:`match_id=${id}&scheduled_time=${encodeURIComponent(t)}&duration_minutes=${dur}`
+            }).then(r=>r.json()).then(d=>{if(d.error){info.revert();alert(d.error)}}).catch(()=>info.revert());
+        },
+        eventResize: function(info) {
+            const id = info.event.id.replace('child_','');
+            const dur = Math.round((info.event.end-info.event.start)/60000);
+            fetch("{{ url_for('admin.schedule_update_time') }}", {
+                method:'POST',
+                headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':document.querySelector('meta[name=csrf-token]').content},
+                body:`match_id=${id}&duration_minutes=${dur}`
+            }).then(r=>r.json()).then(d=>{if(d.error){info.revert();alert(d.error)}}).catch(()=>info.revert());
+        }
+    });
+    calendar.render();
+});
+
+{% if roguelikes %}
+document.getElementById('matchRoguelike').value="{{ roguelikes[0].key }}";
+filterRoguelike();
+{% endif %}
+</script>
+{% endblock %}

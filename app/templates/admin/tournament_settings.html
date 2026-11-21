@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}赛事时间设置{% endblock %}
+{% block title %}赛事设置{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
@@ -9,9 +9,9 @@
             <i class="fas fa-arrow-left"></i> 返回后台
         </a>
         <h2>
-            <i class="fas fa-clock"></i> 赛事时间设置
+            <i class="fas fa-cog"></i> 赛事设置
         </h2>
-        <p class="text-muted">设置报名时间和比赛时间，将在首页展示</p>
+        <p class="text-muted">计划日期按 {{ config.EVENT_TIMEZONE }} 填写。开放报名和赛事阶段由管理员手动控制。</p>
     </div>
 </div>
 
@@ -25,19 +25,48 @@
                 <form method="POST">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
+                    <h6 class="text-primary mb-3"><i class="fas fa-flag"></i> 赛事信息</h6>
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <label class="form-label">赛事名称</label>
+                            <input type="text" class="form-control" name="tournament_name"
+                                   value="{{ form.tournament_name.data or '' }}" maxlength="100">
+                            <small class="text-muted">显示在页面标题、导航栏和导出文件名中，留空则不修改</small>
+                        </div>
+                    </div>
+
+                    <h6 class="text-primary mb-3"><i class="fas fa-users"></i> 队伍配置</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">队伍满员人数（含队长）</label>
+                            <input type="number" class="form-control" name="team_size" min="1" max="20"
+                                   value="{{ form.team_size.data if form.team_size.data is not none else '' }}"
+                                   placeholder="{{ env_team_size }}">
+                            <small class="text-muted">留空则使用环境变量 TEAM_SIZE（当前：{{ env_team_size }}）；单人赛事填 1</small>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" name="allow_incomplete_teams"
+                                       id="allow_incomplete_teams" {% if form.allow_incomplete_teams.data %}checked{% endif %}>
+                                <label class="form-check-label" for="allow_incomplete_teams">允许未满员队伍开赛</label>
+                                <small class="text-muted d-block">勾选后，开赛时不再校验队伍人数是否满员</small>
+                            </div>
+                        </div>
+                    </div>
+
                     <h6 class="text-primary mb-3"><i class="fas fa-user-plus"></i> 报名时间</h6>
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label class="form-label">报名开始时间</label>
                             <input type="datetime-local" class="form-control" name="registration_start"
-                                   value="{{ form.registration_start.data if form.registration_start.data else '' }}" required>
-                            <small class="text-muted">选手可以开始注册报名的时间</small>
+                                   value="{{ form.registration_start.data if form.registration_start.data else '' }}">
+                            <small class="text-muted">计划开放报名时间</small>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">报名截止时间</label>
                             <input type="datetime-local" class="form-control" name="registration_end"
-                                   value="{{ form.registration_end.data if form.registration_end.data else '' }}" required>
-                            <small class="text-muted">报名关闭时间，截止后无法注册</small>
+                                   value="{{ form.registration_end.data if form.registration_end.data else '' }}">
+                            <small class="text-muted">计划截止时间</small>
                         </div>
                     </div>
 
@@ -46,24 +75,30 @@
                         <div class="col-md-6">
                             <label class="form-label">比赛开始时间</label>
                             <input type="datetime-local" class="form-control" name="tournament_start"
-                                   value="{{ form.tournament_start.data if form.tournament_start.data else '' }}" required>
+                                   value="{{ form.tournament_start.data if form.tournament_start.data else '' }}">
                             <small class="text-muted">正式比赛开始的时间</small>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">比赛结束时间</label>
                             <input type="datetime-local" class="form-control" name="tournament_end"
-                                   value="{{ form.tournament_end.data if form.tournament_end.data else '' }}" required>
+                                   value="{{ form.tournament_end.data if form.tournament_end.data else '' }}">
                             <small class="text-muted">比赛预计结束的时间</small>
                         </div>
                     </div>
 
+                    {% if legacy_dates %}
+                    <label class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="confirm_legacy_windows" value="1">
+                        <span class="form-check-label">我已按 {{ config.EVENT_TIMEZONE }} 核对旧日期，同意将本表日期保存为 UTC</span>
+                    </label>
+                    {% endif %}
                     {% if tournament %}
                     <div class="alert alert-info mb-3">
-                        <strong>当前设置：</strong><br>
-                        报名：{{ tournament.registration_start.strftime('%Y-%m-%d %H:%M') if tournament.registration_start else '未设置' }}
-                        ~ {{ tournament.registration_end.strftime('%Y-%m-%d %H:%M') if tournament.registration_end else '未设置' }}<br>
-                        比赛：{{ tournament.tournament_start.strftime('%Y-%m-%d %H:%M') if tournament.tournament_start else '未设置' }}
-                        ~ {{ tournament.tournament_end.strftime('%Y-%m-%d %H:%M') if tournament.tournament_end else '未设置' }}
+                        <strong>当前设置（{{ "旧日期时区待核对" if legacy_dates else config.EVENT_TIMEZONE }}）</strong><br>
+                        报名：{{ (tournament.registration_start|event_time(tournament.window_times_utc, '%Y-%m-%d %H:%M')) if tournament.registration_start else '未设置' }}
+                        ~ {{ (tournament.registration_end|event_time(tournament.window_times_utc, '%Y-%m-%d %H:%M')) if tournament.registration_end else '未设置' }}<br>
+                        比赛：{{ (tournament.tournament_start|event_time(tournament.window_times_utc, '%Y-%m-%d %H:%M')) if tournament.tournament_start else '未设置' }}
+                        ~ {{ (tournament.tournament_end|event_time(tournament.window_times_utc, '%Y-%m-%d %H:%M')) if tournament.tournament_end else '未设置' }}
                     </div>
                     {% endif %}
 
@@ -72,6 +107,97 @@
                             <i class="fas fa-save"></i> 保存设置
                         </button>
                     </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-3 border-warning">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-forward"></i> 开启新赛季</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-3">
+                    上届赛事及其比赛、队伍记录会归档保留，比赛与队伍保留；上届待处理邀请/申请会清理。账号全部保留，参赛进度归零并需重新组队。
+                    同一队长、同一队名可在新赛季重复使用。
+                </p>
+                <p class="mb-3">
+                    <a href="{{ url_for('main.history') }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="fas fa-archive"></i> 查看往届赛事归档
+                    </a>
+                </p>
+                <form method="POST" action="{{ url_for('admin.new_season') }}"
+                      onsubmit="return confirm('确定开启新赛季吗？当前赛事将转入归档状态。');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-8">
+                            <label class="form-label">新赛季名称</label>
+                            <input type="hidden" name="idempotency_key" value="{{ transition.token if transition else '' }}">
+                            <input type="hidden" name="expected_current_season_id" value="{{ transition.expected if transition else '' }}">
+                            <input type="text" name="season_name" class="form-control"
+                                   placeholder="留空则自动生成（当前赛事名 + 新届数）">
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-warning w-100">
+                                <i class="fas fa-forward"></i> 开启新赛季
+                            </button>
+                        </div>
+                    </div>
+                    <div class="border rounded p-3 mt-3">
+                        <h6 class="mb-2"><i class="fas fa-copy"></i> 配置继承（可单独选择）</h6>
+                        <p class="small text-muted mb-2">日期按上一届原值复制，可能已经过期；日期只作提示，不会自动关闭报名或锁定配置。</p>
+                        <div class="row small">
+                            <div class="col-md-6">
+                                <label class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="inherit_registration_window" value="1">
+                                    <span class="form-check-label">继承报名起止时间</span>
+                                    {% if transition and transition.date_warnings.registration %}<small class="text-warning d-block">{{ transition.date_warnings.registration }}</small>{% endif %}
+                                </label>
+                                <label class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="inherit_tournament_window" value="1">
+                                    <span class="form-check-label">继承比赛起止时间</span>
+                                    {% if transition and transition.date_warnings.tournament %}<small class="text-warning d-block">{{ transition.date_warnings.tournament }}</small>{% endif %}
+                                </label>
+                                <label class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="inherit_advance_count" value="1">
+                                    <span class="form-check-label">继承晋级数量</span>
+                                </label>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="inherit_team_size" value="1">
+                                    <span class="form-check-label">确认继承队伍人数</span>
+                                </label>
+                                <label class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="inherit_allow_incomplete_teams" value="1">
+                                    <span class="form-check-label">确认继承未满员开赛设置</span>
+                                </label>
+                                <label class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="inherit_carousel" value="1">
+                                    <span class="form-check-label">继承轮播条目</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="mt-3 mb-2">新赛季沿用当前全局规则与{{ labels.track }}配置，归档会保留上届快照。新赛季报名默认关闭，请在开放前核对并发布<a href="{{ url_for('admin.manage_rules') }}">本届规则</a>、确认<a href="{{ url_for('admin.roguelikes') }}">启用{{ labels.track }}与难度</a>，再到<a href="{{ url_for('admin.registration_control') }}">报名控制</a>手动开放。</p>
+                    {% if current_user.is_super_admin() %}
+                    <p class="small mb-2">新届尚无队伍或比赛时，可在<a href="{{ url_for('admin.release_packs') }}">赛事发布包</a>复制其他版本或导入配置。</p>
+                    {% endif %}
+                    {% if transition and not transition.has_enabled_track %}
+                    <p class="alert alert-warning mt-3">没有启用{{ labels.track }}。可以换季，开放报名之前须启用至少一项。</p>
+                    {% endif %}
+                    {% if transition and transition.unfinished %}
+                    <div class="alert alert-warning mt-3">
+                        <strong>未结算整场：</strong>{% for m in transition.unfinished %} #{{ m.id }}（{{ m.status }}）{% endfor %}
+                        <p>普通换季会被阻止。强制换季将保留现有成绩和状态，并冻结这些场次的普通提交。</p>
+                        <label><input type="checkbox" name="force" value="1"> 强制换季</label>
+                        <label class="d-block">强制原因<textarea name="force_reason" class="form-control"></textarea></label>
+                    </div>
+                    {% endif %}
+                    <p class="text-muted mt-3">切换前会备份数据库和素材；备份失败时不会切换。用户保留，队伍需重建。</p>
+                    <p class="text-muted">
+                        最近完整备份{% if latest_backup %} {{ latest_backup.created_at }}（UTC）{% else %}暂无{% endif %}
+                        <a href="{{ url_for('admin.admin_data_tools') }}" class="ms-2">数据工具</a>
+                    </p>
                 </form>
             </div>
         </div>

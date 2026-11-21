@@ -31,7 +31,6 @@
                         <div class="col-md-8">
                             <h6 class="mb-1">{{ player.nickname }}</h6>
                             <small class="text-muted">
-                                用户名：<strong>{{ player.username }}</strong>
                             </small>
                         </div>
                         <div class="col-md-4 text-end">
@@ -72,7 +71,7 @@
             </div>
             <div class="card-body">
                 <p><strong>队伍名称</strong><br>{{ team.team_name }}</p>
-                <p><strong>队伍人数</strong><br>{{ team.get_member_count() }}/4</p>
+                <p><strong>队伍人数</strong><br>{{ team.get_member_count() }}/{{ team_size }}</p>
                 {% if team.is_full() %}
                     <div class="alert alert-warning">
                         <i class="fas fa-exclamation-circle"></i> 队伍已满员

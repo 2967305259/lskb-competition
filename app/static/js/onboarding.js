@@ -1,5 +1,7 @@
 /**
- * 冷水坑杯 #3 新手引导系统 V2
+ * 新手引导系统 V2
+ *
+ * 赛事名与术语从 window.EVENT_CONFIG 读取（由 base.html 注入），改赛事不需要改本文件。
  *
  * 架构：
  *   - 数据驱动：所有步骤在 STEPS 数组中配置
@@ -14,14 +16,32 @@
 (function () {
     'use strict';
 
+    // ========== 赛事配置（由 base.html 注入，缺省值保证独立调试可用） ==========
+    const CFG = window.EVENT_CONFIG || {};
+    function textForMarkup(value) {
+        const element = document.createElement('span');
+        element.textContent = value;
+        return element.innerHTML;
+    }
+    const EVENT_NAME = textForMarkup(CFG.name || '本站赛事');
+    const TRACK_LABEL = textForMarkup(CFG.track || '参赛项目');
+    const URLS = Object.assign({
+        home: '/',
+        teams: '/teams',
+        rules: '/rules',
+        tournament: '/tournament',
+        rankings: '/tournament/rankings',
+        profile: '/player/profile',
+    }, CFG.urls || {});
+
     // ========== 步骤配置（数据驱动） ==========
     const STEPS = [
         {
             id: 'welcome',
             type: 'welcome',
-            title: '欢迎来到冷水坑杯 #3',
+            title: `欢迎来到${EVENT_NAME}`,
             icon: 'fa-crown',
-            content: '这是一场明日方舟肉鸽主题的团队比赛。<br>本教程将用 <strong>约 2 分钟</strong> 带您快速了解参赛流程。',
+            content: `这是一场${TRACK_LABEL}主题的团队比赛。<br>本教程将用 <strong>约 2 分钟</strong> 带您快速了解参赛流程。`,
             url: null,  // 不跳转，在当前页弹窗
             target: null,
             position: null,
@@ -31,9 +51,9 @@
             type: 'highlight',
             title: '首页',
             icon: 'fa-home',
-            content: '这里展示赛事公告、轮播图、当前赛事和最新动态，是了解整个赛事的第一站。',
+            content: '首页展示轮播图、当前赛事和参赛统计。',
             reason: '快速了解赛事概况',
-            url: '/',
+            url: URLS.home,
             target: '.carousel, .card:first-of-type',
             position: 'bottom',
         },
@@ -44,7 +64,7 @@
             icon: 'fa-users',
             content: '查看所有参赛队伍，点击队伍可查看成员、宣言和队伍照片。',
             reason: '了解对手，找到心仪的队伍',
-            url: '/teams',
+            url: URLS.teams,
             target: '.card, .table',
             position: 'right',
         },
@@ -55,7 +75,7 @@
             icon: 'fa-book',
             content: '详细介绍比赛流程、积分规则和注意事项。<strong>建议参赛前仔细阅读。</strong>',
             reason: '不读规则可能会吃亏',
-            url: '/rules',
+            url: URLS.rules,
             target: '.card .card-body, .container > .card, main .container',
             position: 'right',
         },
@@ -66,7 +86,7 @@
             icon: 'fa-trophy',
             content: '比赛的核心区域。在这里可以查看比赛安排、实时状态、排行榜和比赛动态。',
             reason: '比赛相关的一切都在这里',
-            url: '/tournament',
+            url: URLS.tournament,
             target: '.card, .table',
             position: 'right',
         },
@@ -77,7 +97,7 @@
             icon: 'fa-list-ol',
             content: '查看队伍排名、个人排名和积分排行，实时更新。看看谁在领跑！',
             reason: '一览赛场风云',
-            url: '/tournament/rankings',
+            url: URLS.rankings,
             target: '.card, .table',
             position: 'right',
         },
@@ -88,7 +108,7 @@
             icon: 'fa-user-circle',
             content: '在这里管理头像、昵称、参赛宣言和个人资料。完善资料后等待队长邀请即可。',
             reason: '你的参赛入口',
-            url: '/player/profile',
+            url: URLS.profile,
             target: '.card:first-of-type',
             position: 'right',
         },
@@ -97,14 +117,14 @@
             type: 'complete',
             title: '准备就绪！',
             icon: 'fa-check-circle',
-            content: '你已经了解了冷水坑杯的基本流程。<br>现在就去找队伍、选肉鸽、打比赛吧！',
+            content: `你已经了解了${EVENT_NAME}的基本流程。<br>现在就去找队伍、选${TRACK_LABEL}、打比赛吧！`,
             url: null,
             target: null,
             position: null,
             nextSteps: [
                 '前往「个人中心」完善个人资料',
                 '等待或主动寻找队伍加入',
-                '选择你的肉鸽主题并填写宣言',
+                `选择你的${TRACK_LABEL}主题并填写宣言`,
                 '在「赛事大厅」查看排行榜和比赛',
                 '随时点击右下角 <i class="fas fa-question"></i> 按钮重新查看引导',
             ],
@@ -418,6 +438,7 @@
     function cleanupAll() {
         cleanupUI();
         unlockNavbar();
+        document.querySelector('.onboarding-help-btn')?.focus();
     }
 
     // ========== 渲染当前步骤 ==========
@@ -463,7 +484,13 @@
             }
         }
 
+        tooltipEl.setAttribute('role', 'dialog');
+        tooltipEl.setAttribute('aria-modal', 'true');
+        const heading = tooltipEl.querySelector('h3, h5');
+        heading.id = 'onboarding-title';
+        tooltipEl.setAttribute('aria-labelledby', heading.id);
         bindButtons();
+        tooltipEl.querySelector('button')?.focus();
         saveState();
     }
 
@@ -616,6 +643,7 @@
         const btn = createEl('button', 'onboarding-help-btn',
             '<i class="fas fa-question"></i>');
         btn.title = '查看新手引导';
+        btn.setAttribute('aria-label', btn.title);
         btn.addEventListener('click', () => {
             if (state.active) return;  // 已经在教程中
             resetOnboardingOnServer();
@@ -688,6 +716,21 @@
     // ========== 全局事件 ==========
     window.addEventListener('resize', onResizeOrScroll);
     window.addEventListener('scroll', onResizeOrScroll, { passive: true });
+    document.addEventListener('keydown', (event) => {
+        if (!state.active || !tooltipEl) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            skipAll();
+        } else if (event.key === 'Tab') {
+            const controls = tooltipEl.querySelectorAll('button');
+            const first = controls[0];
+            const last = controls[controls.length - 1];
+            if (!tooltipEl.contains(document.activeElement) || document.activeElement === (event.shiftKey ? first : last)) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            }
+        }
+    });
 
     // DOM ready 后初始化
     if (document.readyState === 'loading') {

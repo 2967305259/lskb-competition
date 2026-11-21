@@ -51,9 +51,9 @@
                                 </h6>
                                 <small class="text-muted">
                                     {% if member.roguelike %}
-                                        <i class="fas fa-dragon"></i> 已选肉鸽
+                                        <i class="fas fa-dragon"></i> 已选{{ labels.track }}
                                     {% else %}
-                                        <span class="text-muted">肉鸽待选</span>
+                                        <span class="text-muted">{{ labels.track }}待选</span>
                                     {% endif %}
                                 </small>
                             </div>
@@ -64,10 +64,24 @@
                                         {{ get_roguelike_name(member.roguelike) }}
                                     </small>
                                 {% else %}
-                                    <small class="text-muted">肉鸽待选</small>
+                                    <small class="text-muted">{{ labels.track }}待选</small>
                                 {% endif %}
                             </div>
                         </div>
+                        {% if member.squad or member.operator %}
+                            <div class="mt-2">
+                                {% if member.squad %}
+                                    <small class="text-muted d-block">
+                                        <i class="fas fa-shield-alt"></i> {{ labels.field1 }}：{{ member.squad }}
+                                    </small>
+                                {% endif %}
+                                {% if member.operator %}
+                                    <small class="text-muted d-block">
+                                        <i class="fas fa-user"></i> {{ labels.field2 }}：{{ member.operator }}
+                                    </small>
+                                {% endif %}
+                            </div>
+                        {% endif %}
                         {% if member.declaration %}
                             <div class="mt-2 p-2" style="background-color: #1a1a1a; border-radius: 4px;">
                                 <small class="text-muted">
@@ -91,22 +105,40 @@
                     {% if team_membership.roguelike %}
                         <div class="mb-2">
                             <i class="fas fa-check-circle" style="color: #90ee90;"></i>
-                            <strong>肉鸽选择</strong>
+                            <strong>{{ labels.track }}选择</strong>
                             <small class="d-block text-muted mt-1">
                                 {{ get_roguelike_name(team_membership.roguelike) }}
                             </small>
-                            <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-sm btn-outline-primary mt-2">
-                                修改选择
-                            </a>
+                            {% if team_membership.squad %}
+                                <small class="d-block text-muted mt-1">
+                                    <i class="fas fa-shield-alt"></i> {{ labels.field1 }}：{{ team_membership.squad }}
+                                </small>
+                            {% endif %}
+                            {% if team_membership.operator %}
+                                <small class="d-block text-muted mt-1">
+                                    <i class="fas fa-user"></i> {{ labels.field2 }}：{{ team_membership.operator }}
+                                </small>
+                            {% endif %}
+                            {% if not registration_problem %}
+                                <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-sm btn-outline-primary mt-2">
+                                    修改选择
+                                </a>
+                            {% else %}
+                                <span class="text-muted small">{{ registration_problem }}</span>
+                            {% endif %}
                         </div>
                     {% else %}
                         <div class="mb-2">
                             <i class="fas fa-circle" style="color: #808080;"></i>
-                            <strong>肉鸽选择</strong>
+                            <strong>{{ labels.track }}选择</strong>
                             <div class="mt-2">
-                                <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-sm btn-primary w-100">
-                                    选择肉鸽
-                                </a>
+                                {% if not registration_problem %}
+                                    <a href="{{ url_for('player.select_roguelike') }}" class="btn btn-sm btn-primary w-100">
+                                        选择{{ labels.track }}
+                                    </a>
+                                {% else %}
+                                    <span class="text-muted small">{{ registration_problem }}</span>
+                                {% endif %}
                             </div>
                         </div>
                     {% endif %}

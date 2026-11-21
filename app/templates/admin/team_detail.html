@@ -1,132 +1,172 @@
 {% extends "base.html" %}
+{% from "_macros.html" import read_only_notice %}
 
-{% block title %}队伍详情{% endblock %}
+{% block title %}队伍管理 - {{ team.team_name }}{% endblock %}
 
 {% block content %}
-<div class="row mb-4">
-    <div class="col-12">
-        <a href="{{ url_for('admin.teams') }}" class="btn btn-light rounded-pill mb-3">
-            <i class="fas fa-arrow-left"></i> 返回队伍管理
-        </a>
-        <h2>{{ team.team_name }}</h2>
+{% if read_only %}
+{{ read_only_notice(season_scope, team.tournament) }}
+<h2>{{ team.team_name }}</h2>
+{% for member in members %}
+    <p>{{ member.user.nickname }}：{{ member.final_score if member.final_score is not none else '—' }} 分
+    {% if score_breakdowns[member.id].match_score is none or score_breakdowns[member.id].final_score != member.final_score %} · 待核对{% endif %}</p>
+{% endfor %}
+{% if season_scope == 'archived' %}
+    <a href="{{ url_for('main.history_detail', tournament_id=team.tournament_id, _anchor='team-' ~ team.id) }}">查看该届归档</a>
+    {% if current_user.is_super_admin() %}<a class="ms-2" href="{{ url_for('p0_correct_history', tid=team.tournament_id) }}">往届专项纠错</a>{% endif %}
+{% endif %}
+{% else %}
+
+<a href="{{ url_for('admin.teams') }}" class="btn btn-light rounded-pill mb-3">
+    <i class="fas fa-arrow-left"></i> 返回队伍管理
+</a>
+
+<!-- 队伍头部 -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.update_team_info', team_id=team.id) }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="row align-items-end g-3">
+                <div class="col-md-2 text-center">
+                    {% if team.team_photo %}
+                    <img src="{{ url_for('static', filename='uploads/teams/' + team.team_photo) }}"
+                         class="rounded-circle mb-2" style="width:72px;height:72px;object-fit:cover;border:3px solid #0d6efd;">
+                    {% else %}
+                    <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2"
+                         style="width:72px;height:72px;background:#252535;border:3px solid #444;">
+                        <i class="fas fa-users" style="font-size:28px;color:#666;"></i>
+                    </div>
+                    {% endif %}
+                    <input type="file" name="team_avatar" accept="image/*" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">队伍名称</label>
+                    <input class="form-control" value="{{ team.team_name }}" disabled>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label small">队伍宣言</label>
+                    <input name="team_slogan" class="form-control" value="{{ team.team_slogan or '' }}" placeholder="编辑队伍宣言">
+                </div>
+                <div class="col-md-2 d-flex flex-column align-items-end">
+                    <label class="form-label small">&nbsp;</label>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-save"></i> 保存队伍
+                    </button>
+                </div>
+            </div>
+        </form>
     </div>
 </div>
 
-<div class="row">
-    <div class="col-lg-8">
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-info-circle"></i> 队伍信息</h5>
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <strong>队伍名称</strong>
-                    <p>{{ team.team_name }}</p>
-                </div>
-                <div class="mb-3">
-                    <strong>队长</strong>
-                    <p>{{ team.captain.nickname }}</p>
-                </div>
-                <div class="mb-3">
-                    <strong>队伍宣言</strong>
-                    <p>{{ team.team_slogan or '(暂无)' }}</p>
-                </div>
-                <div class="mb-3">
-                    <strong>创建时间</strong>
-                    <p>{{ team.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
-                </div>
-                <div class="mb-3">
-                    <strong>队伍人数</strong>
-                    <p>{{ team.get_member_count() }}/4</p>
-                </div>
-                <div class="mb-3">
-                    <strong>队伍积分</strong>
-                    <p>
-                        <span class="badge bg-warning fs-6">{{ team.team_score or 0 }}</span>
-                    </p>
-                </div>
-            </div>
-        </div>
-        
-        <!-- 队员积分（系统自动计算，只读展示） -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-star"></i> 队员积分（系统自动计算）</h5>
-            </div>
-            <div class="card-body">
-                <p class="text-muted small mb-3"><i class="fas fa-info-circle"></i> 积分由系统根据比赛原始成绩 × 难度倍率自动计算，无需手动填写。</p>
-                {% for member in members %}
-                    <div class="row mb-2 align-items-center">
-                        <div class="col-md-6">
-                            <strong>{{ member.user.nickname }}</strong>
-                            {% if member.user_id == team.captain_id %}
-                                <span class="badge bg-primary">队长</span>
-                            {% endif %}
-                            <br>
-                            <small class="text-muted">
-                                {% if member.roguelike %}
-                                    {{ get_roguelike_name(member.roguelike) }}
-                                {% else %}
-                                    肉鸽待选
-                                {% endif %}
-                            </small>
-                        </div>
-                        <div class="col-md-6 text-end">
-                            <span class="badge bg-warning fs-6">{{ member.final_score or 0 }} 分</span>
-                        </div>
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-        
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-users"></i> 队伍成员</h5>
-            </div>
-            <div class="card-body">
-                {% for member in members %}
-                    <div class="player-card">
-                        <div class="row">
-                            <div class="col-md-8">
-                                <h6 class="mb-1">
-                                    {{ member.user.nickname }}
-                                    {% if member.user_id == team.captain_id %}
-                                        <span class="badge bg-primary">队长</span>
-                                    {% endif %}
-                                </h6>
-                                <small class="text-muted">
-                                    {% if member.roguelike %}
-                                        <i class="fas fa-dragon"></i> {{ get_roguelike_name(member.roguelike) }}
-                                    {% else %}
-                                        <span class="text-muted">肉鸽待选</span>
-                                    {% endif %}
-                                </small>
-                            </div>
-                            <div class="col-md-4 text-end">
-                                <span class="badge bg-warning">{{ member.final_score or 0 }} 分</span>
-                            </div>
-                        </div>
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
+<!-- 队员列表 -->
+{% for member in members %}
+<div class="card mb-4 border-start border-4 {% if member.user_id == team.captain_id %}border-primary{% else %}border-secondary{% endif %}">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            {% if member.user.avatar %}
+            <img src="{{ url_for('static', filename='uploads/avatars/' + member.user.avatar) }}"
+                 class="rounded-circle me-2" style="width:36px;height:36px;object-fit:cover;">
+            {% else %}
+            <i class="fas fa-user-circle me-2" style="font-size:36px;color:#666;"></i>
+            {% endif %}
+            {{ member.user.nickname }}
+            {% if member.user_id == team.captain_id %}<span class="badge bg-primary ms-1">队长</span>{% endif %}
+        </h5>
+        {% set breakdown = score_breakdowns[member.id] %}
+        <span class="badge bg-warning fs-6">最终 {{ member.final_score if member.final_score is not none else '—' }} 分</span>
     </div>
-    
-    <div class="col-lg-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-cog"></i> 操作</h5>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.update_member_info', team_id=team.id, member_id=member.id) }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="row g-3">
+                <!-- 头像 -->
+                <div class="col-md-2 text-center">
+                    <label class="form-label small d-block">头像</label>
+                    {% if member.user.avatar %}
+                    <img src="{{ url_for('static', filename='uploads/avatars/' + member.user.avatar) }}"
+                         class="rounded-circle mb-2" style="width:72px;height:72px;object-fit:cover;border:3px solid #0d6efd;">
+                    {% endif %}
+                    <input type="file" name="avatar" accept="image/*" class="form-control form-control-sm">
+                </div>
+                <!-- {{ labels.track }} -->
+                <div class="col-md-3">
+                    <label class="form-label small">{{ labels.track }}</label>
+                    <select name="roguelike" class="form-select form-select-sm">
+                        <option value="">-- 未选 --</option>
+                        {% for r in get_active_roguelikes() %}
+                        <option value="{{ r.key }}" {% if member.roguelike == r.key %}selected{% endif %}>{{ r.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- {{ labels.field1 }} -->
+                <div class="col-md-2">
+                    <label class="form-label small">{{ labels.field1 }}</label>
+                    <input name="squad" class="form-control form-control-sm" value="{{ member.squad or '' }}" placeholder="如：后勤{{ labels.field1 }}">
+                </div>
+                <!-- 干员 -->
+                <div class="col-md-2">
+                    <label class="form-label small">{{ labels.field2 }}</label>
+                    <input name="operator" class="form-control form-control-sm" value="{{ member.operator or '' }}">
+                </div>
+                <!-- 宣言 -->
+                <div class="col-md-3">
+                    <label class="form-label small">参赛宣言</label>
+                    <input name="declaration" class="form-control form-control-sm" value="{{ member.declaration or '' }}" maxlength="200">
+                </div>
             </div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('admin.delete_team', team_id=team.id) }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-danger w-100"
-                            onclick="return confirm('确定删除此队伍？此操作无法撤销。');">
-                        <i class="fas fa-trash"></i> 删除队伍
+            <hr>
+            <div class="row align-items-end g-3">
+                <!-- 可重建积分账本 -->
+                <div class="col-md-5">
+                    <label class="form-label small">积分账本</label>
+                    <div class="small text-muted">
+                        {% if breakdown.match_score is not none %}
+                        比赛累计：<strong>{{ breakdown.match_score }}</strong> ·
+                        有效调整：<strong>{{ breakdown.adjustment_score }}</strong> ·
+                        账本合计：<strong>{{ breakdown.final_score }}</strong>
+                        {% if member.final_score != breakdown.final_score %}
+                        <span class="text-warning d-block">榜单记录 {{ member.final_score if member.final_score is not none else '—' }}，差额待核对</span>
+                        {% endif %}
+                        {% else %}历史资料待核对，暂不能重建{% endif %}
+                    </div>
+                </div>
+                <!-- 目标总分 -->
+                <div class="col-md-3">
+                    <label class="form-label small">
+                        <strong style="color:#e74c3c;">目标总分</strong>
+                        <span class="text-muted">（保存为调整记录）</span>
+                    </label>
+                    <input type="number" name="final_score" class="form-control form-control-sm" value="{{ breakdown.final_score if breakdown.final_score is not none else member.final_score or 0 }}">
+                    <input name="reason" class="form-control form-control-sm mt-1" placeholder="调整原因（必填）">
+                </div>
+                <div class="col-md-9 text-end">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> 保存 {{ member.user.nickname }}
                     </button>
-                </form>
+                </div>
             </div>
-        </div>
+        </form>
     </div>
 </div>
+{% endfor %}
+
+<!-- 危险操作 -->
+<div class="card border-danger mt-3">
+    <div class="card-header bg-danger text-white"><i class="fas fa-exclamation-triangle"></i> 危险操作</div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('admin.delete_team', team_id=team.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-danger"
+                    onclick="return confirm('确定删除此队伍？此操作无法撤销。');">
+                <i class="fas fa-trash"></i> 删除队伍
+            </button>
+        </form>
+    </div>
+</div>
+<section class="card p-3"><h3>人工调整记录</h3>
+{% for adjustment in adjustments %}<p>#{{ adjustment.id }}：{{ '%+d'|format(adjustment.delta) }} 分 · {{ adjustment.reason }} · 操作人 {{ adjustment.actor_id }} · {{ '已撤销：' ~ adjustment.revoke_reason if adjustment.revoked else '有效' }}</p>
+{% if not adjustment.revoked %}<form method="POST" action="{{ url_for('p0_revoke_adjustment', adjustment_id=adjustment.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input name="reason" required placeholder="撤销原因"><button class="btn btn-outline-warning">撤销调整</button></form>{% endif %}
+{% else %}<p>暂无调整</p>{% endfor %}</section>
+{% endif %}
 {% endblock %}
+

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}往届专项纠错{% endblock %}
+{% block content %}<h2>往届专项纠错：{{ season.name }}</h2>
+<p>此操作仅影响该届积分，使用该场历史规则；修改前后值和原因将永久留存。普通页面保持只读。</p>
+<form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<label>整场<select name="match_id" class="form-select">{% for m in matches %}<option value="{{ m.id }}">#{{ m.id }}：{{ m.player_a.nickname }} / {{ m.player_b.nickname }}（{{ m.settlement_state }}）</option>{% endfor %}</select></label>
+<div class="row">{% for side in ['a','b'] %}<div class="col"><label>{{ side|upper }} 原始成绩<input name="score_{{ side }}" type="number" class="form-control"></label><label>{{ side|upper }} 历史难度<input name="diff_{{ side }}" type="number" class="form-control"></label></div>{% endfor %}</div>
+<label>结果<select name="action" class="form-select"><option value="">保留原结果</option><option value="win_a">A 获胜</option><option value="win_b">B 获胜</option><option value="draw">平局</option></select></label>
+<label><input type="checkbox" name="confirm_settlement" value="1"> 对资料齐备的未结算整场确认结束并结算</label>
+<label>纠错原因<textarea name="reason" required class="form-control"></textarea></label>
+<button class="btn btn-warning">确认该届专项纠错并记录审计</button></form>{% endblock %}

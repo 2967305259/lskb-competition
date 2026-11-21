@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge with context %}
 
 {% block title %}用户管理{% endblock %}
 
@@ -36,17 +37,24 @@
                                     <th>用户名</th>
                                     <th>昵称</th>
                                     <th>角色</th>
+                                    <th>队伍</th>
+                                    <th>{{ labels.track }}</th>
+                                    <th>{{ labels.field1 }}</th>
+                                    <th>{{ labels.field2 }}</th>
                                     <th>注册时间</th>
                                     <th>操作</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for user in users %}
+                                    {% set tm = user.get_team_membership() %}
                                     <tr>
-                                        <td>{{ user.username }}</td>
+                                        <td>{{ '—' if user.anonymized_at else user.username }}</td>
                                         <td>{{ user.nickname }}</td>
                                         <td>
-                                            {% if user.is_super_admin() %}
+                                            {% if user.anonymized_at %}
+                                                <span class="badge bg-secondary">已匿名化</span>
+                                            {% elif user.is_super_admin() %}
                                                 <span class="badge bg-dark">超级管理员</span>
                                             {% elif user.is_admin() %}
                                                 <span class="badge bg-danger">管理员</span>
@@ -56,10 +64,34 @@
                                                 <span class="badge bg-info">选手</span>
                                             {% endif %}
                                         </td>
+                                        <td>
+                                            {% if tm %}
+                                                <a href="{{ url_for('admin.team_detail', team_id=tm.team_id) }}" class="link-primary">
+                                                    {{ tm.team.team_name }}
+                                                </a>
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ (tm.roguelike or '-') if tm else '-' }}</td>
+                                        <td>{{ (tm.squad or '-') if tm else '-' }}</td>
+                                        <td>{{ (tm.operator or '-') if tm else '-' }}</td>
                                         <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                         <td>
-                                            {% if user.is_super_admin() %}
-                                                <span class="text-muted">-</span>
+                                            {% if user.anonymized_at %}
+                                                <span class="text-muted">—</span>
+                                            {% elif user.is_super_admin() %}
+                                                {% if current_user.is_super_admin() and user.id != current_user.id %}
+                                                    <form method="POST" action="{{ url_for('admin.reset_user_password', user_id=user.id) }}" style="display: inline;">
+                                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                                                onclick="return confirm('确定重置该用户密码？临时密码为 用户名+1234');">
+                                                            重置密码
+                                                        </button>
+                                                    </form>
+                                                {% else %}
+                                                    <span class="text-muted">-</span>
+                                                {% endif %}
                                             {% elif user.is_admin() %}
                                                 {% if current_user.is_super_admin() %}
                                                     <form method="POST" action="{{ url_for('admin.demote_from_admin', user_id=user.id) }}" style="display: inline;">
@@ -67,6 +99,13 @@
                                                         <button type="submit" class="btn btn-sm btn-outline-danger"
                                                                 onclick="return confirm('确定将管理员降级为选手？');">
                                                             降级为选手
+                                                        </button>
+                                                    </form>
+                                                    <form method="POST" action="{{ url_for('admin.reset_user_password', user_id=user.id) }}" style="display: inline;">
+                                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                                                onclick="return confirm('确定重置该用户密码？临时密码为 用户名+1234');">
+                                                            重置密码
                                                         </button>
                                                     </form>
                                                 {% else %}
@@ -101,6 +140,14 @@
                                                     </form>
                                                 {% endif %}
                                                 
+                                                <form method="POST" action="{{ url_for('admin.reset_user_password', user_id=user.id) }}" style="display: inline;">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                                            onclick="return confirm('确定重置该用户密码？临时密码为 用户名+1234');">
+                                                        重置密码
+                                                    </button>
+                                                </form>
+
                                                 <form method="POST" action="{{ url_for('admin.delete_user', user_id=user.id) }}" style="display: inline;">
                                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                     <button type="submit" class="btn btn-sm btn-outline-danger"
@@ -108,6 +155,18 @@
                                                         删除
                                                     </button>
                                                 </form>
+                                            {% endif %}
+                                            {% if current_user.is_super_admin() and not user.anonymized_at and user.id != current_user.id and not user.is_super_admin() %}
+                                            <details class="mt-2">
+                                                <summary>处理隐私申请</summary>
+                                                <form method="post" class="mt-2">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                    <label for="privacy-reference-{{ user.id }}">申请编号或办理依据</label>
+                                                    <input id="privacy-reference-{{ user.id }}" name="reference" maxlength="200" class="form-control form-control-sm mb-2" required>
+                                                    <button type="submit" class="btn btn-sm btn-outline-secondary" formaction="{{ url_for('admin.export_user_account', user_id=user.id) }}">导出副本</button>
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger" formaction="{{ url_for('admin.anonymize_user', user_id=user.id) }}" onclick="return confirm('确认停用该账号并以化名保留其赛事记录？');">匿名化账号</button>
+                                                </form>
+                                            </details>
                                             {% endif %}
                                         </td>
                                     </tr>
@@ -117,43 +176,7 @@
                     </div>
                     
                     <!-- 分页 -->
-                    {% if pagination.pages > 1 %}
-                        <nav aria-label="Page navigation">
-                            <ul class="pagination justify-content-center">
-                                {% if pagination.has_prev %}
-                                    <li class="page-item">
-                                        <a class="page-link" href="{{ url_for('admin.users', page=pagination.prev_num, search=search) }}">
-                                            上一页
-                                        </a>
-                                    </li>
-                                {% endif %}
-                                
-                                {% for page_num in pagination.iter_pages() %}
-                                    {% if page_num %}
-                                        {% if page_num == pagination.page %}
-                                            <li class="page-item active">
-                                                <span class="page-link">{{ page_num }}</span>
-                                            </li>
-                                        {% else %}
-                                            <li class="page-item">
-                                                <a class="page-link" href="{{ url_for('admin.users', page=page_num, search=search) }}">
-                                                    {{ page_num }}
-                                                </a>
-                                            </li>
-                                        {% endif %}
-                                    {% endif %}
-                                {% endfor %}
-                                
-                                {% if pagination.has_next %}
-                                    <li class="page-item">
-                                        <a class="page-link" href="{{ url_for('admin.users', page=pagination.next_num, search=search) }}">
-                                            下一页
-                                        </a>
-                                    </li>
-                                {% endif %}
-                            </ul>
-                        </nav>
-                    {% endif %}
+                    {{ render_pagination(pagination, 'admin.users', {'search': search}) }}
                 {% else %}
                     <p class="text-muted text-center mb-0">没有用户数据</p>
                 {% endif %}

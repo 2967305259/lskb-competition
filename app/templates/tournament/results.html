@@ -15,70 +15,58 @@
 {% if tournament_status == 'finished' %}
 <!-- 冠亚季军展示 -->
 <div class="row mb-5 justify-content-center">
-    {% if runner_up %}
+    {% if runner_ups %}
     <!-- 亚军 -->
     <div class="col-md-3 mb-4 text-center">
         <div class="card border-secondary h-100">
             <div class="card-header bg-secondary text-white">
-                <h4 class="mb-0"><i class="fas fa-medal"></i> 亚军 🥈</h4>
+                <h4 class="mb-0"><i class="fas fa-medal"></i> 并列亚军 🥈</h4>
             </div>
             <div class="card-body">
-                <h3 class="mb-2">
-                    <a href="{{ url_for('main.team_detail', team_id=runner_up.team.id) }}" class="link-secondary">
-                        {{ runner_up.team.team_name }}
-                    </a>
-                </h3>
+                {% for runner_up in runner_ups %}
+                <h3 class="mb-2"><a href="{{ url_for('main.team_detail', team_id=runner_up.team.id) }}" class="link-secondary">{{ runner_up.team.team_name }}</a></h3>
                 <p class="text-muted mb-1">队长：{{ runner_up.team.captain.nickname }}</p>
-                <p class="mb-0">
-                    <span class="badge bg-secondary" style="font-size: 1.2rem;">{{ runner_up.points }} 分</span>
-                </p>
+                <p class="mb-0"><span class="badge bg-secondary" style="font-size: 1.2rem;">{{ runner_up.points }} 分</span></p>
+                {% endfor %}
             </div>
         </div>
     </div>
     {% endif %}
 
-    {% if champion %}
+    {% if champions %}
     <!-- 冠军 -->
     <div class="col-md-4 mb-4 text-center">
         <div class="card border-warning h-100" style="border-width: 3px;">
             <div class="card-header bg-warning text-dark">
-                <h3 class="mb-0"><i class="fas fa-crown"></i> 冠军 🏆</h3>
+                <h3 class="mb-0"><i class="fas fa-crown"></i> 并列冠军 🏆</h3>
             </div>
             <div class="card-body">
                 <div class="mb-3">
                     <i class="fas fa-crown" style="font-size: 4rem; color: #ffc107;"></i>
                 </div>
-                <h2 class="mb-2">
-                    <a href="{{ url_for('main.team_detail', team_id=champion.team.id) }}" class="link-warning">
-                        {{ champion.team.team_name }}
-                    </a>
-                </h2>
+                {% for champion in champions %}
+                <h2 class="mb-2"><a href="{{ url_for('main.team_detail', team_id=champion.team.id) }}" class="link-warning">{{ champion.team.team_name }}</a></h2>
                 <p class="text-muted mb-1">队长：{{ champion.team.captain.nickname }}</p>
-                <p class="mb-0">
-                    <span class="badge bg-warning text-dark" style="font-size: 1.5rem;">{{ champion.points }} 分</span>
-                </p>
+                <p class="mb-0"><span class="badge bg-warning text-dark" style="font-size: 1.5rem;">{{ champion.points }} 分</span></p>
+                {% endfor %}
             </div>
         </div>
     </div>
     {% endif %}
 
-    {% if third_place %}
+    {% if third_places %}
     <!-- 季军 -->
     <div class="col-md-3 mb-4 text-center">
         <div class="card border-danger h-100">
             <div class="card-header bg-danger text-white">
-                <h4 class="mb-0"><i class="fas fa-medal"></i> 季军 🥉</h4>
+                <h4 class="mb-0"><i class="fas fa-medal"></i> 并列第三 🥉</h4>
             </div>
             <div class="card-body">
-                <h3 class="mb-2">
-                    <a href="{{ url_for('main.team_detail', team_id=third_place.team.id) }}" class="link-danger">
-                        {{ third_place.team.team_name }}
-                    </a>
-                </h3>
+                {% for third_place in third_places %}
+                <h3 class="mb-2"><a href="{{ url_for('main.team_detail', team_id=third_place.team.id) }}" class="link-danger">{{ third_place.team.team_name }}</a></h3>
                 <p class="text-muted mb-1">队长：{{ third_place.team.captain.nickname }}</p>
-                <p class="mb-0">
-                    <span class="badge bg-danger" style="font-size: 1.2rem;">{{ third_place.points }} 分</span>
-                </p>
+                <p class="mb-0"><span class="badge bg-danger" style="font-size: 1.2rem;">{{ third_place.points }} 分</span></p>
+                {% endfor %}
             </div>
         </div>
     </div>
@@ -116,7 +104,7 @@
             </div>
             <div class="card-body">
                 {% if rankings %}
-                    <div class="table-responsive">
+                    <div class="table-responsive" data-scroll-label="最终队伍排名">
                         <table class="table table-hover">
                             <thead>
                                 <tr>
@@ -130,14 +118,14 @@
                                 {% for r in rankings %}
                                     <tr>
                                         <td>
-                                            {% if loop.index == 1 %}
+                                    {% if r.rank == 1 %}
                                                 <span class="badge bg-warning">🥇 1</span>
-                                            {% elif loop.index == 2 %}
+                                    {% elif r.rank == 2 %}
                                                 <span class="badge bg-secondary">🥈 2</span>
-                                            {% elif loop.index == 3 %}
+                                    {% elif r.rank == 3 %}
                                                 <span class="badge bg-danger">🥉 3</span>
                                             {% else %}
-                                                {{ loop.index }}
+                                        {{ r.rank }}
                                             {% endif %}
                                         </td>
                                         <td>

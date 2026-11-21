@@ -1,12 +1,16 @@
 {% extends "base.html" %}
+{% from '_macros.html' import match_status_badge, read_only_notice, settlement_badge with context %}
 
 {% block title %}比赛详情{% endblock %}
 
 {% block content %}
+{{ read_only_notice(season_scope, match.tournament) }}
+<div class="alert alert-info">整场 #{{ match.id }} · {{ settlement_badge(match, archived=season_scope == 'archived') }}</div>
+
 <div class="row mb-4">
     <div class="col-12">
-        <a href="{{ url_for('tournament.my_matches') }}" class="btn btn-light rounded-pill mb-3">
-            <i class="fas fa-arrow-left"></i> 返回我的比赛
+        <a href="{{ url_for('main.history_detail', tournament_id=match.tournament_id) if season_scope == 'archived' else url_for('tournament.my_matches') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> {{ '查看该届归档' if season_scope == 'archived' else '返回我的比赛' }}
         </a>
         <h2>
             <i class="fas fa-sword"></i> 比赛详情
@@ -45,40 +49,21 @@
                 <hr>
                 <div class="row">
                     <div class="col-md-3">
-                        <p><strong>肉鸽主题：</strong>
+                        <p><strong>{{ labels.track }}主题：</strong>
                             <span class="badge bg-info">{{ get_roguelike_name(match.roguelike) }}</span>
                         </p>
                     </div>
                     <div class="col-md-3">
                         <p><strong>难度：</strong>
-                            {% set rl = get_roguelike_by_key(match.roguelike) %}
                             <span class="badge bg-info">{{ match.get_player_a_difficulty() }}难</span>
-                            {% if rl %}(×{{ "%.2f"|format(rl.get_multiplier(match.get_player_a_difficulty())) }}){% endif %}
+                            {% if match.player_a_multiplier is not none %}(×{{ match.player_a_multiplier }}){% endif %}
                             <small class="text-muted"> / </small>
                             <span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span>
-                            {% if rl %}(×{{ "%.2f"|format(rl.get_multiplier(match.get_player_b_difficulty())) }}){% endif %}
+                            {% if match.player_b_multiplier is not none %}(×{{ match.player_b_multiplier }}){% endif %}
                         </p>
                     </div>
                     <div class="col-md-3">
-                        <p><strong>状态：</strong>
-                            {% if match.status == 'pending' %}
-                                <span class="badge bg-secondary">待处理</span>
-                            {% elif match.status == 'scheduled' %}
-                                <span class="badge bg-info">已排期</span>
-                            {% elif match.status == 'confirmed' %}
-                                <span class="badge bg-primary">已确认</span>
-                            {% elif match.status == 'submitted' %}
-                                <span class="badge bg-warning">已提交</span>
-                            {% elif match.status == 'dispute' %}
-                                <span class="badge bg-danger">争议中</span>
-                            {% elif match.status == 'finished' %}
-                                <span class="badge bg-success">已结束</span>
-                            {% elif match.status == 'forfeit_a' %}
-                                <span class="badge bg-dark">A弃权</span>
-                            {% elif match.status == 'forfeit_b' %}
-                                <span class="badge bg-dark">B弃权</span>
-                            {% endif %}
-                        </p>
+                        <p><strong>状态：</strong>{{ match_status_badge(match.status) }}</p>
                     </div>
                     
                 </div>
@@ -88,7 +73,7 @@
                     <div class="col-md-6">
                         <p><strong>🏆 {{ match.player_a.nickname }} 分数：</strong>
                             {% if match.player_a_score is not none %}
-                                <span class="badge bg-warning" style="font-size: 1rem;">{{ match.player_a_score }}</span>
+                                <span class="badge bg-warning" style="font-size: 1rem;">{{ match.player_a_score }}</span>{% if match.player_a_multiplier is not none %}<small class="d-block">换算积分：{{ (match.player_a_score * match.player_a_multiplier)|int }}{{ '（待结算）' if match.settlement_state != 'settled' else '' }}</small>{% endif %}
                             {% else %}
                                 <span class="text-muted">未提交</span>
                             {% endif %}
@@ -97,7 +82,7 @@
                     <div class="col-md-6">
                         <p><strong>🏆 {{ match.player_b.nickname }} 分数：</strong>
                             {% if match.player_b_score is not none %}
-                                <span class="badge bg-warning" style="font-size: 1rem;">{{ match.player_b_score }}</span>
+                                <span class="badge bg-warning" style="font-size: 1rem;">{{ match.player_b_score }}</span>{% if match.player_b_multiplier is not none %}<small class="d-block">换算积分：{{ (match.player_b_score * match.player_b_multiplier)|int }}{{ '（待结算）' if match.settlement_state != 'settled' else '' }}</small>{% endif %}
                             {% else %}
                                 <span class="text-muted">未提交</span>
                             {% endif %}
@@ -106,10 +91,10 @@
                 </div>
                 {% endif %}
                 {% if match.scheduled_time %}
-                    <p><strong>约定时间：</strong> {{ match.scheduled_time.strftime('%Y-%m-%d %H:%M') }}</p>
+                    <p><strong>约定时间：</strong> {{ match.scheduled_time|event_time(match.scheduled_time_utc) }}（{{ config.EVENT_TIMEZONE if match.scheduled_time_utc else '旧时间待核对' }}）</p>
                 {% endif %}
                 {% if match.finished_at %}
-                    <p><strong>结束时间：</strong> {{ match.finished_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                    <p><strong>结束时间：</strong> {{ match.finished_at|event_time }}</p>
                 {% endif %}
             </div>
         </div>
@@ -118,17 +103,23 @@
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-comments"></i> 比赛留言</h5>
-                {% if is_participant and match.status in ('pending', 'scheduled', 'submitted') %}
+                {% if allowed.send_match_note %}
                     <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#noteModal">
                         <i class="fas fa-plus"></i> 发送留言
                     </button>
                 {% endif %}
             </div>
             <div class="card-body">
-                {% if match.match_note %}
-                    <pre style="white-space: pre-wrap; background: #1a1a1a; padding: 15px; border-radius: 4px; color: #e0e0e0; font-family: inherit;">{{ match.match_note }}</pre>
+                {% if notes %}
+                    <pre style="white-space: pre-wrap; background: #1a1a1a; padding: 15px; border-radius: 4px; color: #e0e0e0; font-family: inherit;">{{ notes }}</pre>
                 {% else %}
                     <p class="text-muted text-center mb-0">暂无留言</p>
+                {% endif %}
+                {% if evidence %}
+                <h3 class="h6 mt-3">成绩截图</h3>
+                <ul class="mb-0">
+                    {% for path in evidence %}<li><a href="{{ path }}">查看截图 {{ loop.index }}</a></li>{% endfor %}
+                </ul>
                 {% endif %}
             </div>
         </div>
@@ -142,45 +133,40 @@
             </div>
             <div class="card-body">
                 {% if is_participant %}
-                    {% if match.status == 'pending' %}
+                    {% if season_scope != 'current' %}
+                        <p class="text-muted">本场比赛仅供查看。</p>
+                    {% elif allowed.schedule_match and match.status == 'pending' %}
+                        <div class="alert alert-light border mb-3">
+                            <i class="fas fa-comments"></i> <strong>请先与对手线下商讨比赛时间</strong>，达成一致后在此确认。
+                        </div>
                         <a href="{{ url_for('tournament.schedule_match', match_id=match.id) }}" class="btn btn-primary w-100 mb-2">
-                            <i class="fas fa-calendar"></i> 协商时间
+                            <i class="fas fa-calendar-check"></i> 确认比赛时间
                         </a>
-                        <a href="{{ url_for('tournament.submit_result', match_id=match.id) }}" class="btn btn-success w-100">
-                            <i class="fas fa-check"></i> 提交结果
-                        </a>
-                    {% elif match.status == 'scheduled' %}
+                    {% elif allowed.schedule_match and match.status == 'scheduled' %}
                         {% set is_a = match.player_a_id == current_user.id %}
-                        {% if (is_a and not match.confirmed_a) or (not is_a and not match.confirmed_b) %}
+                        {% if allowed.confirm_schedule and ((is_a and not match.confirmed_a) or (not is_a and not match.confirmed_b)) %}
+                            <div class="alert alert-info mb-3">
+                                <i class="fas fa-info-circle"></i> 对手已确认时间，请确认是否同意。
+                            </div>
                             <form method="POST" action="{{ url_for('tournament.confirm_schedule', match_id=match.id) }}" class="mb-2">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn btn-info w-100">
-                                    <i class="fas fa-check-circle"></i> 确认比赛时间
+                                <button type="submit" class="btn btn-success w-100">
+                                    <i class="fas fa-check-circle"></i> 同意此时间
                                 </button>
                             </form>
+                            <a href="{{ url_for('tournament.schedule_match', match_id=match.id) }}" class="btn btn-outline-primary btn-sm w-100 mt-2">
+                                <i class="fas fa-edit"></i> 重新设定时间
+                            </a>
                         {% else %}
-                            <p class="text-success text-center mb-2"><i class="fas fa-check-circle"></i> 您已确认时间</p>
-                        {% endif %}
-                        <a href="{{ url_for('tournament.schedule_match', match_id=match.id) }}" class="btn btn-primary w-100 mb-2">
-                            <i class="fas fa-calendar"></i> 修改时间
-                        </a>
-                        <a href="{{ url_for('tournament.submit_result', match_id=match.id) }}" class="btn btn-success w-100">
-                            <i class="fas fa-check"></i> 提交结果
-                        </a>
-                    {% elif match.status == 'confirmed' %}
-                        <p class="text-success text-center mb-2"><i class="fas fa-check-circle"></i> 时间已确认</p>
-                        <a href="{{ url_for('tournament.submit_result', match_id=match.id) }}" class="btn btn-success w-100">
-                            <i class="fas fa-check"></i> 提交结果
-                        </a>
-                    {% elif match.status == 'submitted' %}
-                        {% if (match.player_a_id == current_user.id and match.player_a_result is not none) or
-                               (match.player_b_id == current_user.id and match.player_b_result is not none) %}
-                            <p class="text-info text-center mb-2"><i class="fas fa-check-circle"></i> 您已提交结果</p>
-                        {% else %}
-                            <a href="{{ url_for('tournament.submit_result', match_id=match.id) }}" class="btn btn-success w-100">
-                                <i class="fas fa-check"></i> 提交结果
+                            <p class="text-success text-center mb-2"><i class="fas fa-check-circle"></i> 您已确认时间，等待对手确认</p>
+                            <a href="{{ url_for('tournament.schedule_match', match_id=match.id) }}" class="btn btn-outline-primary btn-sm w-100">
+                                <i class="fas fa-edit"></i> 修改时间
                             </a>
                         {% endif %}
+                    {% elif match.status in ('pending', 'scheduled') %}
+                        <p class="text-muted">本届赛事已结束，已停止排赛。</p>
+                    {% elif match.status in ('confirmed', 'submitted') and not allowed.submit_result %}
+                        <p class="text-info text-center mb-2">您的成绩已提交。</p>
                     {% elif match.status == 'dispute' %}
                         <div class="alert alert-warning text-center mb-0">
                             <i class="fas fa-exclamation-triangle"></i>
@@ -214,8 +200,12 @@
                         </div>
                     {% endif %}
 
-                    <!-- 弃权按钮（未结束的比赛） -->
-                    {% if match.status not in ('finished', 'dispute', 'forfeit_a', 'forfeit_b') %}
+                    {% if allowed.submit_result %}
+                        <a href="{{ url_for('tournament.submit_result', match_id=match.id) }}" class="btn btn-success w-100">
+                            <i class="fas fa-check"></i> {{ '补交成绩' if match.forfeit_side else '提交结果' }}
+                        </a>
+                    {% endif %}
+                    {% if allowed.forfeit_match %}
                         <hr>
                         <form method="POST" action="{{ url_for('tournament.forfeit_match', match_id=match.id) }}"
                               onsubmit="return confirm('确定要弃权这场比赛吗？弃权后对手将自动获胜。');">
@@ -271,20 +261,20 @@
 </div>
 
 <!-- 留言弹窗 -->
-{% if is_participant and match.status in ('pending', 'scheduled', 'submitted') %}
-    <div class="modal fade" id="noteModal" tabindex="-1">
-        <div class="modal-dialog">
+{% if allowed.send_match_note %}
+    <div class="modal fade" id="noteModal" tabindex="-1" aria-labelledby="noteModal-title">
+        <div class="modal-dialog modal-dialog-scrollable">
             <div class="modal-content" style="background-color: #252525;">
                 <div class="modal-header" style="border-bottom-color: #333;">
-                    <h5 class="modal-title"><i class="fas fa-comment"></i> 发送留言</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="noteModal-title"><i class="fas fa-comment" aria-hidden="true"></i> 发送留言</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="关闭留言窗口"></button>
                 </div>
                 <form method="POST" action="{{ url_for('tournament.send_match_note', match_id=match.id) }}">
                     <div class="modal-body">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="mb-3">
-                            <label class="form-label">留言内容</label>
-                            <textarea name="match_note" class="form-control" rows="3" required
+                            <label for="match-note" class="form-label">留言内容</label>
+                            <textarea id="match-note" name="match_note" class="form-control" rows="3" required maxlength="500" data-modal-focus
                                       placeholder="输入留言内容..."></textarea>
                         </div>
                     </div>

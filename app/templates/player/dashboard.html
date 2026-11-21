@@ -12,7 +12,7 @@
             <div class="card-body text-center">
                 <div class="mb-3">
                     {% if current_user.avatar %}
-                        <img src="{{ url_for('static', filename='uploads/avatars/' + current_user.avatar) }}"
+                        <img alt="当前账号头像" src="{{ url_for('static', filename='uploads/avatars/' + current_user.avatar) }}"
                              class="rounded-circle" style="width: 80px; height: 80px; object-fit: cover; border: 3px solid #0d6efd;">
                     {% else %}
                         <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto"
@@ -30,6 +30,29 @@
                             {{ team.team_name }}
                         </a>
                     </p>
+                    {% if team_membership %}
+                        <p><strong>{{ labels.track }}主题</strong><br>
+                            {% if team_membership.roguelike %}
+                                <span class="text-success">{{ team_membership.roguelike }}</span>
+                            {% else %}
+                                <span class="text-muted">未选择</span>
+                            {% endif %}
+                        </p>
+                        <p><strong>所选{{ labels.field1 }}</strong><br>
+                            {% if team_membership.squad %}
+                                <span class="text-info">{{ team_membership.squad }}</span>
+                            {% else %}
+                                <span class="text-muted">未填写</span>
+                            {% endif %}
+                        </p>
+                        <p><strong>{{ labels.field2 }}</strong><br>
+                            {% if team_membership.operator %}
+                                <span class="text-warning">{{ team_membership.operator }}</span>
+                            {% else %}
+                                <span class="text-muted">未填写</span>
+                            {% endif %}
+                        </p>
+                    {% endif %}
                 {% else %}
                     <p><strong>队伍</strong><br><span class="text-muted">未加入队伍</span></p>
                 {% endif %}
@@ -37,6 +60,15 @@
                     <a href="{{ url_for('player.profile') }}" class="btn btn-sm btn-outline-primary w-100">
                         查看详情
                     </a>
+                </div>
+                <div class="mt-2">
+                    <a href="{{ url_for('tournament.my_matches') }}" class="btn btn-sm btn-outline-warning w-100">
+                        <i class="fas fa-sword"></i> 我的比赛
+                    </a>
+                </div>
+                <div class="d-flex flex-wrap gap-2 justify-content-center mt-3">
+                    <a href="{{ url_for('player.my_join_requests') }}" class="btn btn-sm btn-outline-secondary">我的申请</a>
+                    <a href="{{ url_for('player.invitations') }}" class="btn btn-sm btn-outline-secondary">收到的邀请</a>
                 </div>
             </div>
         </div>
@@ -62,10 +94,13 @@
                                     </h6>
                                     <small class="text-muted">
                                         队长：<strong>{{ invitation.team.captain.nickname }}</strong><br>
-                                        队伍人数：<strong>{{ invitation.team.get_member_count() }}/4</strong>
+                                        队伍人数：<strong>{{ invitation.team.get_member_count() }}/{{ team_size }}</strong>
                                     </small>
                                 </div>
                                 <div class="col-md-4 text-end">
+                                    {% if registration_problem or invitation.team.tournament_id != active_season_id %}
+                                    <span class="text-muted">{{ registration_problem or '此邀请只读' }}</span>
+                                    {% else %}
                                     <form method="POST" class="d-flex gap-2" action="{{ url_for('player.accept_invitation', invitation_id=invitation.id) }}">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" name="action" value="accept" class="btn btn-sm btn-success"
@@ -80,6 +115,7 @@
                                             <i class="fas fa-times"></i> 拒绝
                                         </button>
                                     </form>
+                                    {% endif %}
                                 </div>
                             </div>
                         </div>
@@ -105,7 +141,7 @@
                         <div class="col-md-6">
                             <div class="stat-box">
                                 <h3>{{ team.get_member_count() }}</h3>
-                                <p>队伍人数 / 4</p>
+                                <p>队伍人数 / {{ team_size }}</p>
                             </div>
                         </div>
                     </div>
@@ -118,14 +154,54 @@
                             {% if team_membership and team_membership.roguelike %}
                                 <div class="mb-2">
                                     <i class="fas fa-check-circle" style="color: #90ee90;"></i>
-                                    <strong>选择肉鸽</strong>
+                                    <strong>{{ labels.track }}主题：{{ team_membership.roguelike }}</strong>
                                 </div>
                             {% else %}
                                 <div class="mb-2">
                                     <i class="fas fa-circle" style="color: #808080;"></i>
-                                    <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
-                                        选择肉鸽
-                                    </a>
+                                    {% if not registration_problem %}
+                                        <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
+                                            选择{{ labels.track }}主题
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted small">{{ registration_problem }}</span>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+
+                            {% if team_membership and team_membership.squad %}
+                                <div class="mb-2">
+                                    <i class="fas fa-check-circle" style="color: #90ee90;"></i>
+                                    <strong>所选{{ labels.field1 }}：{{ team_membership.squad }}</strong>
+                                </div>
+                            {% else %}
+                                <div class="mb-2">
+                                    <i class="fas fa-circle" style="color: #808080;"></i>
+                                    {% if not registration_problem %}
+                                        <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
+                                            填写所选{{ labels.field1 }}
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted small">{{ registration_problem }}</span>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+
+                            {% if team_membership and team_membership.operator %}
+                                <div class="mb-2">
+                                    <i class="fas fa-check-circle" style="color: #90ee90;"></i>
+                                    <strong>{{ labels.field2 }}：{{ team_membership.operator }}</strong>
+                                </div>
+                            {% else %}
+                                <div class="mb-2">
+                                    <i class="fas fa-circle" style="color: #808080;"></i>
+                                    {% if not registration_problem %}
+                                        <a href="{{ url_for('player.select_roguelike') }}" class="link-primary">
+                                            填写{{ labels.field2 }}
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted small">{{ registration_problem }}</span>
+                                    {% endif %}
                                 </div>
                             {% endif %}
                             

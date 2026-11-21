@@ -1,0 +1,158 @@
+{#
+  通用模板宏（复用点）
+
+  用法：
+    {% from '_macros.html' import render_pagination, match_status_badge with context %}
+
+  - render_pagination：上一页 / 页码 / 下一页（带 iter_pages）
+  - render_pagination_simple：1..N 纯数字页码
+  - match_status_badge：比赛状态徽章（pending/scheduled/confirmed/submitted/finished/forfeit/dispute）
+  - match_progress_badge：比赛进度徽章（已确认 / 1-2 已提交 / 2-2 已提交）
+#}
+
+{% macro form_field(field, help_text='', autocomplete='', input_type='', css='form-control', rows=None) %}
+    {% set description = (field.id ~ '-help ' if help_text else '') ~ (field.id ~ '-error' if field.errors else '') %}
+    {% set attrs = {} %}
+    {% if autocomplete %}{% set attrs = dict(attrs, autocomplete=autocomplete) %}{% endif %}
+    {% if input_type %}{% set attrs = dict(attrs, type=input_type) %}{% endif %}
+    {% if rows %}{% set attrs = dict(attrs, rows=rows) %}{% endif %}
+    {% if description|trim %}{% set attrs = dict(attrs, aria_describedby=description|trim) %}{% endif %}
+    {% if field.errors %}{% set attrs = dict(attrs, aria_invalid='true') %}{% endif %}
+    {{ field.label(class='form-label') }}
+    {{ field(class=css ~ (' is-invalid' if field.errors else ''), **attrs) }}
+    {% if help_text %}<div id="{{ field.id }}-help" class="form-text">{{ help_text }}</div>{% endif %}
+    {% if field.errors %}
+        <div id="{{ field.id }}-error" class="invalid-feedback d-block">{{ field.errors|join('。') }}</div>
+    {% endif %}
+{% endmacro %}
+
+{% macro render_pagination(pager, endpoint, extra=None, ul_class='justify-content-center') %}
+{% if pager and pager.pages > 1 %}
+<nav aria-label="分页">
+    <ul class="pagination {{ ul_class }}">
+        {% if pager.has_prev %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for(endpoint, page=pager.prev_num, **(extra or {})) }}">上一页</a>
+            </li>
+        {% endif %}
+        {% for page_num in pager.iter_pages() %}
+            {% if page_num %}
+                {% if page_num == pager.page %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ page_num }}</span>
+                    </li>
+                {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for(endpoint, page=page_num, **(extra or {})) }}">{{ page_num }}</a>
+                    </li>
+                {% endif %}
+            {% endif %}
+        {% endfor %}
+        {% if pager.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for(endpoint, page=pager.next_num, **(extra or {})) }}">下一页</a>
+            </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+{% endmacro %}
+
+{% macro qualification_summary(qualification) %}
+    {% if qualification.quota is none %}
+        <p class="text-muted small">该届晋级配置待核对。</p>
+    {% else %}
+        <p class="text-muted small">配置晋级名额 {{ qualification.quota }} · 实际晋级 {{ qualification.count }} 队</p>
+    {% endif %}
+{% endmacro %}
+
+{% macro read_only_notice(season_scope, season=none) %}
+    {% if season_scope == 'archived' %}
+        <div class="alert alert-warning">往届数据（第 {{ season.season_number }} 届）· 只读</div>
+    {% elif season_scope == 'orphan' %}
+        <div class="alert alert-warning">赛季归属待核对 · 只读</div>
+    {% endif %}
+{% endmacro %}
+
+{% macro player_season_switch(scope, season_id) %}
+    <nav class="nav nav-pills gap-1 mb-3" aria-label="战绩范围">
+        {% for key, label in [('current', '本届战绩'), ('all', '累计战绩')] %}
+        <a href="{{ url_for(request.endpoint, season=key) }}" class="nav-link{{ ' active' if scope == key else '' }}"
+           {% if scope == key %}aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+    </nav>
+    {% if scope == 'current' and season_id is none %}
+        <p class="text-muted">当前没有活跃赛季。</p>
+    {% elif scope == 'all' %}
+        <p class="text-muted small">累计统计覆盖已确认届次的正式比赛，往届记录只读。</p>
+    {% endif %}
+{% endmacro %}
+
+{% macro settlement_badge(match, archived=false) %}
+    {% if is_settled(match) %}
+        <span class="badge bg-success">已结算</span>
+    {% elif match.settlement_state in ('legacy', 'settled') %}
+        <span class="badge bg-warning text-dark">结算待核对</span>
+    {% elif archived %}
+        <span class="badge bg-secondary">归档冻结，未结算</span>
+    {% else %}
+        <span class="badge bg-secondary">待结算</span>
+    {% endif %}
+{% endmacro %}
+
+
+{% macro render_pagination_simple(pager, endpoint, extra=None, ul_class='justify-content-center') %}
+{% if pager and pager.pages > 1 %}
+<nav>
+    <ul class="pagination {{ ul_class }}">
+        {% for p in range(1, pager.pages + 1) %}
+            <li class="page-item {{ 'active' if p == pager.page }}">
+                <a class="page-link" href="{{ url_for(endpoint, page=p, **(extra or {})) }}">{{ p }}</a>
+            </li>
+        {% endfor %}
+    </ul>
+</nav>
+{% endif %}
+{% endmacro %}
+
+
+{% macro match_status_badge(status) %}
+{% if status == 'pending' %}<span class="badge bg-secondary">待处理</span>
+{% elif status == 'scheduled' %}<span class="badge bg-info">待确认</span>
+{% elif status == 'confirmed' %}<span class="badge bg-primary">已确认</span>
+{% elif status == 'submitted' %}<span class="badge bg-warning">已提交</span>
+{% elif status == 'dispute' %}<span class="badge bg-danger">争议中</span>
+{% elif status == 'finished' %}<span class="badge bg-success">已结束</span>
+{% elif status == 'forfeit_a' %}<span class="badge bg-dark">A弃权</span>
+{% elif status == 'forfeit_b' %}<span class="badge bg-dark">B弃权</span>
+{% else %}<span class="badge bg-secondary">{{ status }}</span>{% endif %}
+{% endmacro %}
+
+
+{% macro invitation_status_badge(status) %}
+{% if status == 'pending' %}<span class="badge bg-warning">待处理</span>
+{% elif status == 'accepted' %}<span class="badge bg-success">已接受</span>
+{% elif status == 'rejected' %}<span class="badge bg-danger">已拒绝</span>
+{% else %}<span class="badge bg-secondary">{{ status }}</span>{% endif %}
+{% endmacro %}
+
+
+{% macro join_request_status_badge(status) %}
+{% if status == 'pending' %}<span class="badge bg-warning">待审核</span>
+{% elif status == 'accepted' %}<span class="badge bg-success">已通过</span>
+{% elif status == 'rejected' %}<span class="badge bg-danger">已拒绝</span>
+{% else %}<span class="badge bg-secondary">状态待核对</span>{% endif %}
+{% endmacro %}
+
+
+{% macro match_progress_badge(match) %}
+{% if match.status == 'confirmed' or match.status == 'submitted' %}
+    {% set a_done = match.player_a_result is not none %}
+    {% set b_done = match.player_b_result is not none %}
+    {% if a_done and b_done %}<span class="badge bg-success">2/2 已提交</span>
+    {% elif a_done or b_done %}<span class="badge bg-warning">1/2 已提交</span>
+    {% else %}<span class="badge bg-primary">已确认</span>{% endif %}
+{% else %}
+    {{ match_status_badge(match.status) }}
+{% endif %}
+{% endmacro %}

@@ -1,8 +1,16 @@
 {% extends "base.html" %}
-{% block title %}轮播图管理 - 冷水坑杯 #3{% endblock %}
+{% block title %}轮播图管理 - {{ event_name }}{% endblock %}
 {% block content %}
 <div class="container py-4">
     <h2 class="mb-4"><i class="fas fa-images me-2"></i>轮播图管理</h2>
+    <div class="alert alert-info">
+        {% if items %}
+        首页来源：当届数据库条目。
+        {% if not (items|selectattr('is_active')|first) %}当前全部禁用，首页隐藏轮播。{% endif %}
+        {% else %}
+        首页来源：素材目录（image/）。
+        {% endif %}
+    </div>
 
     <!-- 新增轮播图 -->
     <div class="card bg-dark border-secondary mb-4">
@@ -10,7 +18,7 @@
             <h5 class="mb-0"><i class="fas fa-plus-circle me-2"></i>新增轮播图</h5>
         </div>
         <div class="card-body">
-            <form method="POST" action="{{ url_for('admin.add_carousel') }}">
+            <form method="POST" enctype="multipart/form-data" action="{{ url_for('admin.add_carousel') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="row g-3">
                     <div class="col-md-3">
@@ -23,7 +31,9 @@
                     <div class="col-md-3">
                         <label class="form-label">文件路径</label>
                         <input type="text" name="file_path" class="form-control bg-dark text-light border-secondary"
-                               placeholder="如 1.png 或 image/banner.jpg" required>
+                               placeholder="如 1.png 或 image/banner.jpg">
+                        <label class="form-label mt-2" for="carousel-media-upload">或上传素材</label>
+                        <input id="carousel-media-upload" type="file" name="media" class="form-control" accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm,.mov">
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">标题（可选）</label>
@@ -73,10 +83,13 @@
                         {% for item in items %}
                         <tr>
                             <td>
-                                {% if item.media_type == 'video' %}
-                                <i class="fas fa-video fa-2x text-info"></i>
+                                {% set preview_url = media_url(item.file_path) %}
+                                {% if not preview_url %}
+                                <span class="text-warning">路径无效</span>
+                                {% elif item.media_type == 'video' %}
+                                <a href="{{ preview_url }}" aria-label="预览视频"><i class="fas fa-video fa-2x text-info"></i></a>
                                 {% else %}
-                                <img src="{{ url_for('main.carousel_media_serve', filename=item.file_path) }}"
+                                <img src="{{ preview_url }}" alt="{{ item.title or '轮播图片预览' }}"
                                      style="max-height: 50px; max-width: 80px; object-fit: cover;"
                                      onerror="this.style.display='none'">
                                 {% endif %}
@@ -116,7 +129,7 @@
                 </table>
             </div>
             {% else %}
-            <div class="alert alert-info">暂无轮播图，系统将自动使用 image/ 目录下的静态文件</div>
+            <p class="mb-0 text-muted">暂无数据库条目</p>
             {% endif %}
         </div>
     </div>
@@ -131,7 +144,7 @@
                 <h5 class="modal-title">编辑轮播图</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="{{ url_for('admin.edit_carousel', item_id=item.id) }}">
+            <form method="POST" enctype="multipart/form-data" action="{{ url_for('admin.edit_carousel', item_id=item.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="modal-body">
                     <div class="mb-3">
@@ -144,7 +157,9 @@
                     <div class="mb-3">
                         <label class="form-label">文件路径</label>
                         <input type="text" name="file_path" class="form-control bg-dark text-light border-secondary"
-                               value="{{ item.file_path }}" required>
+                               value="{{ item.file_path }}">
+                        <label class="form-label mt-2" for="carousel-media-upload-{{ item.id }}">上传替换素材</label>
+                        <input id="carousel-media-upload-{{ item.id }}" type="file" name="media" class="form-control" accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm,.mov">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">标题</label>

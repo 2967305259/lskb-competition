@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge with context %}
 
 {% block title %}报名列表{% endblock %}
 
@@ -35,7 +36,7 @@
                                         <td>{{ team.team_name }}</td>
                                         <td>{{ team.captain.nickname }}</td>
                                         <td>
-                                            <span class="badge bg-info">{{ team.get_member_count() }}/4</span>
+                                            <span class="badge bg-info">{{ team.get_member_count() }}/{{ team_size }}</span>
                                         </td>
                                         <td>
                                             {% if team.is_full() %}
@@ -57,43 +58,7 @@
                     </div>
                     
                     <!-- 分页 -->
-                    {% if teams.pages > 1 %}
-                        <nav aria-label="Page navigation">
-                            <ul class="pagination justify-content-center">
-                                {% if teams.has_prev %}
-                                    <li class="page-item">
-                                        <a class="page-link" href="{{ url_for('admin.registration_list', page=teams.prev_num) }}">
-                                            上一页
-                                        </a>
-                                    </li>
-                                {% endif %}
-                                
-                                {% for page_num in teams.iter_pages() %}
-                                    {% if page_num %}
-                                        {% if page_num == teams.page %}
-                                            <li class="page-item active">
-                                                <span class="page-link">{{ page_num }}</span>
-                                            </li>
-                                        {% else %}
-                                            <li class="page-item">
-                                                <a class="page-link" href="{{ url_for('admin.registration_list', page=page_num) }}">
-                                                    {{ page_num }}
-                                                </a>
-                                            </li>
-                                        {% endif %}
-                                    {% endif %}
-                                {% endfor %}
-                                
-                                {% if teams.has_next %}
-                                    <li class="page-item">
-                                        <a class="page-link" href="{{ url_for('admin.registration_list', page=teams.next_num) }}">
-                                            下一页
-                                        </a>
-                                    </li>
-                                {% endif %}
-                            </ul>
-                        </nav>
-                    {% endif %}
+                    {{ render_pagination(teams, 'admin.registration_list') }}
                 {% else %}
                     <p class="text-muted text-center mb-0">暂无报名数据</p>
                 {% endif %}

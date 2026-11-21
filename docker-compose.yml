@@ -1,0 +1,83 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-season-handoff-v1}
+        MYSQL_IMAGE: ${MYSQL_IMAGE:-mysql:8.0}
+    image: ${IMAGE:-lskb-p0}:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-19198}:${PORT:-19198}"
+    environment:
+      DEPLOYMENT_IMAGE: ${IMAGE:-lskb-p0}:${IMAGE_TAG:-local}
+      FLASK_ENV: production
+      LEGACY_APP_VERSION: ${LEGACY_APP_VERSION:-8238f20}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY explicitly}
+      PORT: ${PORT:-19198}
+      WEB_WORKERS: ${WEB_WORKERS:-4}
+      EVENT_NAME: ${EVENT_NAME:-冷水坑杯}
+      EVENT_TIMEZONE: ${EVENT_TIMEZONE:-Asia/Shanghai}
+      SEASON_NUMBER: ${SEASON_NUMBER:-3}
+      TOURNAMENT_NAME: ${TOURNAMENT_NAME:-}
+      TEAM_SIZE: ${TEAM_SIZE:-4}
+      TEAM_POSITIONS: ${TEAM_POSITIONS:-cold,normal1,normal2,pit}
+      TRACK_LABEL: ${TRACK_LABEL:-肉鸽}
+      MEMBER_FIELD1_LABEL: ${MEMBER_FIELD1_LABEL:-分队}
+      MEMBER_FIELD2_LABEL: ${MEMBER_FIELD2_LABEL:-开局干员}
+      SCHEDULE_SLOT_TIMES: ${SCHEDULE_SLOT_TIMES:-14:00,19:00}
+      SCHEDULE_SLOT_MINUTES: ${SCHEDULE_SLOT_MINUTES:-120}
+      DEFAULT_BONUS_SCORE: ${DEFAULT_BONUS_SCORE:-500}
+      DEFAULT_DIFFICULTY_MIN: ${DEFAULT_DIFFICULTY_MIN:-12}
+      DEFAULT_DIFFICULTY_MAX: ${DEFAULT_DIFFICULTY_MAX:-18}
+      DEFAULT_DIFFICULTY_STEP: ${DEFAULT_DIFFICULTY_STEP:-0.1}
+      BRAND_PRIMARY_COLOR: ${BRAND_PRIMARY_COLOR:-#0d6efd}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD explicitly}
+      SUPER_ADMIN_USERNAME: ${SUPER_ADMIN_USERNAME:-}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-}
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_BACKEND: mysql
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-lskb}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD explicitly}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-lskb_signup}
+      STATE_DIR: /app/.runtime
+      UPLOAD_USER_MAX_MB: ${UPLOAD_USER_MAX_MB:-256}
+      UPLOAD_TOTAL_MAX_MB: ${UPLOAD_TOTAL_MAX_MB:-4096}
+      BACKUP_DIR: /app/backups
+    volumes:
+      - uploads:/app/app/static/uploads
+      - sqlite_data:/app/.db
+      - state:/app/.runtime
+      - backups:/app/backups
+      - ${IMAGE_HOST_DIR:-./image}:/app/image:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+  mysql:
+    image: ${MYSQL_IMAGE:-mysql:8.0}
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD explicitly}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-lskb_signup}
+      MYSQL_USER: ${MYSQL_USER:-lskb}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD explicitly}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP -h 127.0.0.1
+          -u "$${MYSQL_USER}" --database="$${MYSQL_DATABASE}" -e 'SELECT 1' >/dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 20
+volumes:
+  uploads:
+  sqlite_data:
+  state:
+  backups:
+  mysql_data:

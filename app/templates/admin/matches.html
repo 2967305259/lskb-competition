@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, settlement_badge, match_progress_badge with context %}
 
 {% block title %}比赛管理{% endblock %}
 
@@ -17,10 +18,9 @@
         <div class="btn-group flex-wrap">
             <a href="{{ url_for('admin.matches') }}" class="btn btn-sm {{ 'btn-primary' if not status_filter else 'btn-outline-primary' }}">全部</a>
             <a href="{{ url_for('admin.matches', status='pending') }}" class="btn btn-sm {{ 'btn-secondary' if status_filter == 'pending' else 'btn-outline-secondary' }}">待处理</a>
-            <a href="{{ url_for('admin.matches', status='scheduled') }}" class="btn btn-sm {{ 'btn-info' if status_filter == 'scheduled' else 'btn-outline-info' }}">已排期</a>
+            <a href="{{ url_for('admin.matches', status='scheduled') }}" class="btn btn-sm {{ 'btn-info' if status_filter == 'scheduled' else 'btn-outline-info' }}">待确认</a>
             <a href="{{ url_for('admin.matches', status='confirmed') }}" class="btn btn-sm {{ 'btn-primary' if status_filter == 'confirmed' else 'btn-outline-primary' }}">已确认</a>
             <a href="{{ url_for('admin.matches', status='submitted') }}" class="btn btn-sm {{ 'btn-warning' if status_filter == 'submitted' else 'btn-outline-warning' }}">已提交</a>
-            <a href="{{ url_for('admin.matches', status='dispute') }}" class="btn btn-sm {{ 'btn-danger' if status_filter == 'dispute' else 'btn-outline-danger' }}">争议中</a>
             <a href="{{ url_for('admin.matches', status='finished') }}" class="btn btn-sm {{ 'btn-success' if status_filter == 'finished' else 'btn-outline-success' }}">已结束</a>
         </div>
     </div>
@@ -37,7 +37,7 @@
                             <th>选手A</th>
                             <th>选手B</th>
                             <th>分数</th>
-                            <th>肉鸽</th>
+                            <th>{{ labels.track }}</th>
                             <th>难度</th>
                             <th>状态</th>
                             <th>审核</th>
@@ -53,9 +53,9 @@
                                 <td>{{ match.player_b.nickname if match.player_b else '?' }}<br><small class="text-muted">{{ match.team_b.team_name if match.team_b else '?' }}</small></td>
                                 <td>
                                     {% if match.player_a_score is not none or match.player_b_score is not none %}
-                                        <span class="badge bg-info">{{ match.player_a_score or '-' }}</span>
+                                        <span class="badge bg-info">{{ match.player_a_score if match.player_a_score is not none else '-' }}</span>
                                         <span class="text-muted">:</span>
-                                        <span class="badge bg-info">{{ match.player_b_score or '-' }}</span>
+                                        <span class="badge bg-info">{{ match.player_b_score if match.player_b_score is not none else '-' }}</span>
                                     {% else %}
                                         <span class="text-muted">-</span>
                                     {% endif %}
@@ -66,17 +66,7 @@
                                     <span class="text-muted">/</span>
                                     <span class="badge bg-warning">{{ match.get_player_b_difficulty() }}难</span>
                                 </td>
-                                <td>
-                                    {% if match.status == 'pending' %}<span class="badge bg-secondary">待处理</span>
-                                    {% elif match.status == 'scheduled' %}<span class="badge bg-info">已排期</span>
-                                    {% elif match.status == 'confirmed' %}<span class="badge bg-primary">已确认</span>
-                                    {% elif match.status == 'submitted' %}<span class="badge bg-warning">已提交</span>
-                                    {% elif match.status == 'dispute' %}<span class="badge bg-danger">争议中</span>
-                                    {% elif match.status == 'finished' %}<span class="badge bg-success">已结束</span>
-                                    {% elif match.status == 'forfeit_a' %}<span class="badge bg-dark">A弃权</span>
-                                    {% elif match.status == 'forfeit_b' %}<span class="badge bg-dark">B弃权</span>
-                                    {% endif %}
-                                </td>
+                                <td>{{ match_status_badge(match.status) }}{{ settlement_badge(match, archived=match.tournament_id != active_season_id) }}</td>
                                 <td>
                                     {% if match.review_status == 'approved' %}<span class="badge bg-success">已审核</span>
                                     {% elif match.review_status == 'rejected' %}<span class="badge bg-danger">已驳回</span>
@@ -86,9 +76,9 @@
                                 <td>{{ match.created_at.strftime('%m-%d %H:%M') }}</td>
                                 <td>
                                     <a href="{{ url_for('tournament.match_detail', match_id=match.id) }}" class="btn btn-sm btn-outline-primary mb-1">查看</a>
-                                    {% if match.status in ('finished', 'forfeit_a', 'forfeit_b', 'submitted') %}
-                                        <button type="button" class="btn btn-sm btn-outline-warning mb-1" data-bs-toggle="modal" data-bs-target="#editModal{{ match.id }}">修改</button>
-                                        {% if match.review_status == 'pending' %}
+                                    {% if match.tournament_id == active_season_id and not admin_result_denial('edit', match) %}
+                                        <button type="button" class="btn btn-sm btn-outline-warning mb-1" data-bs-toggle="modal" data-bs-target="#editModal{{ match.id }}">{{ '修改' if match.settlement_state == 'settled' else '确认结束并结算' }}</button>
+                                        {% if match.review_status == 'pending' and not admin_result_denial('review', match) %}
                                             <form method="POST" action="{{ url_for('admin.review_match', match_id=match.id) }}" style="display:inline;">
                                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                 <input type="hidden" name="action" value="approve">
@@ -101,7 +91,7 @@
                             </tr>
 
                             <!-- 修改结果弹窗 -->
-                            {% if match.status in ('finished', 'forfeit_a', 'forfeit_b', 'submitted') %}
+                            {% if match.tournament_id == active_season_id and not admin_result_denial('edit', match) %}
                             <div class="modal fade" id="editModal{{ match.id }}" tabindex="-1">
                                 <div class="modal-dialog">
                                     <div class="modal-content bg-dark text-light">
@@ -124,11 +114,11 @@
                                                 <div class="row mb-3">
                                                     <div class="col-6">
                                                         <label class="form-label">{{ match.player_a.nickname if match.player_a else 'A' }} 分数</label>
-                                                        <input type="number" name="score_a" class="form-control" placeholder="分数" min="0" value="{{ match.player_a_score or '' }}">
+                                                        <input type="number" name="score_a" class="form-control" placeholder="分数" min="0" value="{{ match.player_a_score if match.player_a_score is not none else '' }}">
                                                     </div>
                                                     <div class="col-6">
                                                         <label class="form-label">{{ match.player_b.nickname if match.player_b else 'B' }} 分数</label>
-                                                        <input type="number" name="score_b" class="form-control" placeholder="分数" min="0" value="{{ match.player_b_score or '' }}">
+                                                        <input type="number" name="score_b" class="form-control" placeholder="分数" min="0" value="{{ match.player_b_score if match.player_b_score is not none else '' }}">
                                                     </div>
                                                 </div>
                                                 <div class="row mb-3">
@@ -148,7 +138,7 @@
                                             </div>
                                             <div class="modal-footer">
                                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                                                <button type="submit" class="btn btn-warning">确认修改</button>
+                                                <button type="submit" class="btn btn-warning">{{ '确认修改' if match.settlement_state == 'settled' else '确认结束并结算' }}</button>
                                             </div>
                                         </form>
                                     </div>
@@ -159,17 +149,7 @@
                     </tbody>
                 </table>
             </div>
-            {% if pagination.pages > 1 %}
-                <nav>
-                    <ul class="pagination justify-content-center">
-                        {% for p in range(1, pagination.pages + 1) %}
-                            <li class="page-item {{ 'active' if p == pagination.page }}">
-                                <a class="page-link" href="{{ url_for('admin.matches', page=p, status=status_filter) }}">{{ p }}</a>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                </nav>
-            {% endif %}
+            {{ render_pagination_simple(pagination, 'admin.matches', {'status': status_filter}) }}
         {% else %}
             <p class="text-muted text-center mb-0">暂无比赛记录</p>
         {% endif %}

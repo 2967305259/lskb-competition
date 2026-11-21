@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% from '_macros.html' import render_pagination, render_pagination_simple, match_status_badge, match_progress_badge, qualification_summary, settlement_badge with context %}
+
+{% block title %}{{ tournament.name }} - 往届赛事{% endblock %}
+
+{% block content %}
+{% if historical_context.unverified %}<div class="alert alert-warning">历史规则资料待核对；以下仅展示已保存的结果，不代表已还原当时规则。</div>{% endif %}
+{% if current_user.is_authenticated and current_user.is_super_admin() %}<a class="btn btn-outline-warning" href="{{ url_for('p0_correct_history', tid=tournament.id) }}">往届专项纠错</a>{% endif %}
+{% if historical_context.rules %}
+<details class="card p-3 mb-3"><summary>该届规则与赛制快照</summary>
+<p>赛事：{{ historical_context.name }} · 队制：{{ historical_context.team_size }} 人 · 队伍倍率：{{ historical_context.bonus_score }}</p>
+{% for rule in historical_context.rules %}<h4>{{ rule.title }}</h4><div style="white-space: pre-line">{{ rule.content }}</div>{% endfor %}
+{% for key, track in historical_context.tracks.items() %}<p>{{ track.name }}：{{ track.rule.minimum }}–{{ track.rule.maximum }} 难，步长 {{ track.rule.step }}</p>{% endfor %}
+</details>
+{% endif %}
+
+<div class="row mb-4">
+    <div class="col-12">
+        <a href="{{ url_for('main.history') }}" class="btn btn-light rounded-pill mb-3">
+            <i class="fas fa-arrow-left"></i> 返回往届赛事
+        </a>
+        <h2 class="mb-2"><i class="fas fa-trophy"></i> {{ tournament.name }}</h2>
+        <p class="text-muted mb-0">
+            第 {{ tournament.season_number }} 届 ·
+            {{ (tournament.tournament_start|event_time(tournament.window_times_utc, '%Y-%m-%d')) if tournament.tournament_start else '—' }}
+            ~
+            {{ (tournament.tournament_end|event_time(tournament.window_times_utc, '%Y-%m-%d')) if tournament.tournament_end else '—' }}
+            {% if tournament.tournament_start or tournament.tournament_end %}
+            · {{ config.EVENT_TIMEZONE if tournament.window_times_utc else '旧日期时区待核对' }}
+            {% endif %}
+            · 已归档（只读）
+        </p>
+        {% if release %}
+        <p class="mt-2 mb-0">赛事发布包 v{{ release.version }} · SHA-256 <code class="text-break">{{ release.checksum }}</code></p>
+        {% endif %}
+    </div>
+</div>
+
+{% if rankings %}
+<!-- 冠亚季军 -->
+<div class="row mb-4 justify-content-center">
+    {% if runner_ups %}
+    <div class="col-md-3 mb-3 text-center">
+        <div class="card border-secondary h-100">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0"><i class="fas fa-medal"></i> 并列亚军 🥈</h5>
+            </div>
+            <div class="card-body">
+                {% for runner_up in runner_ups %}
+                <h4 class="mb-2"><a href="#team-{{ runner_up.team.id }}" class="link-secondary">{{ runner_up.team.team_name }}</a></h4>
+                <p class="text-muted small mb-2">队长：{{ runner_up.team.captain.nickname if runner_up.team.captain else '—' }}</p>
+                <span class="badge bg-secondary">{{ runner_up.points }} 分</span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if champions %}
+    <div class="col-md-4 mb-3 text-center">
+        <div class="card border-warning h-100" style="border-width: 3px;">
+            <div class="card-header bg-warning text-dark">
+                <h4 class="mb-0"><i class="fas fa-crown"></i> 并列冠军 🏆</h4>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <i class="fas fa-crown" style="font-size: 3rem; color: #ffc107;"></i>
+                </div>
+                {% for champion in champions %}
+                <h3 class="mb-2"><a href="#team-{{ champion.team.id }}" class="link-warning">{{ champion.team.team_name }}</a></h3>
+                <p class="text-muted small mb-2">队长：{{ champion.team.captain.nickname if champion.team.captain else '—' }}</p>
+                <span class="badge bg-warning text-dark" style="font-size: 1.1rem;">{{ champion.points }} 分</span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if third_places %}
+    <div class="col-md-3 mb-3 text-center">
+        <div class="card border-danger h-100">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0"><i class="fas fa-medal"></i> 并列第三 🥉</h5>
+            </div>
+            <div class="card-body">
+                {% for third_place in third_places %}
+                <h4 class="mb-2"><a href="#team-{{ third_place.team.id }}" class="link-danger">{{ third_place.team.team_name }}</a></h4>
+                <p class="text-muted small mb-2">队长：{{ third_place.team.captain.nickname if third_place.team.captain else '—' }}</p>
+                <span class="badge bg-danger">{{ third_place.points }} 分</span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="row">
+    <!-- 队伍积分榜 -->
+    <div class="col-lg-7 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list-ol"></i> 队伍积分榜</h5>
+            </div>
+            <div class="card-body">
+                {{ qualification_summary(qualification) }}
+                {% if rankings %}
+                <div class="table-responsive" data-scroll-label="往届队伍积分榜">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width: 60px;">名次</th>
+                                <th>队伍</th>
+                                <th>队长</th>
+                                <th class="text-end">积分</th>
+                                <th>晋级</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in rankings %}
+                            <tr id="team-{{ r.team.id }}">
+                                <td>
+                                    {% if r.rank == 1 %}
+                                        <span class="badge bg-warning text-dark">1</span>
+                                    {% elif r.rank == 2 %}
+                                        <span class="badge bg-secondary">2</span>
+                                    {% elif r.rank == 3 %}
+                                        <span class="badge bg-danger">3</span>
+                                    {% else %}
+                                        {{ r.rank }}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {{ r.team.team_name }}
+                                </td>
+                                <td class="text-muted small">
+                                    {{ r.team.captain.nickname if r.team.captain else '—' }}
+                                </td>
+                                <td class="text-end"><strong>{{ r.points }}</strong></td>
+                                <td>{{ '待核对' if qualification.quota is none else ('已晋级' if r.team.id in qualification.team_ids else '未晋级') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted text-center mb-0">该届暂无队伍积分数据</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 队员积分榜 -->
+    <div class="col-lg-5 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-user"></i> 队员积分榜</h5>
+            </div>
+            <div class="card-body">
+                {% if members %}
+                <div class="table-responsive" data-scroll-label="往届队员积分榜" style="max-height: 420px; overflow-y: auto;">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">#</th>
+                                <th>选手</th>
+                                <th>队伍</th>
+                                <th class="text-end">积分</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in members %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ m.user.nickname if m.user else '—' }}</td>
+                                <td class="text-muted small">{{ m.team.team_name if m.team else '—' }}</td>
+                                <td class="text-end">{{ m.final_score or 0 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted text-center mb-0">该届暂无队员积分数据</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 比赛结果 -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="fas fa-history"></i> 比赛结果</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small">正式场次 {{ match_counts.formal }} · 已判胜负 {{ match_counts.decided }} · 已结算 {{ match_counts.settled }}</p>
+        {% if matches %}
+        <div class="table-responsive" data-scroll-label="往届比赛结果">
+            <table class="table table-hover table-sm mb-0">
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th>{{ labels.track }}</th>
+                        <th>对阵</th>
+                        <th class="text-end">比分</th>
+                        <th>胜者</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in matches %}
+                    <tr>
+                        <td class="text-muted small">
+                            {{ m.created_at.strftime('%m-%d') if m.created_at else '—' }}
+                        </td>
+                        <td><span class="badge bg-info">{{ get_roguelike_name(m.roguelike) }}</span></td>
+                        <td>
+                            {{ m.player_a.nickname if m.player_a else '—' }}
+                            <span class="text-muted">vs</span>
+                            {{ m.player_b.nickname if m.player_b else '—' }}
+                        </td>
+                        <td class="text-end">
+                            {{ m.player_a_score if m.player_a_score is not none else '—' }}
+                            :
+                            {{ m.player_b_score if m.player_b_score is not none else '—' }}
+                        </td>
+                        <td>
+                            {% if m.winner %}
+                                <strong>{{ m.winner.nickname }}</strong>
+                            {% elif has_outcome(m) %}
+                                <span class="text-muted">平局</span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {{ match_status_badge(m.status) }} {{ settlement_badge(m, archived=true) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted text-center mb-0">该届暂无比赛记录</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+

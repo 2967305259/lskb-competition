@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}分组抽取器{% endblock %}
+{% block extra_css %}
+<style>
+    .group-card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    .group-card h5 { color: #00bcd4; margin-bottom: 16px; }
+    .player-tag { display: inline-block; background: #16213e; border: 1px solid #333; border-radius: 6px; padding: 8px 14px; margin: 4px; font-size: 0.85rem; }
+    .player-tag .team { color: #888; font-size: 0.72rem; }
+    .btn-draw { background: #00bcd4; color: #111; border: none; padding: 14px 40px; border-radius: 10px; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
+    .btn-draw:hover { background: #00e5ff; box-shadow: 0 0 20px rgba(0,188,212,0.5); }
+    .match-src { background: #0f0f1a; border: 1px solid #333; border-radius: 8px; padding: 12px; margin-bottom: 8px; font-size: 0.8rem; }
+    .match-src .vs { color: #00bcd4; font-weight: 700; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('admin.dashboard') }}" class="btn btn-light rounded-pill mb-3"><i class="fas fa-arrow-left"></i> 返回后台</a>
+<h2 class="mb-3"><i class="fas fa-random"></i> 分组抽取器</h2>
+<p class="text-muted mb-4">从已创建的正式比赛读取选手，在浏览器随机分组供现场展示。分组结果不会保存到正式赛程。</p>
+
+<div class="row g-4">
+    <div class="col-lg-3">
+        <div class="group-card">
+            <h5><i class="fas fa-cog"></i> 抽签设置</h5>
+            <div class="mb-3">
+                <label for="matchSize" class="form-label small">每组展示人数</label>
+                <select id="matchSize" class="form-select form-select-sm">
+                    <option value="2">2 人 (1v1)</option>
+                    <option value="4">4 人</option>
+                </select>
+            </div>
+            <button class="btn-draw w-100" onclick="doDraw()"><i class="fas fa-random"></i> 开始抽取</button>
+            <button class="btn btn-sm btn-outline-secondary w-100 mt-2" onclick="location.reload()"><i class="fas fa-undo"></i> 重置</button>
+        </div>
+
+    </div>
+
+    <div class="col-lg-9">
+        <div id="loadingArea" class="text-center py-3">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">加载比赛数据...</p>
+        </div>
+        <div id="resultArea"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script>
+let sourceMatches = [];
+
+function shuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+async function loadMatches() {
+    try {
+        const r = await fetch("{{ url_for('admin.schedule_api_matches') }}");
+        const data = await r.json();
+        sourceMatches = data.matches.filter(m => !m.is_exhibition && m.player_a !== '?' && m.player_b !== '?');
+        document.getElementById('loadingArea').style.display = 'none';
+        document.getElementById('resultArea').innerHTML = `
+            <div class="text-center py-5 text-muted">
+                <i class="fas fa-random" style="font-size: 4rem;"></i>
+                <p class="mt-3">共 ${sourceMatches.length} 场正式比赛，点击"开始抽取"</p>
+            </div>`;
+    } catch(e) {
+        document.getElementById('loadingArea').innerHTML = `<div class="alert alert-danger">加载失败: ${e.message}</div>`;
+    }
+}
+
+function doDraw() {
+    if (!sourceMatches.length) return alert('没有可用的比赛数据');
+
+    const matchSize = parseInt(document.getElementById('matchSize').value);
+    
+    // 收集所有参赛选手（去重）
+    const seen = new Set();
+    const players = [];
+    sourceMatches.forEach(m => {
+        if (!seen.has(m.player_a)) { seen.add(m.player_a); players.push({name: m.player_a, team: m.team_a, roguelike: m.roguelike_name}); }
+        if (!seen.has(m.player_b)) { seen.add(m.player_b); players.push({name: m.player_b, team: m.team_b, roguelike: m.roguelike_name}); }
+    });
+
+    // 随机打乱再分组
+    const shuffled = shuffle(players);
+    const groups = [];
+    for (let i = 0; i < shuffled.length; i += matchSize) {
+        groups.push(shuffled.slice(i, i + matchSize));
+    }
+
+    // 渲染
+    const area = document.getElementById('resultArea');
+    area.innerHTML = `
+        <div class="alert alert-success mb-3">
+            <i class="fas fa-check-circle"></i> 抽取完成！共 ${groups.length} 组，${players.length} 名选手
+        </div>
+        <div class="row g-3">
+            ${groups.map((g, i) => `
+                <div class="col-md-6">
+                    <div class="group-card">
+                        <h5>🏆 第 ${i + 1} 组 (${g.length}人)</h5>
+                        ${g.map(p => `<span class="player-tag">${p.name} <span class="team">(${p.team})</span><br><small class="text-muted">${p.roguelike}</small></span>`).join('')}
+                    </div>
+                </div>
+            `).join('')}
+        </div>`;
+
+    // 也显示原始比赛对照
+    area.insertAdjacentHTML('beforeend', `
+        <hr class="my-4">
+        <h5 class="mb-3"><i class="fas fa-list"></i> 原始比赛对照</h5>
+        ${sourceMatches.map(m => `
+            <div class="match-src">
+                <span>${m.player_a} (${m.team_a})</span>
+                <span class="vs"> vs </span>
+                <span>${m.player_b} (${m.team_b})</span>
+                <span class="text-muted ms-2 small">| ${m.roguelike_name}</span>
+            </div>
+        `).join('')}
+    `);
+}
+
+loadMatches();
+</script>
+{% endblock %}

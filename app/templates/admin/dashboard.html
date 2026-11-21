@@ -14,6 +14,15 @@
     </div>
 </div>
 
+{% if secret_key_warning or using_default_password %}
+<div class="alert alert-warning" role="alert">
+    {% if secret_key_warning %}<p class="{{ 'mb-2' if using_default_password else 'mb-0' }}">{{ secret_key_warning }}</p>{% endif %}
+    {% if using_default_password %}
+    <p class="mb-0">当前账号仍在使用已知的默认口令。<a class="alert-link" href="{{ url_for('auth.change_password') }}">修改密码</a></p>
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- 统计卡片 -->
 <div class="row mb-4">
     <div class="col-md-3 mb-3">
@@ -42,6 +51,34 @@
     </div>
 </div>
 
+<!-- 本季待办 -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-clipboard-check"></i> 本季待办</h5>
+        {% set pending_todos = season_todos|selectattr('done', 'equalto', false)|list %}
+        {% if not pending_todos %}<span class="badge bg-success">配置就绪</span>{% endif %}
+    </div>
+    <div class="card-body">
+        {% if pending_todos %}
+        <div class="list-group">
+            {% for todo in pending_todos|sort(attribute='order') %}
+            <a href="{{ todo.url }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                <span>
+                    {% if todo.level == 'block' %}<span class="badge bg-danger me-2">阻断</span>
+                    {% elif todo.level == 'warning' %}<span class="badge bg-warning text-dark me-2">警告</span>
+                    {% else %}<span class="badge bg-info me-2">提示</span>{% endif %}
+                    {{ todo.message }}
+                </span>
+                <span class="text-muted small">去设置 <i class="fas fa-arrow-right"></i></span>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-success mb-0"><i class="fas fa-check-circle"></i> 当前赛季配置已就绪</p>
+        {% endif %}
+    </div>
+</div>
+
 <!-- 报名状态 -->
 <div class="row mb-4">
     <div class="col-md-6">
@@ -50,7 +87,7 @@
                 <h5 class="mb-0"><i class="fas fa-toggle-on"></i> 报名状态</h5>
             </div>
             <div class="card-body text-center">
-                {% if registration_open %}
+                {% if not registration_problem %}
                     <div class="stat-box">
                         <p style="margin-bottom: 0; color: #90ee90;">
                             <i class="fas fa-check-circle" style="font-size: 2rem;"></i>
@@ -78,9 +115,9 @@
                 <h5 class="mb-0"><i class="fas fa-download"></i> 数据导出</h5>
             </div>
             <div class="card-body text-center">
-                <p class="text-muted">导出报名信息为 Excel 文件</p>
-                <a href="{{ url_for('admin.export_excel') }}" class="btn btn-primary">
-                    <i class="fas fa-file-excel"></i> 导出 Excel
+                <p class="text-muted">下载本届赛事 Excel，查看数据库与素材备份。</p>
+                <a href="{{ url_for('admin.admin_data_tools') }}" class="btn btn-primary">
+                    <i class="fas fa-file-excel"></i> 数据工具
                 </a>
             </div>
         </div>
@@ -116,7 +153,7 @@
                                         <td>{{ team.team_name }}</td>
                                         <td>{{ team.captain.nickname }}</td>
                                         <td>
-                                            <span class="badge bg-info">{{ team.get_member_count() }}/4</span>
+                                            <span class="badge bg-info">{{ team.get_member_count() }}/{{ team_size }}</span>
                                         </td>
                                         <td>
                                             <span class="badge bg-warning">{{ team.team_score or 0 }}</span>
@@ -158,26 +195,26 @@
                 <div class="row mb-3">
                     <div class="col-md-3 mb-2">
                         <div class="stat-box">
-                            <h3>{{ total_matches }}</h3>
-                            <p>总比赛</p>
+                            <h3>{{ match_counts.formal }}</h3>
+                            <p>正式场次</p>
                         </div>
                     </div>
                     <div class="col-md-3 mb-2">
                         <div class="stat-box">
-                            <h3>{{ pending_matches }}</h3>
+                            <h3>{{ match_counts.pending }}</h3>
                             <p>待处理</p>
                         </div>
                     </div>
                     <div class="col-md-3 mb-2">
                         <div class="stat-box">
-                            <h3>{{ dispute_matches }}</h3>
-                            <p>争议中</p>
+                            <h3>{{ match_counts.decided }}</h3>
+                            <p>已判胜负</p>
                         </div>
                     </div>
                     <div class="col-md-3 mb-2">
                         <div class="stat-box">
-                            <h3>{{ finished_matches }}</h3>
-                            <p>已结束</p>
+                            <h3>{{ match_counts.settled }}</h3>
+                            <p>已结算</p>
                         </div>
                     </div>
                 </div>
@@ -194,11 +231,6 @@
                         </a>
                     </div>
                     <div class="col-md-3 mb-3">
-                        <a href="{{ url_for('admin.disputes') }}" class="btn btn-outline-primary w-100">
-                            <i class="fas fa-gavel"></i> 争议调解
-                        </a>
-                    </div>
-                    <div class="col-md-3 mb-3">
                         <a href="{{ url_for('admin.score_config') }}" class="btn btn-outline-primary w-100">
                             <i class="fas fa-sliders-h"></i> 积分配置
                         </a>
@@ -212,7 +244,12 @@
                     </div>
                     <div class="col-md-3 mb-3">
                         <a href="{{ url_for('admin.roguelikes') }}" class="btn btn-outline-primary w-100">
-                            <i class="fas fa-gamepad"></i> 肉鸽管理
+                            <i class="fas fa-gamepad"></i> {{ labels.track }}管理
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.manage_rules') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-book"></i> 规则管理
                         </a>
                     </div>
                     <div class="col-md-3 mb-3">
@@ -222,7 +259,20 @@
                     </div>
                     <div class="col-md-3 mb-3">
                         <a href="{{ url_for('admin.tournament_settings') }}" class="btn btn-outline-primary w-100">
-                            <i class="fas fa-clock"></i> 赛事时间设置
+                            <i class="fas fa-flag"></i> 赛事设置
+                        </a>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.carousel') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-images"></i> 轮播图管理
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <a href="{{ url_for('admin.schedule') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-calendar-alt"></i> 日程管理
                         </a>
                     </div>
                 </div>
@@ -234,8 +284,8 @@
                             {% if tournament_status == 'registration' %}
                                 <form method="POST" action="{{ url_for('admin.start_tournament') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-success"
-                                            onclick="return confirm('确定开始比赛？报名将锁定。');">
+                                    <button type="submit" class="btn btn-success" {% if not tracks_enabled %}disabled{% endif %}
+                                            onclick="return confirm('确定进入匹配阶段？报名开关由管理员另行控制。');">
                                         <i class="fas fa-play"></i> 开始比赛
                                     </button>
                                 </form>
@@ -243,17 +293,17 @@
                             {% if tournament_status == 'matching' %}
                                 <form method="POST" action="{{ url_for('admin.run_matching') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-warning"
+                                    <button type="submit" class="btn btn-warning" {% if not tracks_enabled %}disabled{% endif %}
                                             onclick="return confirm('确定执行自动匹配？');">
                                         <i class="fas fa-random"></i> 执行匹配
                                     </button>
                                 </form>
                             {% endif %}
-                            {% if tournament_status == 'playing' %}
+                            {% if tournament_status == 'running' %}
                                 <form method="POST" action="{{ url_for('admin.finish_tournament') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-danger"
-                                            onclick="return confirm('确定结束赛事？');">
+                                            onclick="return confirm('确定结束赛事？已安排场次仍可提交、确认结算和审核。');">
                                         <i class="fas fa-stop"></i> 结束赛事
                                     </button>
                                 </form>
@@ -261,18 +311,18 @@
                             {% if tournament_status != 'registration' %}
                                 <form method="POST" action="{{ url_for('admin.resume_registration') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-info"
+                                    <button type="submit" class="btn btn-info" {% if not tracks_enabled %}disabled{% endif %}
                                             onclick="return confirm('确定恢复报名？将回到报名阶段。');">
                                         <i class="fas fa-undo"></i> 恢复报名
                                     </button>
                                 </form>
                             {% endif %}
-                            <span class="badge bg-{{ 'success' if tournament_status == 'playing' else 'info' if tournament_status == 'matching' else 'warning' if tournament_status == 'registration' else 'secondary' }} d-flex align-items-center" style="font-size: 0.9rem;">
+                            <span class="badge bg-{{ 'success' if tournament_status == 'running' else 'info' if tournament_status == 'matching' else 'warning' if tournament_status == 'registration' else 'secondary' }} d-flex align-items-center" style="font-size: 0.9rem;">
                                 <i class="fas fa-circle me-1"></i>
                                 当前状态：
                                 {% if tournament_status == 'registration' %}报名阶段
                                 {% elif tournament_status == 'matching' %}匹配阶段
-                                {% elif tournament_status == 'playing' %}比赛进行中
+                                {% elif tournament_status == 'running' %}比赛进行中
                                 {% elif tournament_status == 'finished' %}赛事已结束
                                 {% endif %}
                             </span>

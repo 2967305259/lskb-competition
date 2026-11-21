@@ -1,0 +1,4 @@
+services:
+  mysql:
+    ports:
+      - "127.0.0.1:${MYSQL_PUBLISH_PORT:-3307}:3306"

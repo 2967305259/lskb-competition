@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}选择肉鸽{% endblock %}
+{% block title %}选择{{ labels.track }}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -8,7 +8,7 @@
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0">
-                    <i class="fas fa-dragon"></i> 选择肉鸽
+                    <i class="fas fa-dragon"></i> 选择{{ labels.track }}
                 </h5>
             </div>
             <div class="card-body">
@@ -17,11 +17,11 @@
                     
                     <div class="mb-4">
                         <p class="text-muted">
-                            请选择一个肉鸽副本进行挑战
+                            请选择一个{{ labels.track }}参加比赛
                         </p>
                         {% if taken_roguelikes %}
                             <div class="alert alert-warning py-2 mb-0 mt-2">
-                                <small><i class="fas fa-info-circle"></i> 以下肉鸽已被队友选择：</small>
+                                <small><i class="fas fa-info-circle"></i> 以下{{ labels.track }}已被队友选择：</small>
                                 <ul class="mb-0 mt-1 ps-3">
                                     {% for r in taken_roguelikes %}
                                         <li><small>{{ get_roguelike_name(r) }}</small></li>
@@ -32,6 +32,7 @@
                     </div>
                     
                     <div class="mb-3">
+                        <label class="form-label" for="{{ form.roguelike.id }}"><i class="fas fa-dragon"></i> {{ form.roguelike.label.text }}</label>
                         {% if form.roguelike.errors %}
                             {{ form.roguelike(class="form-select is-invalid") }}
                             <div class="invalid-feedback d-block">
@@ -43,6 +44,17 @@
                             {{ form.roguelike(class="form-select") }}
                         {% endif %}
                     </div>
+
+                    {% for field, icon, label in [(form.squad, 'fa-shield-alt', labels.field1), (form.operator, 'fa-user', labels.field2)] %}
+                    <div class="mb-3">
+                        <label class="form-label" for="{{ field.id }}"><i class="fas {{ icon }}"></i> {{ field.label.text }}</label>
+                        {{ field(class="form-control is-invalid" if field.errors else "form-control") }}
+                        <div class="form-text text-muted">请输入{{ label }}名称（选填）</div>
+                        {% for error in field.errors %}
+                        <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
                     
                     {% if roguelike %}
                         <div class="alert alert-info">

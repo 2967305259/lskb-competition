@@ -1,0 +1,29 @@
+{
+  "combined": {
+    "tests": 95,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "sqlite": {
+    "tests": 49,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "versions": {
+    "Flask": "2.3.3",
+    "SQLAlchemy": "2.1.8",
+    "pytest": "9.2.0",
+    "PyMySQL": "1.1.0"
+  },
+  "source_sha256": {
+    "app.py": "91aeff454a40e974e8c4b336ac96368bc6e3efbf2d58c0b969f9fa2c50c54134",
+    "scoring.py": "8265eb7fc347e83c67d6c6af2c2a611f0dca6265240d921a13edbe3e3e2951cd",
+    "season_safety.py": "c513ff1458cf4e93a6e2c43aa070c19e4294af32418dc1897305d464cd68ce50",
+    "migrations.py": "93367d95106fefb07e20067df8c6fe85cdb6a17ddb82e40560fdb313229c80ac",
+    "backup.py": "8874685592596894af31346a6786881421c5bec1c0dae3ab9d01adac17377e28",
+    "management.py": "b510bdee7bf2be8ab6c2c02dcfd83dc2492a476c93087f0306cfaa20b13a1e3e",
+    "wsgi.py": "c0fc150f189a169c14a63dc0b9715a18b7e84f2502cd46f88fb2b111496d2537"
+  }
+}

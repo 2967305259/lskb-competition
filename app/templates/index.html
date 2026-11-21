@@ -1,42 +1,61 @@
 {% extends "base.html" %}
+{% from '_macros.html' import render_pagination, match_status_badge with context %}
 
-{% block title %}首页 - 冷水坑杯 #3{% endblock %}
-
-{% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/carousel.css') }}">
-{% endblock %}
+{% block title %}首页 - {{ event_name }}{% endblock %}
 
 {% block content %}
-<!-- ===== 轮播 - 宣传片风格 ===== -->
-<div class="row mb-4">
-    <div class="col-12">
-        {% if carousel_media and carousel_media|length > 0 %}
-        <div class="hero-slider">
-            <div class="slider-track">
-                {% for item in carousel_media %}
-                <div class="slide {{ 'active' if loop.first else '' }}">
-                    {% if item.type == 'image' %}
-                    <img src="{{ url_for('main.carousel_media_serve', filename=item.file) }}"
-                         alt="轮播 {{ loop.index }}"
-                         loading="{{ 'eager' if loop.first else 'lazy' }}">
-                    {% elif item.type == 'video' %}
-                    <video autoplay muted playsinline preload="metadata">
-                        <source src="{{ url_for('main.carousel_media_serve', filename=item.file) }}">
-                    </video>
-                    {% endif %}
-                </div>
-                {% endfor %}
-            </div>
-            <div class="slider-dots"></div>
-        </div>
-        {% else %}
-        <div class="slider-empty">
-            <i class="fas fa-image"></i>
-            <span>暂无轮播内容</span>
-        </div>
-        {% endif %}
-    </div>
+<!-- ===== 轮播图区域 ===== -->
+{% if carousel_media %}
+{% set multiple_slides = carousel_media|length > 1 %}
+{% if multiple_slides %}
+<div class="d-flex justify-content-end mb-2">
+    <button type="button" id="carousel-rotation" class="btn btn-outline-secondary btn-sm" aria-controls="homeCarousel" aria-pressed="false" hidden>自动轮播</button>
 </div>
+{% endif %}
+<div id="homeCarousel" class="carousel slide mb-4" aria-label="赛事轮播">
+    {% if multiple_slides %}
+    <div class="carousel-indicators" style="top: 0; bottom: auto;">
+        {% for item in carousel_media %}
+        <button type="button" data-bs-target="#homeCarousel" data-bs-slide-to="{{ loop.index0 }}" {% if loop.first %}class="active" aria-current="true"{% endif %} aria-label="第 {{ loop.index }} 张"></button>
+        {% endfor %}
+    </div>
+    {% endif %}
+    <div class="carousel-inner" style="border-radius: 12px; overflow: hidden;">
+        {% for item in carousel_media %}
+        <div class="carousel-item {% if loop.first %}active{% endif %}">
+            {% if item.type == 'video' %}
+            <video src="{{ item.url }}" controls playsinline preload="metadata" class="d-block w-100 bg-dark"
+                   aria-label="{{ item.title or '轮播视频' }}" style="object-fit: contain; height: 420px;"></video>
+            {% else %}
+            {% if item.link %}<a href="{{ item.link }}">{% endif %}
+            <img src="{{ item.url }}" class="d-block w-100" alt="{{ item.title or ('轮播 ' ~ loop.index) }}"
+                 style="object-fit: cover; height: 420px;">
+            {% if item.link %}</a>{% endif %}
+            {% endif %}
+            {% if item.title or (item.type == 'video' and item.link) %}
+            <div class="bg-dark text-light text-center py-2">
+                {% if item.type == 'video' and item.link %}
+                <a class="link-light" href="{{ item.link }}">{{ item.title or '打开链接' }}</a>
+                {% else %}
+                {{ item.title }}
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% if multiple_slides %}
+    <button class="carousel-control-prev" type="button" data-bs-target="#homeCarousel" data-bs-slide="prev">
+        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+        <span class="visually-hidden">上一页</span>
+    </button>
+    <button class="carousel-control-next" type="button" data-bs-target="#homeCarousel" data-bs-slide="next">
+        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+        <span class="visually-hidden">下一页</span>
+    </button>
+    {% endif %}
+</div>
+{% endif %}
 
 <!-- 赛事信息 -->
 {% if tournament %}
@@ -64,14 +83,17 @@
                     </div>
                     <div class="col-md-3 mb-2">
                         <small class="text-muted">报名时间</small>
-                        <div>{{ tournament.registration_start.strftime('%m/%d') if tournament.registration_start else '待定' }} - {{ tournament.registration_end.strftime('%m/%d') if tournament.registration_end else '待定' }}</div>
+                        <div>{{ (tournament.registration_start|event_time(tournament.window_times_utc, '%m/%d')) if tournament.registration_start else '待定' }} - {{ (tournament.registration_end|event_time(tournament.window_times_utc, '%m/%d')) if tournament.registration_end else '待定' }}</div>
                     </div>
                     <div class="col-md-3 mb-2">
                         <small class="text-muted">比赛时间</small>
-                        <div>{{ tournament.tournament_start.strftime('%m/%d') if tournament.tournament_start else '待定' }} - {{ tournament.tournament_end.strftime('%m/%d') if tournament.tournament_end else '待定' }}</div>
+                        <div>{{ (tournament.tournament_start|event_time(tournament.window_times_utc, '%m/%d')) if tournament.tournament_start else '待定' }} - {{ (tournament.tournament_end|event_time(tournament.window_times_utc, '%m/%d')) if tournament.tournament_end else '待定' }}</div>
                     </div>
                     
                 </div>
+                {% if tournament.registration_start or tournament.registration_end or tournament.tournament_start or tournament.tournament_end %}
+                <small class="text-muted">计划时间 · {{ config.EVENT_TIMEZONE if tournament.window_times_utc else '旧日期时区待核对' }}</small>
+                {% endif %}
                 {% if tournament.description %}
                 <hr>
                 <p class="text-muted mb-0">{{ tournament.description }}</p>
@@ -106,14 +128,14 @@
     </div>
     <div class="col-md-3 mb-3">
         <div class="stat-box">
-            <h3>{{ total_matches }}</h3>
-            <p>总比赛</p>
+            <h3>{{ match_counts.formal }}</h3>
+            <p>正式场次</p>
         </div>
     </div>
     <div class="col-md-3 mb-3">
         <div class="stat-box">
-            <h3>{{ finished_matches }}</h3>
-            <p>已完成</p>
+            <h3>{{ match_counts.settled }}</h3>
+            <p>已结算 · 已判胜负 {{ match_counts.decided }}</p>
         </div>
     </div>
 </div>
@@ -141,14 +163,14 @@
                                 {% for r in rankings %}
                                     <tr>
                                         <td>
-                                            {% if loop.index == 1 %}
+                                            {% if r.rank == 1 %}
                                                 <span class="badge bg-warning">🥇</span>
-                                            {% elif loop.index == 2 %}
+                                            {% elif r.rank == 2 %}
                                                 <span class="badge bg-secondary">🥈</span>
-                                            {% elif loop.index == 3 %}
+                                            {% elif r.rank == 3 %}
                                                 <span class="badge bg-danger">🥉</span>
                                             {% else %}
-                                                {{ loop.index }}
+                                                {{ r.rank }}
                                             {% endif %}
                                         </td>
                                         <td>
@@ -199,7 +221,7 @@
                                 <div class="col-md-4 text-end">
                                     <div class="mb-2">
                                         <span class="badge bg-info">
-                                            {{ team.get_member_count() }}/4 人
+                                            {{ team.get_member_count() }}/{{ team_size }} 人
                                         </span>
                                     </div>
                                     <div>
@@ -219,43 +241,7 @@
                     {% endfor %}
                     
                     <!-- 分页 -->
-                    {% if latest_teams.pages > 1 %}
-                        <nav aria-label="Page navigation">
-                            <ul class="pagination justify-content-center">
-                                {% if latest_teams.has_prev %}
-                                    <li class="page-item">
-                                        <a class="page-link" href="{{ url_for('main.index', page=latest_teams.prev_num) }}">
-                                            上一页
-                                        </a>
-                                    </li>
-                                {% endif %}
-                                
-                                {% for page_num in latest_teams.iter_pages() %}
-                                    {% if page_num %}
-                                        {% if page_num == latest_teams.page %}
-                                            <li class="page-item active">
-                                                <span class="page-link">{{ page_num }}</span>
-                                            </li>
-                                        {% else %}
-                                            <li class="page-item">
-                                                <a class="page-link" href="{{ url_for('main.index', page=page_num) }}">
-                                                    {{ page_num }}
-                                                </a>
-                                            </li>
-                                        {% endif %}
-                                    {% endif %}
-                                {% endfor %}
-                                
-                                {% if latest_teams.has_next %}
-                                    <li class="page-item">
-                                        <a class="page-link" href="{{ url_for('main.index', page=latest_teams.next_num) }}">
-                                            下一页
-                                        </a>
-                                    </li>
-                                {% endif %}
-                            </ul>
-                        </nav>
-                    {% endif %}
+                    {{ render_pagination(latest_teams, 'main.index') }}
                 {% else %}
                     <div class="text-center py-5">
                         <p class="text-muted mb-0">
@@ -270,6 +256,36 @@
 {% endblock %}
 
 {% block extra_js %}
-{{ super() }}
-<script src="{{ url_for('static', filename='js/carousel.js') }}"></script>
+{% if carousel_media|length > 1 %}
+<script>
+    (() => {
+        if (!window.bootstrap) return;
+        const carousel = document.getElementById('homeCarousel');
+        const rotation = document.getElementById('carousel-rotation');
+        const slideshow = bootstrap.Carousel.getOrCreateInstance(carousel, {interval: 4000, pause: false});
+        const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        let enabled = !motion.matches;
+        const activeVideo = () => carousel.querySelector('.carousel-item.active video');
+        const update = () => {
+            const video = activeVideo();
+            if (enabled && !carousel.matches(':hover, :focus-within') && (!video || video.paused)) {
+                slideshow.cycle();
+            } else {
+                slideshow.pause();
+            }
+            rotation.setAttribute('aria-pressed', String(enabled));
+        };
+        rotation.hidden = false;
+        rotation.addEventListener('click', () => { enabled = !enabled; update(); });
+        motion.addEventListener('change', () => { enabled = !motion.matches; update(); });
+        for (const video of carousel.querySelectorAll('video')) {
+            for (const event of ['play', 'pause', 'ended']) video.addEventListener(event, update);
+        }
+        for (const event of ['mouseenter', 'mouseleave', 'focusin', 'slid.bs.carousel']) carousel.addEventListener(event, update);
+        carousel.addEventListener('focusout', () => setTimeout(update, 0));
+        carousel.addEventListener('slide.bs.carousel', () => activeVideo()?.pause());
+        update();
+    })();
+</script>
+{% endif %}
 {% endblock %}

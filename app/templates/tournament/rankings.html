@@ -23,7 +23,7 @@
             </div>
             <div class="card-body">
                 {% if rankings %}
-                    <div class="table-responsive">
+                    <div class="table-responsive" data-scroll-label="队伍排行榜">
                         <table class="table table-hover">
                             <thead>
                                 <tr>
@@ -37,14 +37,14 @@
                                 {% for r in rankings %}
                                     <tr>
                                         <td>
-                                            {% if loop.index == 1 %}
+                                            {% if r.rank == 1 %}
                                                 <span class="badge bg-warning" style="font-size: 1.2rem;">🥇 1</span>
-                                            {% elif loop.index == 2 %}
+                                            {% elif r.rank == 2 %}
                                                 <span class="badge bg-secondary" style="font-size: 1.2rem;">🥈 2</span>
-                                            {% elif loop.index == 3 %}
+                                            {% elif r.rank == 3 %}
                                                 <span class="badge bg-danger" style="font-size: 1.2rem;">🥉 3</span>
                                             {% else %}
-                                                <span class="badge bg-dark">{{ loop.index }}</span>
+                                                <span class="badge bg-dark">{{ r.rank }}</span>
                                             {% endif %}
                                         </td>
                                         <td>

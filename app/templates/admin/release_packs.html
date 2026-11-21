@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from '_macros.html' import render_pagination with context %}
+{% block title %}赛事发布包{% endblock %}
+{% block content %}
+{% macro form_fields() %}
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="season_id" value="{{ season.id }}">
+{% endmacro %}
+
+<a href="{{ url_for('admin.admin_data_tools') }}" class="btn btn-outline-secondary mb-3">返回数据工具</a>
+<h2 class="mb-3">赛事发布包</h2>
+<p>当前赛事为第 {{ season.season_number }} 届 {{ season.name }}。</p>
+{% if source %}
+<p>配置来源为第 {{ source.identity.season }} 届 {{ source.identity.name }} v{{ source.version }}。SHA-256 <code class="text-break">{{ source.sha256 }}</code></p>
+{% endif %}
+
+<section class="card mb-4">
+    <div class="card-body">
+        <h3 class="h5">当前草稿</h3>
+        <div class="d-flex flex-wrap gap-3 align-items-end">
+            <form method="post" action="{{ url_for('admin.update_release_pack', action='capture') }}">
+                {{ form_fields() }}
+                <button type="submit" class="btn btn-outline-primary">从当前配置生成草稿</button>
+            </form>
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('admin.update_release_pack', action='upload') }}">
+                {{ form_fields() }}
+                <label for="release-package" class="form-label">发布包 JSON</label>
+                <div class="d-flex flex-wrap gap-2">
+                    <input id="release-package" name="package" type="file" accept=".json,application/json" class="form-control w-auto" required>
+                    <button type="submit" class="btn btn-outline-primary">载入并校验</button>
+                </div>
+            </form>
+        </div>
+        {% if manifest %}
+        {% set payload = manifest.payload %}
+        <hr>
+        <p>草稿来源为第 {{ payload.identity.season }} 届 {{ payload.identity.name }}{% if payload.publication %} v{{ payload.publication.version }}{% endif %}。重新生成或载入时会替换此草稿。</p>
+        <p>{{ payload.configuration.tracks|length }} 个赛道 · {{ payload.configuration.rules|length }} 条规则 · {{ payload.configuration.media|length }} 项素材 · 晋级名额 {{ payload.configuration.advance_count }}</p>
+        {% if issues %}
+        <div class="alert alert-warning">
+            <p class="mb-1">请处理以下校验问题，再重新载入或生成草稿。</p>
+            <ul class="mb-0">
+                {% for issue in issues %}<li>{{ issue }}</li>{% endfor %}
+            </ul>
+        </div>
+        {% else %}
+        <p class="text-success">配置及素材校验通过。执行时会再校验一次。</p>
+        {% endif %}
+        <details class="mb-3">
+            <summary>查看清单</summary>
+            <pre class="small mt-2 text-wrap text-break">{{ manifest|tojson(indent=2) }}</pre>
+        </details>
+        <form method="post" class="d-flex flex-wrap gap-2">
+            {{ form_fields() }}
+            <input type="hidden" name="checksum" value="{{ manifest.sha256 }}">
+            {% if payload.publication %}
+            <button type="submit" class="btn btn-primary" formaction="{{ url_for('admin.update_release_pack', action='apply') }}" {% if issues or not can_apply %}disabled{% endif %}>备份并应用到本届</button>
+            {% else %}
+            <button type="submit" class="btn btn-primary" formaction="{{ url_for('admin.update_release_pack', action='publish') }}" {% if issues %}disabled{% endif %}>发布当前配置</button>
+            {% endif %}
+            <button type="submit" class="btn btn-outline-secondary" formaction="{{ url_for('admin.update_release_pack', action='discard') }}">清除草稿</button>
+        </form>
+        {% if payload.publication %}
+        <p class="small mb-0 mt-2">应用配置会替换全局规则和本届轮播，停用包中未列出的赛道。目标须处于报名阶段，报名关闭且尚无队伍或比赛。</p>
+        {% endif %}
+        {% endif %}
+    </div>
+</section>
+
+<section class="card">
+    <div class="card-body">
+        <h3 class="h5">已发布版本</h3>
+        {% if versions.items %}
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th scope="col">赛事</th><th scope="col">版本</th><th scope="col">SHA-256</th><th scope="col">操作</th></tr></thead>
+                <tbody>
+                    {% for release in versions.items %}
+                    <tr>
+                        <td>第 {{ release.tournament.season_number }} 届 {{ release.tournament.name }}</td>
+                        <td>v{{ release.version }}</td>
+                        <td><code class="text-break">{{ release.checksum }}</code></td>
+                        <td>
+                            <div class="d-flex align-items-center flex-wrap gap-2">
+                                <a href="{{ url_for('admin.download_release_pack', release_id=release.id, file_format='json') }}">JSON</a>
+                                <a href="{{ url_for('admin.download_release_pack', release_id=release.id, file_format='md') }}">Markdown</a>
+                                <form method="post" action="{{ url_for('admin.update_release_pack', action='copy') }}">
+                                    {{ form_fields() }}
+                                    <input type="hidden" name="release_id" value="{{ release.id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">复制到草稿</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ render_pagination(versions, 'admin.release_packs') }}
+        {% else %}
+        <p class="text-muted mb-0">暂无已发布版本。</p>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

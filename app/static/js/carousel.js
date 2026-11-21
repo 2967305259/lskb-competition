@@ -1,229 +1,176 @@
-/* ============================================================
-   轮播 JavaScript - 宣传片风格
-   ============================================================ */
+/**
+ * 首页轮播控制器 (Vanilla JS)
+ * 特性：自动播放 | 视频等待播完 | 懒加载 | 左右箭头 | 指示点
+ */
 
 (function () {
     'use strict';
 
-    // ---- 状态 ----
-    let slides = [];
-    let currentIndex = 0;
-    let timer = null;
-    let isTransitioning = false;
-    const IMAGE_DURATION = 5000;
-    const TRANSITION_DURATION = 1000;
+    /** 配置 */
+    const IMAGE_INTERVAL = 5000; // 图片切换间隔（毫秒）
 
-    // ---- DOM 引用 ----
+    /** DOM 引用 */
     const slider = document.querySelector('.hero-slider');
-    if (!slider) return;
+    if (!slider) return; // 没有轮播容器则退出
 
-    const track = slider.querySelector('.slider-track');
+    const slides = Array.from(slider.querySelectorAll('.slide'));
     const dotsContainer = slider.querySelector('.slider-dots');
+    if (!slides.length) return;
 
-    // ---- 初始化 ----
-    function init() {
-        slides = track ? Array.from(track.querySelectorAll('.slide')) : [];
-        if (slides.length === 0) return;
+    let current = 0;
+    let timer = null;
+    let pendingFromVideo = false; // 是否正等待视频结束
 
-        slides.forEach(function (s, i) {
-            s.classList.toggle('active', i === 0);
-        });
-        currentIndex = 0;
-
-        createDots();
-        bindEvents();
-        startAutoPlay();
-        preloadNext();
-    }
-
-    // ---- 预加载下一张 ----
-    function preloadNext() {
-        if (slides.length < 2) return;
-        var nextIdx = (currentIndex + 1) % slides.length;
-        var nextSlide = slides[nextIdx];
-        var img = nextSlide.querySelector('img');
-        if (img && !img.complete) {
-            var link = document.createElement('link');
-            link.rel = 'preload';
-            link.as = 'image';
-            link.href = img.src;
-            document.head.appendChild(link);
+    // ==================== 懒加载 ====================
+    function loadSlide(index) {
+        const slide = slides[index];
+        if (!slide || slide.dataset.loaded) return;
+        const img = slide.querySelector('img');
+        const video = slide.querySelector('video');
+        if (img && img.dataset.src) {
+            img.src = img.dataset.src;
+            delete img.dataset.src;
         }
+        if (video && video.dataset.src) {
+            const source = video.querySelector('source');
+            if (source && source.dataset.src) {
+                source.src = source.dataset.src;
+                delete source.dataset.src;
+                video.load();
+            }
+        }
+        slide.dataset.loaded = '1';
     }
 
-    // ---- 创建圆点 ----
-    function createDots() {
-        if (!dotsContainer) return;
+    // ==================== 构建指示点 ====================
+    function buildDots() {
         dotsContainer.innerHTML = '';
         slides.forEach(function (_, i) {
-            var dot = document.createElement('button');
-            dot.className = 'slider-dot' + (i === 0 ? ' active' : '');
-            dot.setAttribute('aria-label', '切换到第 ' + (i + 1) + ' 项');
-            dot.addEventListener('click', function () {
-                goTo(i);
-            });
-            dotsContainer.appendChild(dot);
+            var btn = document.createElement('button');
+            btn.className = 'slider-dot' + (i === 0 ? ' active' : '');
+            btn.setAttribute('aria-label', '切换到第 ' + (i + 1) + ' 张');
+            btn.addEventListener('click', function () { goTo(i); });
+            dotsContainer.appendChild(btn);
         });
     }
+    buildDots();
 
-    // ---- 更新圆点 ----
     function updateDots() {
-        if (!dotsContainer) return;
         var dots = dotsContainer.querySelectorAll('.slider-dot');
-        dots.forEach(function (d, i) {
-            d.classList.toggle('active', i === currentIndex);
-        });
+        dots.forEach(function (d, i) { d.classList.toggle('active', i === current); });
     }
 
-    // ---- 切换逻辑 ----
+    // ==================== 切换逻辑 ====================
     function goTo(index) {
-        if (isTransitioning) return;
-        if (index === currentIndex) return;
-        if (index < 0 || index >= slides.length) return;
-
-        isTransitioning = true;
-        resetTimer();
-
-        var currentSlide = slides[currentIndex];
-        var nextSlide = slides[index];
-
-        // 重置下一项到初始状态
-        nextSlide.style.transition = 'none';
-        nextSlide.classList.remove('active');
-        void nextSlide.offsetHeight;
-        nextSlide.style.transition = '';
-
-        // 当前项淡出
-        currentSlide.classList.remove('active');
-
-        // 下一项淡入（双 rAF 确保无闪屏）
-        requestAnimationFrame(function () {
-            requestAnimationFrame(function () {
-                nextSlide.classList.add('active');
-                currentIndex = index;
-                updateDots();
-                preloadNext();
-
-                setTimeout(function () {
-                    isTransitioning = false;
-                    handleMedia(nextSlide);
-                }, TRANSITION_DURATION);
-            });
-        });
+        if (index === current) return;
+        slides[current].classList.remove('active');
+        current = ((index % slides.length) + slides.length) % slides.length;
+        slides[current].classList.add('active');
+        updateDots();
+        // 预加载下一张
+        loadSlide((current + 1) % slides.length);
+        scheduleNext();
     }
 
-    // ---- 下一项 ----
-    function next() {
-        if (slides.length === 0) return;
-        goTo((currentIndex + 1) % slides.length);
+    function next() { goTo(current + 1); }
+    function prev() { goTo(current - 1); }
+
+    // ==================== 自动播放 ====================
+    function clearTimer() {
+        if (timer) { clearTimeout(timer); timer = null; }
     }
 
-    // ---- 自动播放 ----
-    function startAutoPlay() {
-        resetTimer();
-    }
+    function scheduleNext() {
+        clearTimer();
+        if (pendingFromVideo) return;
 
-    function resetTimer() {
-        if (timer) {
-            clearTimeout(timer);
-            timer = null;
-        }
-        if (slides.length < 2) return;
-
-        var currentSlide = slides[currentIndex];
-        var video = currentSlide ? currentSlide.querySelector('video') : null;
+        var activeSlide = slides[current];
+        var video = activeSlide ? activeSlide.querySelector('video') : null;
 
         if (video) {
-            video.removeEventListener('ended', onVideoEnded);
-            video.addEventListener('ended', onVideoEnded);
-            if (video.ended) {
-                onVideoEnded();
-            }
-        } else {
-            timer = setTimeout(next, IMAGE_DURATION);
-        }
-    }
-
-    function onVideoEnded() {
-        if (isTransitioning) return;
-        next();
-    }
-
-    // ---- 处理媒体 ----
-    function handleMedia(slide) {
-        var video = slide.querySelector('video');
-        if (video) {
-            video.removeEventListener('ended', onVideoEnded);
-            video.addEventListener('ended', onVideoEnded);
-            if (video.paused) {
-                video.play().catch(function () {});
-            }
-        } else {
-            resetTimer();
-        }
-    }
-
-    // ---- 暂停/恢复 ----
-    function pauseAutoPlay() {
-        if (timer) {
-            clearTimeout(timer);
-            timer = null;
-        }
-    }
-
-    function resumeAutoPlay() {
-        if (slides.length < 2) return;
-        var currentSlide = slides[currentIndex];
-        var video = currentSlide ? currentSlide.querySelector('video') : null;
-        if (!video) {
-            resetTimer();
-        }
-    }
-
-    // ---- 绑定事件 ----
-    function bindEvents() {
-        // 键盘 ← →
-        document.addEventListener('keydown', function (e) {
-            var rect = slider.getBoundingClientRect();
-            var isVisible = rect.bottom > 0 && rect.top < window.innerHeight;
-            if (!isVisible) return;
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                e.preventDefault();
-                if (e.key === 'ArrowLeft') {
-                    goTo((currentIndex - 1 + slides.length) % slides.length);
-                } else {
+            // 视频：等待 ended 事件
+            video.currentTime = 0;
+            video.play().catch(function () {});
+            pendingFromVideo = true;
+            video.onended = function () {
+                pendingFromVideo = false;
+                next();
+            };
+            // 兜底：60 秒后自动跳
+            timer = setTimeout(function () {
+                if (pendingFromVideo) {
+                    pendingFromVideo = false;
                     next();
                 }
-            }
+            }, 60000);
+        } else {
+            // 图片：定时切换
+            timer = setTimeout(next, IMAGE_INTERVAL);
+        }
+    }
+
+    // 暂停视频（离开时）
+    function stopCurrentVideo() {
+        var activeSlide = slides[current];
+        if (!activeSlide) return;
+        var video = activeSlide.querySelector('video');
+        if (video) {
+            video.pause();
+            video.onended = null;
+        }
+        pendingFromVideo = false;
+    }
+
+    // ==================== 箭头 ====================
+    function buildArrows() {
+        var prevBtn = document.createElement('button');
+        prevBtn.className = 'slider-arrow prev';
+        prevBtn.innerHTML = '<i class="fas fa-chevron-left"></i>';
+        prevBtn.setAttribute('aria-label', '上一张');
+        prevBtn.addEventListener('click', function () {
+            stopCurrentVideo();
+            clearTimer();
+            prev();
         });
 
-        // 悬停暂停
-        slider.addEventListener('mouseenter', pauseAutoPlay);
-        slider.addEventListener('mouseleave', resumeAutoPlay);
+        var nextBtn = document.createElement('button');
+        nextBtn.className = 'slider-arrow next';
+        nextBtn.innerHTML = '<i class="fas fa-chevron-right"></i>';
+        nextBtn.setAttribute('aria-label', '下一张');
+        nextBtn.addEventListener('click', function () {
+            stopCurrentVideo();
+            clearTimer();
+            next();
+        });
 
-        // 触摸滑动
-        var touchStartX = 0;
-        slider.addEventListener('touchstart', function (e) {
-            touchStartX = e.changedTouches[0].screenX;
-        }, { passive: true });
-
-        slider.addEventListener('touchend', function (e) {
-            var diff = touchStartX - e.changedTouches[0].screenX;
-            if (Math.abs(diff) > 50) {
-                if (diff > 0) {
-                    next();
-                } else {
-                    goTo((currentIndex - 1 + slides.length) % slides.length);
-                }
-            }
-        }, { passive: true });
+        slider.appendChild(prevBtn);
+        slider.appendChild(nextBtn);
     }
+    buildArrows();
 
-    // ---- 启动 ----
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
+    // ==================== 触摸支持 ====================
+    var touchStartX = 0;
+    slider.addEventListener('touchstart', function (e) {
+        touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    slider.addEventListener('touchend', function (e) {
+        var diff = touchStartX - e.changedTouches[0].clientX;
+        if (Math.abs(diff) > 50) {
+            stopCurrentVideo();
+            clearTimer();
+            diff > 0 ? next() : prev();
+        }
+    });
 
+    // ==================== 键盘支持 ====================
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowLeft') { stopCurrentVideo(); clearTimer(); prev(); }
+        if (e.key === 'ArrowRight') { stopCurrentVideo(); clearTimer(); next(); }
+    });
+
+    // ==================== 启动 ====================
+    // 预加载首张 + 下张
+    loadSlide(0);
+    loadSlide(1);
+    scheduleNext();
 })();

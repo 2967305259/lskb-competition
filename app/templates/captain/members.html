@@ -17,12 +17,14 @@
         <div class="card">
             <div class="card-body">
                 {% if members %}
-                    <div class="table-responsive">
+                    <div class="table-responsive" data-scroll-label="队伍成员">
                         <table class="table table-hover">
                             <thead>
                                 <tr>
                                     <th>成员昵称</th>
-                                    <th>肉鸽</th>
+                                    <th>{{ labels.track }}</th>
+                                    <th>{{ labels.field1 }}</th>
+                                    <th>{{ labels.field2 }}</th>
                                     <th>加入时间</th>
                                 </tr>
                             </thead>
@@ -37,6 +39,8 @@
                                                 <span class="text-muted">未选择</span>
                                             {% endif %}
                                         </td>
+                                        <td>{{ member.squad or '-' }}</td>
+                                        <td>{{ member.operator or '-' }}</td>
                                         <td>{{ member.joined_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                     </tr>
                                 {% endfor %}
