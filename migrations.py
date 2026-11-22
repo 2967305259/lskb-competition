@@ -5,15 +5,15 @@ from pathlib import Path
 from sqlalchemy import MetaData, Table, inspect, text
 from backup import create_backup, maintenance_lock
 
-SCHEMA_VERSION = 9
-# These additions cover the supported pre-P0 schema. Other missing base columns are an error.
+SCHEMA_VERSION = 10
+# Columns introduced after supported historical schemas. Other missing base columns are an error.
 ADDITIONS = {
     'users': {'has_completed_onboarding': '0', 'tutorial_step': '0', 'anonymized_at': 'NULL'},
     'teams': {'tournament_id': 'NULL'},
     'team_members': {'position': 'NULL', 'squad': "''", 'operator': "''"},
     'settings': {'team_size': 'NULL', 'allow_incomplete_teams': '0'},
     'tournaments': {'context_snapshot': 'NULL', 'snapshot_version': '0', 'archived_at': 'NULL',
-                    'window_times_utc': '0', 'release_source': 'NULL'},
+                    'window_times_utc': '0', 'release_source': 'NULL', 'calculator_enabled': '0'},
     'matches': {'tournament_id': 'NULL', 'player_a_difficulty': 'NULL', 'player_b_difficulty': 'NULL',
                 'match_type': "'match'", 'parent_id': 'NULL', 'segment_order': '0',
                 'player_a_multiplier': 'NULL', 'player_b_multiplier': 'NULL', 'scoring_rule': 'NULL', 'legacy_payload': 'NULL', 'context_version': 'NULL',

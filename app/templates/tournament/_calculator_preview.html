@@ -1,10 +1,17 @@
 <section class="match-score-preview mb-4" data-calculator-preview aria-labelledby="calculator-preview-heading">
     <div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
-        <h3 class="h5 mb-0" id="calculator-preview-heading">计分预览</h3>
+        <h3 class="h5 mb-0" id="calculator-preview-heading">{{ '计分明细' if calculator_mode else '计分预览' }}</h3>
         <span class="small text-muted">规则 v{{ calculator.version }}</span>
     </div>
-    <p class="small text-muted mb-3">预览总分未乘难度倍率。正式提交以表单填写的整场原始成绩为准。</p>
-    <p class="small mb-0" data-calculator-unavailable>启用 JavaScript 后可使用计分预览。</p>
+    <p class="small text-muted mb-3">预览总分未乘难度倍率。{{ '提交后由服务端重算，确认结算时应用难度倍率。' if calculator_mode else '正式提交以表单填写的整场原始成绩为准。' }}</p>
+    {% if errors.calculator %}<p class="alert alert-danger" role="alert">{{ errors.calculator }}</p>{% endif %}
+    {% if calculator_mode %}
+    <input type="hidden" name="calculator_rule_version" value="{{ calculator.version }}">
+    <input type="hidden" name="calculator_scores">
+    <input type="hidden" name="calculator_total">
+    <script type="application/json" id="match-calculator-draft">{{ calculator_draft | tojson }}</script>
+    {% endif %}
+    <p class="small mb-0" data-calculator-unavailable>{{ '启用 JavaScript 后可填写并提交计分明细。' if calculator_mode else '启用 JavaScript 后可使用计分预览。' }}</p>
     <div data-calculator-content hidden>
         <div class="calculator-total">
             <span>预览总分</span>

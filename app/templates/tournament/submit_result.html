@@ -43,12 +43,14 @@
                         {% if errors.difficulty %}<div id="difficulty-error" class="invalid-feedback">{{ errors.difficulty }}</div>{% endif %}
                     </div>
 
+                    {% if not calculator_mode %}
                     <div class="mb-4">
                         <label for="score" class="form-label"><i class="fas fa-star" aria-hidden="true"></i> 整场原始成绩（0 分有效）</label>
                         <input id="score" type="number" class="form-control{% if errors.score %} is-invalid{% endif %}" name="score" value="{{ values.score }}"
                                placeholder="如：3200" required {% if errors.score %}aria-invalid="true" aria-describedby="score-error"{% endif %}>
                         {% if errors.score %}<div id="score-error" class="invalid-feedback">{{ errors.score }}</div>{% endif %}
                     </div>
+                    {% endif %}
 
                     <div class="mb-4">
                         <label for="screenshots" class="form-label"><i class="fas fa-images" aria-hidden="true"></i> 截图上传</label>
@@ -58,10 +60,13 @@
                                {% if errors.screenshots %}aria-invalid="true"{% endif %}>
                         <div id="screenshots-help" class="form-text">选择 1 至 3 张 PNG、JPEG 或 WebP，每张最多 4 MiB。</div>
                         {% if errors.screenshots %}<div id="screenshots-error" class="invalid-feedback d-block">{{ errors.screenshots }}。请重新选择文件。</div>{% endif %}
+                        {% if calculator_mode and errors and not errors.screenshots %}
+                        <div class="form-text">重试前请重新选择截图。</div>
+                        {% endif %}
                     </div>
 
                     <div class="d-grid">
-                        <button type="submit" class="btn btn-primary btn-lg">
+                        <button type="submit" class="btn btn-primary btn-lg"{% if calculator_mode %} data-calculator-submit disabled{% endif %}>
                             <i class="fas fa-check"></i> 提交成绩
                         </button>
                     </div>

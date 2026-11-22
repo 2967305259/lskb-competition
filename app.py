@@ -544,6 +544,7 @@ class Tournament(db.Model):
     tournament_start = db.Column(db.DateTime, nullable=True)
     tournament_end = db.Column(db.DateTime, nullable=True)
     window_times_utc = db.Column(db.Boolean, nullable=False, server_default=db.text('0'))
+    calculator_enabled = db.Column(db.Boolean, nullable=False, server_default=db.text('0'))
     bonus_score = db.Column(db.Integer, default=500)
     context_snapshot = db.Column(db.Text().with_variant(LONGTEXT(), 'mysql'), nullable=True)
     snapshot_version = db.Column(db.Integer, default=0)
@@ -3693,12 +3694,16 @@ def review_match(match_id):
 @admin_bp.route('/match/<int:match_id>/edit-result', methods=['POST'])
 @login_required_with_role('admin')
 def edit_match_result(match_id):
-    from season_safety import (root_match, capture_match_rule, set_score, final_score, apply_outcome,
+    from calculator_rules import calculator_result
+    from calculator_submission import submission_required
+    from season_safety import (root_match, capture_match_rule, correct_score, final_score, apply_outcome,
                                audit_state, json_dump, SeasonError)
     match = root_match(Match.query.get_or_404(match_id))
     denial = admin_result_denial('edit', match)
     if denial:
         raise SeasonError(denial)
+    if (match.player_a_score is None or match.player_b_score is None) and submission_required(match, calculator_result(match)):
+        raise SeasonError('请等待选手提交计分明细后再确认结算')
     before = audit_state(match)
     was_settled = match.settlement_state == 'settled'
     reason = request.form.get('reason', '').strip()
@@ -3709,9 +3714,7 @@ def edit_match_result(match_id):
         raw = request.form.get('score_' + side)
         diff = request.form.get('diff_' + side)
         if raw not in (None, '') or diff not in (None, ''):
-            set_score(match, side, raw if raw not in (None, '') else getattr(match, 'player_' + side + '_score'),
-                      diff if diff not in (None, '') else getattr(match, 'player_' + side + '_difficulty'),
-                      getattr(match, 'score_origin_' + side) or 'admin')
+            correct_score(match, side, raw, diff, 'admin')
         final_score(match, side)  # Both sides must have a real score and historical multiplier.
     apply_outcome(match, request.form.get('action'))
     match.settlement_state = 'settled'
@@ -4222,6 +4225,8 @@ def my_matches():
 @login_required_with_role('player', 'captain', 'admin')
 def match_detail(match_id):
     """比赛详情"""
+    from calculator_rules import calculator_result
+    from calculator_submission import recorded_totals
     from season_safety import root_match
     from privacy import can_read_evidence, screenshot_names, EVIDENCE_LINE
     match = root_match(Match.query.get_or_404(match_id))
@@ -4239,8 +4244,10 @@ def match_detail(match_id):
     notes = '\n'.join(line for line in (match.match_note or '').splitlines() if not EVIDENCE_LINE.fullmatch(line))
     evidence = [url_for('p0_media', filename=f'screenshots/{name}') for name in screenshot_names(match.match_note)
                 if can_read_evidence(name)]
+    calculator_evidence = calculator_result(match)
     return render_template('tournament/match_detail.html', match=match, notes=notes, evidence=evidence,
-                           is_participant=is_participant, allowed=allowed, season_scope=scope)
+                           is_participant=is_participant, allowed=allowed, season_scope=scope,
+                           calculator_evidence=calculator_evidence, calculator_totals=recorded_totals(calculator_evidence))
 
 
 def require_player_match_action(match_id, action):
@@ -4357,26 +4364,57 @@ def send_match_note(match_id):
 @tournament_bp.route('/match/<int:match_id>/submit-result', methods=['GET', 'POST'])
 @login_required_with_role('player', 'captain')
 def submit_result(match_id):
-    from calculator_rules import CALCULATION_VERSION, rule_for_match
+    from calculator_rules import CALCULATION_VERSION, calculator_result, rule_for_match
+    from calculator_submission import read_scores, recalculate, record_submission, submission_required
     from score_calculator import SECTION_KEYS
     from season_safety import capture_match_rule, get_match_scoring_rule, set_score, ScoreInputError
     match = require_player_match_action(match_id, 'submit_result')
+    binding = calculator_result(match)
+    calculator_mode = submission_required(match, binding)
+    rule = rule_for_match(match, binding)
+    calculator = None
+    if rule and rule.calculation_version == CALCULATION_VERSION:
+        try:
+            configuration = json.loads(rule.config)
+        except json.JSONDecodeError:
+            configuration = None
+        if not isinstance(configuration, dict) or any(
+            not isinstance(configuration.get(key), dict) for key in SECTION_KEYS
+        ):
+            current_app.logger.warning('无法解析比赛 %s 的计分器规则 v%s', match.id, rule.version)
+        else:
+            calculator = {'version': rule.version, 'configuration': configuration, 'section_keys': SECTION_KEYS}
+    if calculator_mode and not calculator:
+        raise SeasonError('该整场的计分规则不可用，请联系组委会')
     side = 'a' if current_user.id == match.player_a_id else 'b'
     errors = {}
     status = 200
+    scores = result = None
     values = {key: request.form.get(key, '') for key in ('score', 'difficulty')}
     if request.method == 'POST':
-        # Validate before touching uploads; duplicates and archived IDs create no files.
-        capture_match_rule(match)
         try:
-            set_score(match, side, values['score'], values['difficulty'])
+            raw, origin = values['score'], 'submitted'
+            if calculator_mode:
+                if binding and getattr(binding, f'details_{side}') is not None:
+                    raise ScoreInputError('calculator', '该选手已经提交过计分明细', 409)
+                scores = read_scores(request.form.get('calculator_scores', ''))
+                result = recalculate(calculator['version'], calculator['configuration'], scores,
+                                     request.form.get('calculator_rule_version', ''), request.form.get('calculator_total', ''))
+                raw, origin = result['matchScore'], 'calculator'
+            # Validate before touching uploads; duplicates and archived IDs create no files.
+            capture_match_rule(match)
+            set_score(match, side, raw, values['difficulty'], origin)
         except ScoreInputError as error:
-            errors[error.field], status = str(error), error.status
+            field = 'calculator' if calculator_mode and error.field == 'score' else error.field
+            errors[field], status = str(error), error.status
             db.session.rollback()
         else:
+            field = 'screenshots'
             try:
                 with upload_batch() as staged:
                     files = [file for file in request.files.getlist('screenshots') if file and file.filename]
+                    if calculator_mode and not files:
+                        raise SeasonError('请上传至少一张成绩截图', 400)
                     if len(files) > MAX_SCREENSHOTS:
                         raise SeasonError(f'每次最多上传 {MAX_SCREENSHOTS} 张成绩截图', 400)
                     for file in files:
@@ -4386,28 +4424,17 @@ def submit_result(match_id):
                     if not match.forfeit_side and match.player_a_score is not None and match.player_b_score is not None:
                         match.status = 'submitted'
                     current_user.status = 6
+                    if calculator_mode:
+                        field = 'calculator'
+                        record_submission(match, side, binding, calculator['version'], scores, result)
             except SeasonError as error:
-                errors['screenshots'], status = str(error), error.status
+                errors[field], status = str(error), error.status
             else:
                 flash('整场成绩已保存，等待确认结束并结算', 'success')
                 return redirect(url_for('tournament.match_detail', match_id=match.id))
-    calculator_rule = rule_for_match(match)
-    calculator = None
-    if calculator_rule and calculator_rule.calculation_version == CALCULATION_VERSION:
-        try:
-            configuration = json.loads(calculator_rule.config)
-        except json.JSONDecodeError:
-            configuration = None
-        if not isinstance(configuration, dict) or any(
-            not isinstance(configuration.get(key), dict) for key in SECTION_KEYS
-        ):
-            current_app.logger.warning('无法解析比赛 %s 的计分器规则 v%s', match.id, calculator_rule.version)
-        else:
-            calculator = {'version': calculator_rule.version, 'configuration': configuration,
-                          'section_keys': SECTION_KEYS}
     response = current_app.make_response((render_template(
         'tournament/submit_result.html', match=match, difficulty_rule=get_match_scoring_rule(match),
-        values=values, errors=errors, calculator=calculator,
+        values=values, errors=errors, calculator=calculator, calculator_mode=calculator_mode, calculator_draft=scores,
     ), status))
     if calculator:
         response.cache_control.no_store = True

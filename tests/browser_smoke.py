@@ -68,6 +68,7 @@ def application(root, args):
     (root / 'image' / 'cover-2.png').write_bytes(png_bytes())
     with app.app_context():
         season = a.Tournament.get_active()
+        season.calculator_enabled = args.calculator
         season_id = season.id
         setting = a.Setting.get_instance()
         setting.team_size = 2
@@ -355,12 +356,18 @@ def scenario(browser, app, season_id, root):
         browser.press('Space', checkbox)
         browser.wait('() => document.querySelector("[data-sum=total]").textContent === "+206.17"')
         browser.no_page_overflow()
-        browser.fill('#score', score)
+        score_field = '#score'
+        if browser.run('() => Boolean(document.querySelector("[data-calculator-submit]"))'):
+            browser.press('Space', checkbox)
+            browser.fill(quantity, '')
+            score_field = '[data-path="basic:original"]'
+        browser.fill(score_field, score)
         if user == first:
             browser.upload('#screenshots', root / 'bad.png')
             browser.press('Enter', 'form button[type=submit]')
             browser.error('screenshots')
-            assert browser.run('() => document.getElementById("score").value') == score
+            browser.wait('selector => Boolean(document.querySelector(selector))', score_field)
+            assert browser.run('selector => document.querySelector(selector).value', score_field) == score
         browser.upload('#screenshots', root / 'valid.png')
         browser.press('Enter', quantity)
         browser.route(path + '/submit-result')
@@ -401,6 +408,7 @@ def main():
     parser.add_argument('--width', type=int, default=390)
     parser.add_argument('--height', type=int, default=844)
     parser.add_argument('--bootstrap-dir', type=Path, help='Optional local copy of Bootstrap 5.3.0 CSS and bundle')
+    parser.add_argument('--calculator', action='store_true', help='Submit official results with the calculator')
     args = parser.parse_args()
     with TemporaryDirectory(prefix='lskb-browser-') as directory:
         root = Path(directory)

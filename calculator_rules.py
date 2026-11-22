@@ -190,11 +190,14 @@ def latest_rule(tournament_id):
     return rules.query.filter_by(tournament_id=tournament_id).order_by(rules.version.desc()).first()
 
 
-def rule_for_match(match):
+def calculator_result(match):
+    a = ns()
+    return a.db.session.get(a.MatchCalculatorResult, match.id) if is_formal(match) else None
+
+
+def rule_for_match(match, result):
     if not is_formal(match):
         return None
-    a = ns()
-    result = a.db.session.get(a.MatchCalculatorResult, match.id)
     return result.rule_set if result is not None else latest_rule(match.tournament_id)
 
 

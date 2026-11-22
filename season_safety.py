@@ -30,8 +30,8 @@ class SeasonError(ValueError):
 
 
 class ScoreInputError(SeasonError):
-    def __init__(self, field, message):
-        super().__init__(message, 400)
+    def __init__(self, field, message, status=400):
+        super().__init__(message, status)
         self.field = field
 
 
@@ -205,6 +205,17 @@ def set_score(match, side, raw, difficulty, origin='submitted'):
     setattr(match, 'player_' + side + '_multiplier', rate)
     setattr(match, 'player_' + side + '_score', score)
     setattr(match, 'score_origin_' + side, origin)
+
+
+def correct_score(match, side, raw, difficulty, default_origin):
+    score_attr = f'player_{side}_score'
+    origin_attr = f'score_origin_{side}'
+    previous = getattr(match, score_attr)
+    origin = getattr(match, origin_attr) or default_origin
+    set_score(match, side, raw if raw not in (None, '') else previous,
+              difficulty if difficulty not in (None, '') else getattr(match, f'player_{side}_difficulty'), origin)
+    if origin == 'calculator' and getattr(match, score_attr) != previous:
+        setattr(match, origin_attr, 'corrected')
 
 
 def final_score(match, side):
@@ -562,7 +573,8 @@ def _freeze_context_on_config_edit(session):
             if isinstance(obj, a.Tournament) and obj.id and not obj.is_active:
                 state = inspect(obj)
                 if not state.attrs.is_active.history.has_changes() and not _reconcile.get():
-                    for key in ('name', 'bonus_score', 'context_snapshot', 'snapshot_version', 'release_source'):
+                    for key in ('name', 'bonus_score', 'context_snapshot', 'snapshot_version', 'release_source',
+                                'calculator_enabled'):
                         if state.attrs[key].history.has_changes():
                             raise SeasonError('往届上下文不能通过普通提交改写')
         # Recheck after flush so pending new tournaments cannot hide a second active row.
@@ -619,9 +631,7 @@ def install_safety(app):
                 raw = request.form.get('score_' + side)
                 diff = request.form.get('diff_' + side)
                 if raw not in (None, '') or diff not in (None, ''):
-                    set_score(match, side, raw if raw not in (None, '') else getattr(match, 'player_' + side + '_score'),
-                              diff if diff not in (None, '') else getattr(match, 'player_' + side + '_difficulty'),
-                              getattr(match, 'score_origin_' + side) or 'corrected')
+                    correct_score(match, side, raw, diff, 'corrected')
             action = request.form.get('action')
             if request.form.get('confirm_settlement') == '1' and match.settlement_state != 'settled':
                 final_score(match, 'a')

@@ -59,6 +59,7 @@ def test_upgrade_from_schema_eight_preserves_manual_results(application):
                 connection.exec_driver_sql('ALTER TABLE matches DROP INDEX uq_match_id_tournament')
             else:
                 connection.exec_driver_sql('DROP INDEX uq_match_id_tournament')
+            connection.exec_driver_sql('ALTER TABLE tournaments DROP COLUMN calculator_enabled')
             connection.exec_driver_sql('UPDATE schema_version SET version = 8')
 
     prepare = application.test_cli_runner().invoke
@@ -82,6 +83,27 @@ def test_upgrade_from_schema_eight_preserves_manual_results(application):
         assert a.ScoreRuleSet.query.count() == a.MatchCalculatorResult.query.count() == 0
     assert prepare(args=['prepare']).exit_code == 0
     assert list(Path(application.config['BACKUP_DIR']).glob('*/manifest.json')) == backup_paths
+
+
+@pytest.mark.maintenance
+def test_schema_nine_upgrade_keeps_calculator_evidence_and_defaults_to_manual(application, config):
+    ids = application.test_ids
+    with application.app_context():
+        publish_rule(ids, config)
+        card = store_first_submission(ids, config)
+        evidence = card.details_a
+        with a.db.engine.begin() as connection:
+            connection.exec_driver_sql('ALTER TABLE tournaments DROP COLUMN calculator_enabled')
+            connection.exec_driver_sql('UPDATE schema_version SET version = 9')
+    result = application.test_cli_runner().invoke(args=['prepare'])
+    assert result.exit_code == 0, result.output
+    with application.app_context():
+        assert_schema_current(a.db.engine)
+        assert not a.Tournament.get_active().calculator_enabled
+        assert a.db.session.get(a.MatchCalculatorResult, ids['match']).details_a == evidence
+    backup, = Path(application.config['BACKUP_DIR']).glob('*/manifest.json')
+    manifest = verify_backup(backup.parent)
+    assert manifest['schema_version'] == 9 and manifest['rows']['match_calculator_results'] == 1
 
 
 def test_new_publication_preserves_locked_match_version_and_original_scores(application, config):

@@ -15,6 +15,9 @@
   );
   const inputs = byData('path');
   const summary = { subs: byData('sub'), chips: byData('chip'), sums: byData('sum') };
+  const details = panel.querySelector('[name="calculator_scores"]');
+  const total = panel.querySelector('[name="calculator_total"]');
+  const submit = panel.closest('form').querySelector('[data-calculator-submit]');
   const normalized = new Map([
     ['basic:original', calculator.amountText],
     ['basic:time', calculator.timeText],
@@ -25,12 +28,32 @@
     }
   });
 
+  if (details) {
+    const draft = JSON.parse(panel.querySelector('#match-calculator-draft').textContent);
+    if (draft) {
+      const restore = (path, value) => {
+        const input = inputs.get(path);
+        if (input?.type === 'checkbox') input.checked = value === true;
+        else if (input && typeof value === 'string') input.value = calculator.normalizeNumeric(value);
+      };
+      restore('basic:original', draft.original);
+      restore('basic:time', draft.time);
+      calculator.eachItem(config, (item, path) => restore(path, draft.items?.[item.id]));
+    }
+  }
+
   function refresh() {
     const scores = calculator.readScores(config, path => {
       const input = inputs.get(path);
       return input?.type === 'checkbox' ? input.checked : input?.value;
     });
-    calculator.paintPreview(config, calculator.calculate(config, scores), summary);
+    const result = calculator.calculate(config, scores);
+    calculator.paintPreview(config, result, summary);
+    if (details) {
+      details.value = JSON.stringify(scores);
+      total.value = String(result.total);
+      submit.disabled = false;
+    }
   }
 
   function inputChanged(event) {
