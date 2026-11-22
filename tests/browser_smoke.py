@@ -15,6 +15,7 @@ from werkzeug.serving import make_server, WSGIRequestHandler
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app as a
+from calculator_rules import CALCULATION_VERSION, initial_configuration
 from conftest import png_bytes
 
 PASSWORD = 'BrowserFixture2026'
@@ -79,6 +80,11 @@ def application(root, args):
         a.db.session.add(team)
         a.db.session.flush()
         a.db.session.add(a.TeamMember(team_id=team.id, user_id=opponent.id, roguelike='water'))
+        a.db.session.add(a.ScoreRuleSet(
+            tournament_id=season_id, version=1, calculation_version=CALCULATION_VERSION,
+            config=json.dumps(initial_configuration(), ensure_ascii=False), source='initial',
+            published_by_id=a.User.query.filter_by(username='admin').one().id,
+        ))
         a.db.session.commit()
     server = make_server('0.0.0.0' if args.host != '127.0.0.1' else args.host, 0, app,
                          threaded=True, request_handler=QuietHandler)
@@ -339,6 +345,16 @@ def scenario(browser, app, season_id, root):
     for user, score in ((first, '100'), (other, '90')):
         login(browser, user, target(user))
         browser.go(path + '/submit-result')
+        quantity = '[data-calculator-preview] [data-path="basic:0:0"]'
+        checkbox = '[data-calculator-preview] [data-path="levelBonus:0:0"]'
+        browser.wait('() => !document.querySelector("[data-calculator-content]").hidden')
+        browser.fill(quantity, '１。２３４')
+        browser.wait('() => document.querySelector("[data-sum=total]").textContent === "+6.17"')
+        browser.press('Tab', quantity)
+        browser.focus(checkbox)
+        browser.press('Space', checkbox)
+        browser.wait('() => document.querySelector("[data-sum=total]").textContent === "+206.17"')
+        browser.no_page_overflow()
         browser.fill('#score', score)
         if user == first:
             browser.upload('#screenshots', root / 'bad.png')
@@ -346,6 +362,8 @@ def scenario(browser, app, season_id, root):
             browser.error('screenshots')
             assert browser.run('() => document.getElementById("score").value') == score
         browser.upload('#screenshots', root / 'valid.png')
+        browser.press('Enter', quantity)
+        browser.route(path + '/submit-result')
         browser.press('Enter', 'form button[type=submit]')
         browser.route(path)
         browser.wait('() => document.querySelector("[role=status]")?.textContent.includes("整场成绩已保存")')

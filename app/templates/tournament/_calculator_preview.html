@@ -1,0 +1,24 @@
+<section class="match-score-preview mb-4" data-calculator-preview aria-labelledby="calculator-preview-heading">
+    <div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
+        <h3 class="h5 mb-0" id="calculator-preview-heading">计分预览</h3>
+        <span class="small text-muted">规则 v{{ calculator.version }}</span>
+    </div>
+    <p class="small text-muted mb-3">预览总分未乘难度倍率。正式提交以表单填写的整场原始成绩为准。</p>
+    <p class="small mb-0" data-calculator-unavailable>启用 JavaScript 后可使用计分预览。</p>
+    <div data-calculator-content hidden>
+        <div class="calculator-total">
+            <span>预览总分</span>
+            <output data-sum="total" aria-label="预览总分">0</output>
+        </div>
+        {% for key in calculator.section_keys %}
+        <section class="calculator-section" aria-labelledby="calculator-{{ key }}-heading">
+            <header class="calculator-section-header">
+                <h4 class="h6 mb-0" id="calculator-{{ key }}-heading">{{ calculator.configuration[key].title }}</h4>
+                <span class="small" data-chip="{{ key }}">本区小计 0</span>
+            </header>
+            <div data-calculator-section="{{ key }}"></div>
+        </section>
+        {% endfor %}
+    </div>
+    <script type="application/json" id="match-calculator-config">{{ calculator.configuration | tojson }}</script>
+</section>

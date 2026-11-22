@@ -2,6 +2,12 @@
 
 {% block title %}提交成绩{% endblock %}
 
+{% block extra_css %}
+{% if calculator %}
+<link rel="stylesheet" href="{{ url_for('static', filename='calculator/match-preview.css') }}">
+{% endif %}
+{% endblock %}
+
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
@@ -13,7 +19,7 @@
 </div>
 
 <div class="row">
-    <div class="col-md-6 mx-auto">
+    <div class="{{ 'col-lg-8' if calculator else 'col-md-6' }} mx-auto">
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-camera"></i> 上传截图 & 选择难度</h5>
@@ -21,6 +27,10 @@
             <div class="card-body">
                 <form method="POST" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    {% if calculator %}
+                    {% include 'tournament/_calculator_preview.html' %}
+                    {% endif %}
 
                     <div class="mb-4">
                         <label for="difficulty" class="form-label"><i class="fas fa-fire" aria-hidden="true"></i> 难度选择</label>
@@ -60,5 +70,12 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if calculator %}
+<script src="{{ url_for('static', filename='calculator/score-calculator.js') }}" defer></script>
+<script src="{{ url_for('static', filename='calculator/match-preview.js') }}" defer></script>
+{% endif %}
 {% endblock %}
 

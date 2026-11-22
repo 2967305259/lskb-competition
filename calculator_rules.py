@@ -10,6 +10,7 @@ from flask import current_app, request
 from flask_login import current_user
 from itsdangerous import BadData, URLSafeTimedSerializer
 
+from formal_match import is_formal
 from score_calculator import SECTION_KEYS
 from season_safety import SeasonError, json_dump, ns, require_writable
 
@@ -187,6 +188,14 @@ def configuration_from_form():
 def latest_rule(tournament_id):
     rules = ns().ScoreRuleSet
     return rules.query.filter_by(tournament_id=tournament_id).order_by(rules.version.desc()).first()
+
+
+def rule_for_match(match):
+    if not is_formal(match):
+        return None
+    a = ns()
+    result = a.db.session.get(a.MatchCalculatorResult, match.id)
+    return result.rule_set if result is not None else latest_rule(match.tournament_id)
 
 
 def _preview_signer():

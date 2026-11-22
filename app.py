@@ -4357,6 +4357,8 @@ def send_match_note(match_id):
 @tournament_bp.route('/match/<int:match_id>/submit-result', methods=['GET', 'POST'])
 @login_required_with_role('player', 'captain')
 def submit_result(match_id):
+    from calculator_rules import CALCULATION_VERSION, rule_for_match
+    from score_calculator import SECTION_KEYS
     from season_safety import capture_match_rule, get_match_scoring_rule, set_score, ScoreInputError
     match = require_player_match_action(match_id, 'submit_result')
     side = 'a' if current_user.id == match.player_a_id else 'b'
@@ -4389,8 +4391,27 @@ def submit_result(match_id):
             else:
                 flash('整场成绩已保存，等待确认结束并结算', 'success')
                 return redirect(url_for('tournament.match_detail', match_id=match.id))
-    return render_template('tournament/submit_result.html', match=match,
-                           difficulty_rule=get_match_scoring_rule(match), values=values, errors=errors), status
+    calculator_rule = rule_for_match(match)
+    calculator = None
+    if calculator_rule and calculator_rule.calculation_version == CALCULATION_VERSION:
+        try:
+            configuration = json.loads(calculator_rule.config)
+        except json.JSONDecodeError:
+            configuration = None
+        if not isinstance(configuration, dict) or any(
+            not isinstance(configuration.get(key), dict) for key in SECTION_KEYS
+        ):
+            current_app.logger.warning('无法解析比赛 %s 的计分器规则 v%s', match.id, calculator_rule.version)
+        else:
+            calculator = {'version': calculator_rule.version, 'configuration': configuration,
+                          'section_keys': SECTION_KEYS}
+    response = current_app.make_response((render_template(
+        'tournament/submit_result.html', match=match, difficulty_rule=get_match_scoring_rule(match),
+        values=values, errors=errors, calculator=calculator,
+    ), status))
+    if calculator:
+        response.cache_control.no_store = True
+    return response
 
 
 # ============================================================
