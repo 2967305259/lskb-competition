@@ -181,13 +181,13 @@
 
 ### 代码结构
 
-独立 HTML 内嵌共享计分脚本和离线工具脚本。计分、录入控件与实时预览的源文件为 [score-calculator.js](../app/static/calculator/score-calculator.js)。修改后从仓库根目录运行 `python arknights-score-calculator/sync_shared.py` 更新独立 HTML，`--check` 可检查同步状态。
+独立 HTML 内嵌共享计分脚本和离线工具脚本。计分、录入控件与实时预览的源文件为 [score-calculator.js](../app/static/calculator/score-calculator.js)。独立版内置规则与网站换届初始配置共用 [default-config.json](../app/static/calculator/default-config.json)。修改共享文件后，从仓库根目录运行 `python arknights-score-calculator/sync_shared.py` 更新独立 HTML，`--check` 可检查同步状态。
 
 离线工具脚本按功能划分如下。
 
 | 区段 | 内容 |
 |---|---|
-| 配置对象 | `BUILTIN_CONFIG`——**改默认规则就改这里** |
+| 配置对象 | 从共享默认配置生成的 `BUILTIN_CONFIG` |
 | 内嵌配置 | `EMBEDDED_CONFIG` / `DEFAULT_CONFIG` / `ITEM_TYPES` |
 | 持久化 | `normalizeItems`、`mergeConfig`、`loadConfig`、`saveConfig`、`embeddedSignature` |
 | 工具函数 | `esc`、`r2`、`signed`、`timeHint` |
@@ -205,9 +205,9 @@
 
 ### 修改默认规则
 
-1. 改 `BUILTIN_CONFIG` 里的数值/条目；
-2. **把 `version` 加 1**（否则用户浏览器里已保存的旧配置会覆盖新默认值）；
-3. 打开页面确认「恢复默认」拿到的是新值。
+1. 修改 `default-config.json` 中的数值或条目。
+2. 如需使已保存的浏览器配置自动刷新，递增 `version`，同时更新网站对新导出版本的兼容与测试。
+3. 同步独立 HTML 后，打开页面用「恢复默认」核对规则。
 
 ### 调试接口
 

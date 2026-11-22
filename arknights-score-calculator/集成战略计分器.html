@@ -562,72 +562,144 @@
  * 条目 min 字段：输入型 / 阈值型的数量下限，默认 0（数量不能为负，负输入按 0 计）；
  *   需要允许负数时，在该分区的配置模式里把「最低值」改小即可。
  * ========================================================================== */
+// BEGIN BUILTIN SCORE CONFIGURATION
 const BUILTIN_CONFIG = {
-  version: 3,
-
-  /* 一、基础结算：原始分 + 用时（时段规则）+ 可自由增删的输入条目 */
-  basic: {
-    kind: 'bonus',
-    title: '基础结算',
-    scoreLabel: '原始分',
-    scoreHint: '基础分，直接计入总分',
-    timeLabel: '用时（小时）',
-    // 用时规则：命中区间 [min, max]（含两端，按顺序优先命中）
-    timeRules: [
-      { min: 0, max: 2, score: 30 },
-      { min: 2, max: 4, score: 0 }
+  "version": 3,
+  "basic": {
+    "kind": "bonus",
+    "title": "基础结算",
+    "scoreLabel": "原始分",
+    "scoreHint": "基础分，直接计入总分",
+    "timeLabel": "用时（小时）",
+    "timeRules": [
+      {
+        "min": 0,
+        "max": 2,
+        "score": 30
+      },
+      {
+        "min": 2,
+        "max": 4,
+        "score": 0
+      }
     ],
-    // 超出最后一个规则区间后的处理：每超 1 小时加/扣 perHour 分
-    timeOverflow: { perHour: -20, rounding: 'ceil' }, // 'ceil' 不足 1 小时按 1 小时计 | 'exact' 按实际小数计算
-    // 除「原始分」「用时」外的条目，与其它分区同构，可在配置模式中增删改
-    groups: [
-      { title: '', items: [
-        { id: 'basic-relic', name: '藏品数量', type: 'number', score: 5, unit: '个', min: 0 }
-      ] }
+    "timeOverflow": {
+      "perHour": -20,
+      "rounding": "ceil"
+    },
+    "groups": [
+      {
+        "title": "",
+        "items": [
+          {
+            "id": "basic-relic",
+            "name": "藏品数量",
+            "type": "number",
+            "score": 5,
+            "unit": "个",
+            "min": 0
+          }
+        ]
+      }
     ]
   },
-
-  /* 二、关卡加分（勾选型） */
-  levelBonus: {
-    kind: 'bonus',
-    title: '关卡加分',
-    groups: [
-      { title: '', items: [
-        { id: 'lv-1', name: '无效验尸', type: 'check', score: 200 },
-        { id: 'lv-2', name: '同域共存', type: 'check', score: 300 }
-      ] }
+  "levelBonus": {
+    "kind": "bonus",
+    "title": "关卡加分",
+    "groups": [
+      {
+        "title": "",
+        "items": [
+          {
+            "id": "lv-1",
+            "name": "无效验尸",
+            "type": "check",
+            "score": 200
+          },
+          {
+            "id": "lv-2",
+            "name": "同域共存",
+            "type": "check",
+            "score": 300
+          }
+        ]
+      }
     ]
   },
-
-  /* 三、额外加分 */
-  extraBonus: {
-    kind: 'bonus',
-    title: '额外加分',
-    groups: [
-      { title: '携带特殊藏品', items: [
-        { id: 'ex-special', name: '携带特殊藏品', type: 'check', score: 100 }
-      ] },
-      { title: '临时招募', items: [
-        { id: 'ex-recruit-6', name: '六星', type: 'number', score: 50, unit: '个', min: 0 },
-        { id: 'ex-recruit-5', name: '五星', type: 'number', score: 20, unit: '个', min: 0 },
-        { id: 'ex-recruit-4', name: '四星', type: 'number', score: 10, unit: '个', min: 0 }
-      ] }
+  "extraBonus": {
+    "kind": "bonus",
+    "title": "额外加分",
+    "groups": [
+      {
+        "title": "携带特殊藏品",
+        "items": [
+          {
+            "id": "ex-special",
+            "name": "携带特殊藏品",
+            "type": "check",
+            "score": 100
+          }
+        ]
+      },
+      {
+        "title": "临时招募",
+        "items": [
+          {
+            "id": "ex-recruit-6",
+            "name": "六星",
+            "type": "number",
+            "score": 50,
+            "unit": "个",
+            "min": 0
+          },
+          {
+            "id": "ex-recruit-5",
+            "name": "五星",
+            "type": "number",
+            "score": 20,
+            "unit": "个",
+            "min": 0
+          },
+          {
+            "id": "ex-recruit-4",
+            "name": "四星",
+            "type": "number",
+            "score": 10,
+            "unit": "个",
+            "min": 0
+          }
+        ]
+      }
     ]
   },
-
-  /* 四、扣分项 */
-  penalty: {
-    kind: 'penalty',
-    title: '扣分项',
-    groups: [
-      { title: '', items: [
-        // 输入的是总共取出的锭数（含 100 锭），超出 100 锭的部分每锭 -10 分
-        { id: 'p-money', name: '取钱超过 100 锭', type: 'threshold', threshold: 100, score: -10, unit: '锭', min: 0 },
-        { id: 'p-special', name: '携带特殊藏品', type: 'check', score: -100 }
-      ] }
+  "penalty": {
+    "kind": "penalty",
+    "title": "扣分项",
+    "groups": [
+      {
+        "title": "",
+        "items": [
+          {
+            "id": "p-money",
+            "name": "取钱超过 100 锭",
+            "type": "threshold",
+            "threshold": 100,
+            "score": -10,
+            "unit": "锭",
+            "min": 0
+          },
+          {
+            "id": "p-special",
+            "name": "携带特殊藏品",
+            "type": "check",
+            "score": -100
+          }
+        ]
+      }
     ]
   }
 };
+// END BUILTIN SCORE CONFIGURATION
 
 /* 条目类型白名单：localStorage 存档 / 导入的 JSON / 内嵌配置里的 type 一律按这里归一化 */
 const ITEM_TYPES = ['check', 'number', 'fixed', 'threshold'];

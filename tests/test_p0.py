@@ -39,7 +39,8 @@ def transition_data(application, client, force=False):
     html = response.get_data(as_text=True)
     token = re.search('name="idempotency_key" value="([^"]+)"', html).group(1)
     return {'idempotency_key': token, 'expected_current_season_id': str(application.test_ids['season']),
-            'force': '1' if force else '', 'force_reason': '隔离测试强制换季' if force else ''}
+            'force': '1' if force else '', 'force_reason': '隔离测试强制换季' if force else '',
+            'score_rules_mode': 'initial'}
 
 
 def complete(application, client):

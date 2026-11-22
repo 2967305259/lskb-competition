@@ -283,17 +283,17 @@ def _log(action, detail):
     a.log_system_action(action, json_dump(detail))
 
 
-def switch_season():
-    a = ns()
+def _transition_request():
     try:
         payload = _signer().loads(request.form.get('idempotency_key', ''))
     except (BadSignature, SignatureExpired) as error:
         raise SeasonError('换季请求令牌无效或过期，请刷新设置页', 400) from error
     if payload['actor'] != current_user.id:
         raise SeasonError('请求令牌不属于当前操作者', 403)
-    previous = a.SeasonTransition.query.filter_by(request_key=payload['key']).first()
-    if previous:
-        return a.db.session.get(a.Tournament, previous.new_season_id)
+    return payload
+
+
+def _require_current_transition(payload):
     try:
         _signer().loads(request.form.get('idempotency_key', ''), max_age=86400)
     except SignatureExpired as error:
@@ -301,6 +301,25 @@ def switch_season():
     season = active_season()
     if request.form.get('expected_current_season_id', type=int) != season.id or payload['expected'] != season.id:
         raise SeasonError('当前赛季已变化，请刷新页面；旧请求不会再次换季')
+    return season
+
+
+def preview_transition_score_rules():
+    from calculator_rules import create_preview
+    if not current_user.is_super_admin():
+        abort(403)
+    season = _require_current_transition(_transition_request())
+    return create_preview(season.id, 'new-season')
+
+
+def switch_season():
+    from calculator_rules import confirmed_configuration, initial_configuration, record_publication
+    a = ns()
+    payload = _transition_request()
+    previous = a.SeasonTransition.query.filter_by(request_key=payload['key']).first()
+    if previous:
+        return a.db.session.get(a.Tournament, previous.new_season_id)
+    season = _require_current_transition(payload)
     pending = unfinished_matches(season.id)
     reason = request.form.get('force_reason', '').strip()
     forced = request.form.get('force') == '1'
@@ -312,6 +331,15 @@ def switch_season():
     name = request.form.get('season_name', '').strip() or f"{current_app.config['EVENT_NAME']} #{number}"
     if len(name) > 100 or a.Tournament.query.filter(a.db.or_(a.Tournament.name == name, a.Tournament.season_number == number)).first():
         raise SeasonError('新赛季名称或届数无效/已存在', 400)
+    score_rules_source = request.form.get('score_rules_mode')
+    if score_rules_source == 'initial':
+        score_configuration = initial_configuration()
+    elif score_rules_source == 'import':
+        if not current_user.is_super_admin():
+            abort(403)
+        score_configuration = confirmed_configuration(season.id, 'new-season')
+    else:
+        raise SeasonError('请选择导入计分器配置或明确跳过并使用初始配置', 400)
     # Close the read transaction before acquiring the consistent backup connection.
     old_id, old_bonus = season.id, season.bonus_score
     a.db.session.rollback()
@@ -355,6 +383,7 @@ def switch_season():
     new.window_times_utc = season.window_times_utc
     a.db.session.add(new)
     a.db.session.flush()
+    record_publication(new.id, score_configuration, version=1, source=score_rules_source)
     teams = [t.id for t in a.Team.query.filter_by(tournament_id=old_id).all()]
     if teams:
         a.Invitation.query.filter(a.Invitation.team_id.in_(teams), a.Invitation.status == 'pending').delete(synchronize_session=False)
@@ -401,6 +430,7 @@ def switch_season():
     _log('new_season', {'old_id': old_id, 'new_id': new.id, 'name': name,
         'reset_users': count, 'unfinished_matches': pending_ids, 'force_reason': reason if forced else '',
         'backup_batch': batch.name, 'inherited': inherited,
+        'score_rule_version': 1, 'score_rule_source': score_rules_source,
         'carousel_copied': a.CarouselItem.query.filter_by(tournament_id=new.id).count(),
         'inherited_values': {
             'registration_start': str(new.registration_start) if inherit_registration else None,

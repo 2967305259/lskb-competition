@@ -135,7 +135,7 @@ def test_next_operator_restores_and_creates_season(application, client, tmp_path
             settings_page = restored_client.get('/admin/tournament-settings').get_data(as_text=True)
             token = re.search('name="idempotency_key" value="([^"]+)"', settings_page).group(1)
             transition = {'idempotency_key': token, 'expected_current_season_id': season,
-                          'season_name': '接手运营下一届'}
+                          'season_name': '接手运营下一届', 'score_rules_mode': 'initial'}
             assert restored_client.post('/admin/new-season', data=transition).status_code == 302
             archived = package(restored_client, season)
             new_season = archived['next_season']['season_id']

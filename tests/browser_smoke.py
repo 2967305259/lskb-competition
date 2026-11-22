@@ -357,6 +357,7 @@ def scenario(browser, app, season_id, root):
     browser.wait('() => Boolean(document.querySelector("[data-scroll-label] tr"))')
     browser.no_page_overflow()
     browser.go('/admin/tournament-settings')
+    browser.run('''() => { document.querySelector('input[name="score_rules_mode"][value="initial"]').checked = true; }''')
     transition = browser.run('''() => Object.fromEntries([...new FormData(document.querySelector('form[action="/admin/new-season"]'))])''')
     assert browser.post('/admin/new-season', transition)['status'] == 200
     browser.go('/history')

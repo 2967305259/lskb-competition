@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% from 'admin/_calculator_config.html' import show_preview, confirmed_fields %}
+
+{% block title %}新赛季计分器配置{% endblock %}
+
+{% block content %}
+<a class="btn btn-light rounded-pill mb-3" href="{{ url_for('admin.tournament_settings') }}">返回赛事设置</a>
+<h2 class="mb-3">新赛季计分器配置</h2>
+{% if preview %}
+<p>开启新赛季{% if transition_fields.get('season_name') %}「{{ transition_fields.season_name }}」{% endif %}后，这份配置将成为新届的第 1 版。</p>
+{{ show_preview(preview) }}
+{% else %}
+<p class="alert alert-danger" role="alert">{{ import_error }}</p>
+{% endif %}
+<form method="post" action="{{ url_for('admin.new_season') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% for name, value in transition_fields.items() %}
+    <input type="hidden" name="{{ name }}" value="{{ value }}">
+    {% endfor %}
+    {% if preview %}
+    <input type="hidden" name="score_rules_mode" value="import">
+    {{ confirmed_fields(preview) }}
+    <button type="submit" class="btn btn-warning">确认配置并开启新赛季</button>
+    {% else %}
+    <label for="retry-rules-file" class="form-label">重新选择配置文件</label>
+    <input id="retry-rules-file" type="file" name="score_rules_file" accept=".json,application/json" class="form-control mb-3">
+    <button type="submit" name="score_rules_mode" value="import" class="btn btn-primary">重新预览</button>
+    <button type="submit" name="score_rules_mode" value="initial" class="btn btn-outline-secondary"
+            onclick="return confirm('确定用初始配置开启新赛季吗？当前赛事将转入归档状态。');">跳过，用初始配置开启新赛季</button>
+    {% endif %}
+</form>
+{% endblock %}

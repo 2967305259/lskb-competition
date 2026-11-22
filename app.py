@@ -3490,7 +3490,28 @@ def tournament_settings():
 @admin_bp.route('/new-season', methods=['POST'])
 @login_required_with_role('admin')
 def new_season():
-    from season_safety import switch_season
+    from season_safety import preview_transition_score_rules, switch_season
+    if request.form.get('score_rules_mode') == 'import' and not request.form.get('score_rules_preview'):
+        field_names = (
+            'idempotency_key', 'expected_current_season_id', 'season_name', 'force', 'force_reason',
+            'inherit_registration_window', 'inherit_tournament_window', 'inherit_advance_count',
+            'inherit_team_size', 'inherit_allow_incomplete_teams', 'inherit_carousel',
+        )
+        transition_fields = {key: request.form[key] for key in field_names if key in request.form}
+        status = 200
+        import_error = None
+        try:
+            preview = preview_transition_score_rules()
+        except SeasonError as error:
+            if error.status != 400:
+                raise
+            preview, import_error, status = None, str(error), 400
+        response = current_app.make_response((render_template(
+            'admin/calculator_transition.html', transition_fields=transition_fields,
+            preview=preview, import_error=import_error,
+        ), status))
+        response.cache_control.no_store = True
+        return response
     result = switch_season()
     flash(f'已开启新赛季【{result.name}】，上届数据已归档保留', 'success')
     for warning in window_warnings(result).values():
@@ -3501,6 +3522,70 @@ def new_season():
     else:
         flash('本届报名开关保持关闭，请核对规则和赛道后手动开放', 'info')
     return redirect(url_for('admin.tournament_settings'))
+
+
+@admin_bp.route('/score-rules', methods=['GET', 'POST'])
+@super_admin_required
+def score_rules():
+    from calculator_rules import confirmed_configuration, create_preview, latest_rule, record_publication
+    current = Tournament.get_active()
+    season = _calculator_rules_season(current)
+    preview = import_error = None
+    status = 200
+    if request.method == 'POST':
+        if not season or not current or season.id != current.id:
+            raise SeasonError('往届计分规则只读', 403)
+        latest = latest_rule(season.id)
+        version = latest.version if latest else 0
+        operation = request.form.get('operation')
+        try:
+            if operation == 'preview':
+                preview = create_preview(season.id, 'publish', version)
+            elif operation == 'publish':
+                configuration = confirmed_configuration(season.id, 'publish', version)
+                record_publication(season.id, configuration, version + 1, 'import')
+                db.session.commit()
+                flash(f'已发布本届计分规则 v{version + 1}', 'success')
+                return redirect(url_for('admin.score_rules', season_id=season.id))
+            else:
+                raise SeasonError('未知的计分规则操作', 400)
+        except SeasonError as error:
+            if error.status != 400:
+                raise
+            db.session.rollback()
+            import_error, status = str(error), 400
+    seasons = Tournament.query.order_by(Tournament.season_number.desc()).all()
+    versions = (ScoreRuleSet.query.filter_by(tournament_id=season.id).order_by(ScoreRuleSet.version.desc()).all()
+                if season else [])
+    response = current_app.make_response((render_template(
+        'admin/calculator_rules.html', seasons=seasons, season=season, versions=versions,
+        writable=season is not None and season == current, preview=preview, import_error=import_error,
+    ), status))
+    response.cache_control.no_store = True
+    return response
+
+
+def _calculator_rules_season(current):
+    if 'season_id' in request.args:
+        season_id = request.args.get('season_id', type=int)
+        if season_id is None:
+            abort(404)
+        return db.get_or_404(Tournament, season_id)
+    return current
+
+
+@admin_bp.route('/score-rules/<int:version>')
+@super_admin_required
+def score_rule_version(version):
+    season = _calculator_rules_season(Tournament.get_active())
+    if season is None:
+        abort(404)
+    rule = ScoreRuleSet.query.filter_by(tournament_id=season.id, version=version).first_or_404()
+    response = current_app.make_response(render_template(
+        'admin/calculator_rules.html', season=season, rule=rule, configuration=json.loads(rule.config),
+    ))
+    response.cache_control.no_store = True
+    return response
 
 
 @admin_bp.route('/advance')

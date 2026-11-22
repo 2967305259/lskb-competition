@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% from 'admin/_calculator_config.html' import show_configuration, show_preview, confirmed_fields %}
+
+{% block title %}计分器规则{% endblock %}
+
+{% block content %}
+<a class="btn btn-light rounded-pill mb-3" href="{{ url_for('admin.tournament_settings') }}">返回赛事设置</a>
+<h2 class="mb-3">计分器规则{% if rule %} v{{ rule.version }}{% endif %}</h2>
+
+{% if rule %}
+<p>{{ season.name }} · {{ '初始配置' if rule.source == 'initial' else '导入配置' }}</p>
+<a class="d-inline-block mb-3" href="{{ url_for('admin.score_rules', season_id=season.id) }}">返回该届版本列表</a>
+{{ show_configuration(configuration) }}
+{% else %}
+{% if seasons %}
+<form method="get" action="{{ url_for('admin.score_rules') }}" class="d-flex align-items-end flex-wrap gap-2 mb-4">
+    <div>
+        <label for="rules-season" class="form-label">赛季</label>
+        <select id="rules-season" class="form-select" name="season_id">
+            {% if not season %}<option value="" selected disabled>请选择赛季</option>{% endif %}
+            {% for entry in seasons %}
+            <option value="{{ entry.id }}" {% if season and entry.id == season.id %}selected{% endif %}>{{ entry.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button class="btn btn-outline-secondary" type="submit">查看</button>
+</form>
+{% endif %}
+
+{% if writable %}
+<div class="card mb-4">
+    <div class="card-body">
+        <h3 class="h5 mb-3">{% if preview %}发布预览{% else %}导入配置{% endif %}</h3>
+        {% if import_error %}<p class="alert alert-danger" role="alert">{{ import_error }}</p>{% endif %}
+        {% if preview %}
+        {{ show_preview(preview) }}
+        <form method="post" action="{{ url_for('admin.score_rules', season_id=season.id) }}" class="d-flex gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {{ confirmed_fields(preview) }}
+            <button class="btn btn-primary" name="operation" value="publish" type="submit">确认发布</button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('admin.score_rules', season_id=season.id) }}">重新导入</a>
+        </form>
+        {% else %}
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('admin.score_rules', season_id=season.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <p>上传独立版「导出配置」生成的 JSON（不超过 64 KiB），或粘贴该文件的内容。</p>
+            <label for="rules-file" class="form-label">配置文件</label>
+            <input id="rules-file" type="file" name="score_rules_file" accept=".json,application/json" class="form-control mb-3">
+            <label for="pasted-rules" class="form-label">配置 JSON</label>
+            <textarea id="pasted-rules" name="score_rules_json" rows="4" class="form-control mb-3" spellcheck="false"></textarea>
+            <button class="btn btn-primary" name="operation" value="preview" type="submit">校验并预览</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if season %}
+<h3 class="h5">发布记录</h3>
+{% if versions %}
+<div class="table-responsive">
+<table class="table align-middle">
+    <thead><tr><th scope="col">版本</th><th scope="col">来源</th><th scope="col">发布时间（{{ config.EVENT_TIMEZONE }}）</th></tr></thead>
+    <tbody>
+    {% for item in versions %}
+    <tr>
+        <td><a href="{{ url_for('admin.score_rule_version', season_id=season.id, version=item.version) }}">v{{ item.version }}</a>
+            {% if writable and loop.first %}<span class="ms-2">当前版本</span>{% endif %}</td>
+        <td>{{ '初始配置' if item.source == 'initial' else '导入配置' }}</td>
+        <td>{{ item.created_at|event_time(true, '%Y-%m-%d %H:%M') }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<p class="text-muted">该届暂无计分器规则。</p>
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}
