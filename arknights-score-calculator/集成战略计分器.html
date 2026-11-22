@@ -245,6 +245,310 @@
 
 <!-- 「导出定制 HTML」会把当前配置写进这里；有内容时它取代脚本里的内置默认配置 -->
 <script id="default-config" type="application/json"></script>
+<!-- BEGIN SHARED SCORE CALCULATOR -->
+<script>
+(() => {
+  'use strict';
+
+  const sectionKeys = Object.freeze(['basic', 'levelBonus', 'extraBonus', 'penalty']);
+  const zero = { coefficient: 0n, scale: 0 };
+  const decimalPattern = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/;
+  const amountPattern = /^-?(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+  function decimal(value) {
+    const match = decimalPattern.exec(String(value ?? ''));
+    if (!match || !(match[2] || match[3]) || !Number.isFinite(Number(value))) return zero;
+    const exponent = Number(match[4] || 0);
+    if (Math.abs(exponent) > 324) return zero;
+    const fraction = match[3] || '';
+    const scale = fraction.length - exponent;
+    const coefficient = BigInt(match[1] + (match[2] || '0') + fraction);
+    return scale < 0
+      ? { coefficient: coefficient * 10n ** BigInt(-scale), scale: 0 }
+      : { coefficient, scale };
+  }
+
+  function align(value, scale) {
+    return value.coefficient * 10n ** BigInt(scale - value.scale);
+  }
+
+  function add(left, right) {
+    const scale = Math.max(left.scale, right.scale);
+    return { coefficient: align(left, scale) + align(right, scale), scale };
+  }
+
+  function subtract(left, right) {
+    return add(left, { coefficient: -right.coefficient, scale: right.scale });
+  }
+
+  function multiply(left, right) {
+    return { coefficient: left.coefficient * right.coefficient, scale: left.scale + right.scale };
+  }
+
+  function max(left, right) {
+    return subtract(left, right).coefficient >= 0n ? left : right;
+  }
+
+  function roundInteger(value, places) {
+    if (value.scale <= places) return align(value, places);
+    const divisor = 10n ** BigInt(value.scale - places);
+    const whole = value.coefficient / divisor;
+    const twiceRemainder = (value.coefficient % divisor) * 2n;
+    if (twiceRemainder >= divisor) return whole + 1n;
+    if (twiceRemainder < -divisor) return whole - 1n;
+    return whole;
+  }
+
+  function rounded(value) {
+    return Number(roundInteger(value, 2)) / 100;
+  }
+
+  function decimalText(value) {
+    const { coefficient, scale } = value;
+    if (!scale) return String(coefficient);
+    const sign = coefficient < 0n ? '-' : '';
+    const digits = String(coefficient < 0n ? -coefficient : coefficient).padStart(scale + 1, '0');
+    return sign + digits.slice(0, -scale) + '.' + digits.slice(-scale);
+  }
+
+  function normalizeNumeric(raw) {
+    let value = String(raw ?? '');
+    value = value.replace(/[\uFF10-\uFF19]/g, digit => String.fromCharCode(digit.charCodeAt(0) - 0xFEE0));
+    value = value.replace(/[\u2212\uFF0D\u2013\u2014\uFE63]/g, '-');
+    value = value.replace(/[,.\uFF0C\u3001\u3002\uFF0E\uFF61\u00B7\u30FB\u2027\u2219\u066B]/g, '.');
+    value = value.replace(/[^0-9.\-]/g, '');
+    const sign = value.startsWith('-') ? '-' : '';
+    value = value.replace(/-/g, '');
+    const dot = value.indexOf('.');
+    if (dot >= 0) value = value.slice(0, dot + 1) + value.slice(dot + 1).replace(/\./g, '');
+    return sign + value;
+  }
+
+  function amountText(raw) {
+    const value = normalizeNumeric(raw);
+    return amountPattern.test(value) && Number.isFinite(Number(value)) ? value : '';
+  }
+
+  function quantityText(raw, item) {
+    const value = amountText(raw);
+    const min = decimal(item.min);
+    return value && subtract(decimal(value), min).coefficient < 0n ? decimalText(min) : value;
+  }
+
+  function timeText(raw) {
+    const value = amountText(raw);
+    return decimal(value).coefficient < 0n ? '0' : value;
+  }
+
+  function eachItem(config, visit) {
+    for (const key of sectionKeys) {
+      (config[key].groups || []).forEach((group, groupIndex) => {
+        (group.items || []).forEach((item, itemIndex) => {
+          visit(item, `${key}:${groupIndex}:${itemIndex}`, key, group);
+        });
+      });
+    }
+  }
+
+  function readScores(config, read) {
+    const items = Object.create(null);
+    eachItem(config, (item, path) => {
+      if (!item.id || item.type === 'fixed') return;
+      const value = read(path);
+      items[item.id] = item.type === 'check' ? value === true : quantityText(value, item);
+    });
+    return { original: amountText(read('basic:original')), time: timeText(read('basic:time')), items };
+  }
+
+  function timeScore(basic, raw) {
+    const rules = basic.timeRules || [];
+    if (raw === '' || !rules.length) return zero;
+    const time = decimal(raw);
+    let lastBound = decimal(rules[0].max);
+    for (const rule of rules) {
+      const upper = decimal(rule.max);
+      if (subtract(time, decimal(rule.min)).coefficient >= 0n && subtract(time, upper).coefficient <= 0n) {
+        return decimal(rule.score);
+      }
+      lastBound = max(lastBound, upper);
+    }
+    const over = subtract(time, lastBound);
+    if (over.coefficient <= 0n) return zero;
+    if (basic.timeOverflow.rounding === 'exact') return multiply(over, decimal(basic.timeOverflow.perHour));
+    const divisor = 10n ** BigInt(over.scale);
+    const units = { coefficient: (over.coefficient + divisor - 1n) / divisor, scale: 0 };
+    return multiply(units, decimal(basic.timeOverflow.perHour));
+  }
+
+  function itemScore(item, input) {
+    const score = decimal(item.score);
+    if (item.type === 'check') return input === true ? score : zero;
+    if (item.type === 'fixed') return score;
+    const quantity = max(decimal(item.min), decimal(amountText(input)));
+    const units = item.type === 'threshold' ? max(zero, subtract(quantity, decimal(item.threshold))) : quantity;
+    return multiply(units, score);
+  }
+
+  function calculate(config, scores, readItem = (path, item) => {
+    const items = scores.items || {};
+    return Object.prototype.hasOwnProperty.call(items, item.id) ? items[item.id] : undefined;
+  }) {
+    const original = decimal(amountText(scores.original));
+    const time = timeScore(config.basic, timeText(scores.time));
+    const sectionTotals = Object.fromEntries(sectionKeys.map(key => [key, zero]));
+    const itemScores = {};
+    eachItem(config, (item, path, key) => {
+      const subtotal = itemScore(item, readItem(path, item));
+      sectionTotals[key] = add(sectionTotals[key], subtotal);
+      itemScores[path] = rounded(subtotal);
+    });
+
+    const basicSub = add(time, sectionTotals.basic);
+    const bonus = add(add(basicSub, sectionTotals.levelBonus), sectionTotals.extraBonus);
+    const penalty = sectionTotals.penalty;
+    const totalCents = roundInteger(add(add(original, bonus), penalty), 2);
+    return {
+      original: rounded(original),
+      time: rounded(time),
+      sections: Object.fromEntries(sectionKeys.map(key => [key, rounded(sectionTotals[key])])),
+      basicSub: rounded(basicSub),
+      bonus: rounded(bonus),
+      penalty: rounded(penalty),
+      total: Number(totalCents) / 100,
+      // 成绩列用已经舍入到分的总分再取整，避免二进制浮点在半分边界改变结果。
+      matchScore: Number(roundInteger({ coefficient: totalCents, scale: 2 }, 0)),
+      itemScores
+    };
+  }
+
+  const escape = value => String(value ?? '').replace(/[&<>"']/g,
+    char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+  const roundScore = value => rounded(decimal(value));
+  const signed = value => {
+    const score = roundScore(value);
+    return (score > 0 ? '+' : '') + score;
+  };
+  const ruleNumberText = value => decimalText(decimal(value));
+  const signedRule = value => {
+    const number = decimal(value);
+    return (number.coefficient > 0n ? '+' : '') + decimalText(number);
+  };
+
+  function amountInput(path, label, nonNegative) {
+    return `<input type="text" class="num" inputmode="decimal" autocomplete="off" placeholder="0"
+      aria-label="${escape(label)}" data-num${nonNegative ? ' data-nonneg' : ''} data-path="${path}">`;
+  }
+
+  function itemHtml(path, item) {
+    const name = escape(item.name);
+    const value = signed(item.score);
+    if (item.type === 'check') {
+      return `<label class="item item--check">
+        <input type="checkbox" data-path="${path}">
+        <span class="item-name">${name}</span>
+        <span class="item-score" data-sub="${path}">${value}</span>
+      </label>`;
+    }
+    if (item.type === 'fixed') {
+      return `<div class="item">
+        <span class="item-name">${name}<span class="hint">固定计入</span></span>
+        <span class="item-score" data-sub="${path}">${value}</span>
+      </div>`;
+    }
+    const unit = escape(item.unit || '个');
+    const rate = signedRule(item.score);
+    const hint = item.type === 'threshold'
+      ? `超出 ${ruleNumberText(item.threshold)}${unit}后，每${unit} ${rate}`
+      : `每${unit} ${rate}`;
+    return `<div class="item item--input">
+      <span class="item-name">${name}<span class="hint">${hint}</span></span>
+      ${amountInput(path, item.name, decimal(item.min).coefficient >= 0n)}
+      <span class="unit">${unit}</span>
+      <span class="item-sub" data-sub="${path}">0</span>
+    </div>`;
+  }
+
+  function timeHint(basic) {
+    const rules = basic.timeRules || [];
+    if (!rules.length) return '未设置时段规则，用时不计分';
+    const parts = rules.map(rule => `${ruleNumberText(rule.min)}~${ruleNumberText(rule.max)}h ${signedRule(rule.score)}`);
+    const lastBound = rules.map(rule => decimal(rule.max)).reduce(max);
+    const tail = basic.timeOverflow.rounding === 'exact' ? '（按实际小数计）' : '（不足 1h 按 1h 计）';
+    parts.push(`超 ${decimalText(lastBound)}h 每超 1h ${signedRule(basic.timeOverflow.perHour)}${tail}`);
+    return parts.join('；');
+  }
+
+  function sectionBodyHtml(config, key) {
+    const section = config[key];
+    const groups = (section.groups || []).map((group, groupIndex) => `<div class="group">
+      ${group.title ? `<div class="group-title">${escape(group.title)}</div>` : ''}
+      <div class="items">${(group.items || []).map((item, itemIndex) =>
+        itemHtml(`${key}:${groupIndex}:${itemIndex}`, item)).join('')}</div>
+    </div>`).join('');
+    if (key !== 'basic') return groups;
+    return `<div class="fields">
+      <div class="field">
+        <span class="field-label"><span class="name">${escape(section.scoreLabel)}</span><span class="hint">${escape(section.scoreHint)}</span></span>
+        <span class="field-input">${amountInput('basic:original', section.scoreLabel, false)}</span>
+      </div>
+      <div class="field">
+        <span class="field-label"><span class="name">${escape(section.timeLabel)}</span><span class="hint">${escape(timeHint(section))}</span></span>
+        <span class="field-input">${amountInput('basic:time', section.timeLabel, true)}<span class="item-sub" data-sub="basic:time">0</span></span>
+      </div>
+    </div>${groups}`;
+  }
+
+  function paintSub(subs, path, value, text) {
+    const el = subs.get(path);
+    if (!el) return;
+    const v = roundScore(value);
+    el.textContent = text === undefined ? signed(v) : text;
+    el.classList.toggle('is-on-pos', v > 0);
+    el.classList.toggle('is-on-neg', v < 0);
+  }
+
+  function paintChip(chips, key, value) {
+    const el = chips.get(key);
+    if (!el) return;
+    const v = roundScore(value);
+    el.textContent = '本区小计 ' + signed(v);
+    el.classList.toggle('pos', v > 0);
+    el.classList.toggle('neg', v < 0);
+  }
+
+  function paintSum(sums, key, text, tone) {
+    const el = sums.get(key);
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('pos', tone === 'pos');
+    el.classList.toggle('neg', tone === 'neg');
+  }
+
+  function paintPreview(config, t, { subs, chips, sums }) {
+    paintSub(subs, 'basic:time', t.time);
+    eachItem(config, (item, path) => {
+      if (item.type === 'check') paintSub(subs, path, t.itemScores[path], signed(item.score));
+      else if (item.type !== 'fixed') paintSub(subs, path, t.itemScores[path]);
+    });
+
+    paintChip(chips, 'basic', t.basicSub);
+    paintChip(chips, 'levelBonus', t.sections.levelBonus);
+    paintChip(chips, 'extraBonus', t.sections.extraBonus);
+    paintChip(chips, 'penalty', t.sections.penalty);
+
+    paintSum(sums, 'original', signed(t.original), '');
+    paintSum(sums, 'bonus', signed(t.bonus), t.bonus >= 0 ? 'pos' : 'neg');
+    paintSum(sums, 'penalty', signed(t.penalty), t.penalty < 0 ? 'neg' : '');
+    paintSum(sums, 'total', signed(t.total), t.total > 0 ? 'pos' : (t.total < 0 ? 'neg' : ''));
+  }
+
+  globalThis.ScoreCalculator = Object.freeze({
+    sectionKeys, normalizeNumeric, amountText, quantityText, timeText, eachItem, readScores,
+    calculate, paintPreview, ruleNumberText, roundScore, signed, sectionBodyHtml
+  });
+})();
+</script>
+<!-- END SHARED SCORE CALCULATOR -->
 
 <script>
 /* ============================================================================
@@ -434,20 +738,10 @@ let config = loadConfig();
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-function r2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
-function signed(n) { const v = r2(n); return (v > 0 ? '+' : '') + v; }
-function lastTimeBound() {
-  const rules = config.basic.timeRules || [];
-  return rules.length ? Math.max.apply(null, rules.map(r => Number(r.max) || 0)) : 0;
-}
-function timeHint() {
-  const b = config.basic;
-  if (!(b.timeRules || []).length) return '未设置时段规则，用时不计分';
-  const parts = (b.timeRules || []).map(r => `${r.min}~${r.max}h ${signed(r.score)}`);
-  const tail = b.timeOverflow.rounding === 'exact' ? '（按实际小数计）' : '（不足 1h 按 1h 计）';
-  parts.push(`超 ${lastTimeBound()}h 每超 1h ${signed(b.timeOverflow.perHour)}${tail}`);
-  return parts.join('；');
-}
+const {
+  sectionKeys: SECTION_KEYS, normalizeNumeric, amountText, quantityText, timeText, eachItem,
+  readScores, calculate, paintPreview, ruleNumberText, roundScore: r2, signed, sectionBodyHtml
+} = ScoreCalculator;
 
 /* ============================================================================
  * 渲染：页面结构只渲染一次，之后只更新小计/合计文本（避免输入时丢失焦点）
@@ -457,27 +751,6 @@ const els = new Map();  // path -> input/checkbox 元素
 const subs = new Map(); // path -> 小计元素
 const chips = new Map(); // sectionKey -> 本区小计元素
 const sums = new Map();  // 'original' | 'bonus' | 'penalty' | 'total' -> 元素
-
-function inputHtml(path, nonNegative) {
-  return `<input type="text" class="num" inputmode="decimal" autocomplete="off" placeholder="0" data-num${nonNegative ? ' data-nonneg' : ''} data-path="${path}">`;
-}
-
-/* 数字输入归一化：把各种小数分隔符/全角字符统一成可解析的半角数字串
-   （type="number" 会静默丢弃 "1,5"、"1。5" 这类输入，把它们变成 "15"，因此改用 text + 归一化） */
-function normalizeNumeric(raw) {
-  let s = String(raw == null ? '' : raw);
-  s = s.replace(/[\uFF10-\uFF19]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)); // 全角数字 → 半角
-  s = s.replace(/[\u2212\uFF0D\u2013\u2014\uFE63]/g, '-');   // 各种负号 → 半角减号
-  s = s.replace(/[\u3002\uFF0E\uFF61\u00B7\u30FB\u2027\u2219\u066B]/g, '.'); // 各种小数点 → 半角小数点
-  s = s.replace(/[,\uFF0C\u3001]/g, '.');                    // 半角/全角逗号、顿号 → 小数点
-  s = s.replace(/[\s\u00A0\u3000]/g, '');                    // 空白
-  s = s.replace(/[^0-9.\-]/g, '');                           // 其它字符
-  const negative = s.charAt(0) === '-';
-  s = s.replace(/-/g, '');
-  const dot = s.indexOf('.');
-  if (dot >= 0) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '');
-  return (negative ? '-' : '') + s;
-}
 
 function sanitizeNumericInput(el) {
   const fixed = normalizeNumeric(el.value);
@@ -514,86 +787,10 @@ function isNonNegativeEl(el) {
   return !!(el && el.hasAttribute && el.hasAttribute('data-nonneg'));
 }
 
-/* 数量下限：条目拥有有限 min 时用它，否则用兜底值（输入型 / 阈值型默认 0） */
-function qtyMin(item, fallback) {
-  const m = Number(item && item.min);
-  return Number.isFinite(m) ? m : (fallback || 0);
-}
-/* 读取一个数量输入框：返回解析值、钳制后的值、是否被钳制 */
-function readQty(el, min) {
-  const raw = el ? String(el.value).trim() : '';
-  if (raw === '') return { raw: raw, value: 0, clamped: false, empty: true };
-  const n = parseFloat(raw);
-  if (!Number.isFinite(n)) return { raw: raw, value: 0, clamped: false, empty: false };
-  return { raw: raw, value: Math.max(min, n), clamped: n < min, empty: false };
-}
-/* 把被钳制的数量输入框改写成钳制值，并给出反馈 */
-function applyQtyClamp(el, info, min) {
-  if (!info.clamped || !el) return;
-  el.value = String(r2(info.value));
-  flagCorrected(el);
-  flashHint(el, '不能小于 ' + r2(min) + '，已按 ' + r2(info.value) + ' 计');
-}
-/* 用时同样不允许为负 */
-function clampTimeInput(el) {
-  if (!el) return;
-  const raw = String(el.value).trim();
-  if (raw === '') return;
-  const n = parseFloat(raw);
-  if (!Number.isFinite(n) || n >= 0) return;
-  el.value = '0';
-  flagCorrected(el);
-  flashHint(el, '用时不能为负，已按 0 计');
-}
-
-function itemHtml(key, gi, ii, item) {
-  const path = `${key}:${gi}:${ii}`;
-  const value = signed(item.score);
-
-  if (item.type === 'check') {
-    return `<label class="item item--check">
-      <input type="checkbox" data-path="${path}">
-      <span class="item-name">${esc(item.name)}</span>
-      <span class="item-score" data-sub="${path}">${value}</span>
-    </label>`;
-  }
-  if (item.type === 'fixed') {
-    return `<div class="item">
-      <span class="item-name">${esc(item.name)}<span class="hint">固定计入</span></span>
-      <span class="item-score" data-sub="${path}">${value}</span>
-    </div>`;
-  }
-
-  const unit = esc(item.unit || '个');
-  const min = qtyMin(item, 0);
-  const hint = item.type === 'threshold'
-    ? `超出 ${r2(item.threshold)}${unit}后，每${unit} ${value}`
-    : `每${unit} ${value}`;
-  return `<div class="item item--input">
-    <span class="item-name">${esc(item.name)}<span class="hint">${hint}</span></span>
-    ${inputHtml(path, min >= 0)}
-    <span class="unit">${unit}</span>
-    <span class="item-sub" data-sub="${path}">0</span>
-  </div>`;
-}
-
-const SECTION_KEYS = ['basic', 'levelBonus', 'extraBonus', 'penalty'];
-
-function itemsBodyHtml(key) {
-  const sec = config[key];
-  return (sec.groups || []).map((g, gi) => {
-    const items = (g.items || []).map((it, ii) => itemHtml(key, gi, ii, it)).join('');
-    return `<div class="group">
-      ${g.title ? `<div class="group-title">${esc(g.title)}</div>` : ''}
-      <div class="items">${items}</div>
-    </div>`;
-  }).join('');
-}
-
 function sectionShell(key) {
   const sec = config[key];
   const isPenalty = sec.kind === 'penalty';
-  const body = key === 'basic' ? basicBodyHtml() : itemsBodyHtml(key);
+  const body = sectionBodyHtml(config, key);
   return `<section class="card${isPenalty ? ' card--penalty' : ''}" id="sec-${key}" data-sec="${key}">
     <div class="card-head">
       <h2 class="card-title">${esc(sec.title)}</h2>
@@ -610,21 +807,6 @@ function sectionShell(key) {
     <div class="score-view">${body}</div>
     <div class="config-view"></div>
   </section>`;
-}
-
-function basicBodyHtml() {
-  const b = config.basic;
-  return `<div class="fields">
-      <div class="field">
-        <span class="field-label"><span class="name">${esc(b.scoreLabel)}</span><span class="hint">${esc(b.scoreHint)}</span></span>
-        <span class="field-input">${inputHtml('basic:original')}</span>
-      </div>
-      <div class="field">
-        <span class="field-label"><span class="name">${esc(b.timeLabel)}</span><span class="hint">${esc(timeHint())}</span></span>
-        <span class="field-input">${inputHtml('basic:time', true)}<span class="item-sub" data-sub="basic:time">0</span></span>
-      </div>
-    </div>
-    ${itemsBodyHtml('basic')}`;
 }
 
 function bindAll() {
@@ -679,132 +861,41 @@ function render() {
 /* ============================================================================
  * 计算与显示
  * ========================================================================== */
-function num(path) {
+function inputValue(path) {
   const el = els.get(path);
-  if (!el) return 0;
-  const v = parseFloat(el.value);
-  return Number.isFinite(v) ? v : 0;
+  return el?.type === 'checkbox' ? el.checked : (el?.value ?? '');
 }
 
-function rawText(path) {
-  const el = els.get(path);
-  return el ? String(el.value).trim() : '';
-}
-
-function timeScore(hours) {
-  const b = config.basic;
-  const rules = b.timeRules || [];
-  if (!rules.length) return 0;
-  const h = Math.max(0, Number(hours) || 0);   // 用时不允许为负，负值按 0 计
-  for (const r of rules) {
-    if (h >= r.min && h <= r.max) return Number(r.score) || 0;
-  }
-  const bound = lastTimeBound();
-  if (h <= bound) return 0;
-  const over = h - bound;
-  const units = b.timeOverflow.rounding === 'exact' ? over : Math.ceil(over);
-  return units * (Number(b.timeOverflow.perHour) || 0);
-}
-
-/* 数量下限：输入型 / 阈值型的数量不允许低于 min（默认 0），避免"负数量"变成变相加分/扣分 */
-function itemQty(item, elem) {
-  const min = qtyMin(item, 0);
-  return Math.max(min, readQty(elem, min).value);
-}
-
-function itemScore(item, elem) {
-  switch (item.type) {
-    case 'check': return (elem && elem.checked) ? (Number(item.score) || 0) : 0;
-    case 'fixed': return Number(item.score) || 0;
-    case 'threshold':
-      // 低于阈值的部分不产生分数，因此负数数量天然被钳到 0
-      return Math.max(0, itemQty(item, elem) - (Number(item.threshold) || 0)) * (Number(item.score) || 0);
-    case 'number':
-    default:
-      return itemQty(item, elem) * (Number(item.score) || 0);
-  }
-}
-
-function paintSub(path, value, text) {
-  const el = subs.get(path);
-  if (!el) return;
-  const v = r2(value);
-  el.textContent = text === undefined ? signed(v) : text;
-  el.classList.toggle('is-on-pos', v > 0);
-  el.classList.toggle('is-on-neg', v < 0);
-}
-
-function paintChip(key, value) {
-  const el = chips.get(key);
-  if (!el) return;
-  const v = r2(value);
-  el.textContent = '本区小计 ' + signed(v);
-  el.classList.toggle('pos', v > 0);
-  el.classList.toggle('neg', v < 0);
-}
-
-function paintSum(key, text, tone) {
-  const el = sums.get(key);
-  if (!el) return;
-  el.textContent = text;
-  el.classList.toggle('pos', tone === 'pos');
-  el.classList.toggle('neg', tone === 'neg');
-}
-
-function sectionItemSum(key) {
-  let sum = 0;
-  (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
-    sum += itemScore(item, els.get(key + ':' + gi + ':' + ii));
-  }));
-  return sum;
+function calculateFromPage() {
+  return calculate(config, { original: inputValue('basic:original'), time: inputValue('basic:time') }, inputValue);
 }
 
 function computeTotals() {
-  const original = num('basic:original');
-  // 用时未填写时不计分（避免刚打开页面就出现 +30）
-  const time = rawText('basic:time') === '' ? 0 : timeScore(num('basic:time'));
-  const sections = {};
-  SECTION_KEYS.forEach(key => { sections[key] = sectionItemSum(key); });
-
-  const basicSub = time + sections.basic;
-  const bonus = basicSub + sections.levelBonus + sections.extraBonus;
-  const penalty = sections.penalty;
-  return {
-    original: r2(original), time: r2(time), sections: sections,
-    basicSub: r2(basicSub), bonus: r2(bonus), penalty: r2(penalty), total: r2(original + bonus + penalty)
-  };
+  const { original, time, sections, basicSub, bonus, penalty, total } = calculateFromPage();
+  return { original, time, sections, basicSub, bonus, penalty, total };
 }
 
 function updateScores() {
-  clampTimeInput(els.get('basic:time'));
+  const timeInput = els.get('basic:time');
+  const hours = timeText(timeInput.value);
+  if (hours && hours !== amountText(timeInput.value)) {
+    timeInput.value = hours;
+    flagCorrected(timeInput);
+    flashHint(timeInput, '用时不能为负，已按 0 计');
+  }
 
-  // 先把越界的数量输入改写成下限值并给出提示，再按钳制后的值计分
-  SECTION_KEYS.forEach(key => (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
+  eachItem(config, (item, path) => {
     if (item.type === 'check' || item.type === 'fixed') return;
-    const min = qtyMin(item, 0);
-    const el = els.get(key + ':' + gi + ':' + ii);
-    applyQtyClamp(el, readQty(el, min), min);
-  })));
+    const el = els.get(path);
+    const quantity = quantityText(el.value, item);
+    if (quantity && quantity !== amountText(el.value)) {
+      el.value = quantity;
+      flagCorrected(el);
+      flashHint(el, '不能小于 ' + quantity + '，已按 ' + quantity + ' 计');
+    }
+  });
 
-  const t = computeTotals();
-
-  paintSub('basic:time', t.time);
-  SECTION_KEYS.forEach(key => (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
-    const path = key + ':' + gi + ':' + ii;
-    const s = itemScore(item, els.get(path));
-    if (item.type === 'check') paintSub(path, s, signed(item.score));
-    else if (item.type !== 'fixed') paintSub(path, s);
-  })));
-
-  paintChip('basic', t.basicSub);
-  paintChip('levelBonus', t.sections.levelBonus);
-  paintChip('extraBonus', t.sections.extraBonus);
-  paintChip('penalty', t.sections.penalty);
-
-  paintSum('original', signed(t.original), '');
-  paintSum('bonus', signed(t.bonus), t.bonus >= 0 ? 'pos' : 'neg');
-  paintSum('penalty', signed(t.penalty), t.penalty < 0 ? 'neg' : '');
-  paintSum('total', signed(t.total), t.total > 0 ? 'pos' : (t.total < 0 ? 'neg' : ''));
+  paintPreview(config, calculateFromPage(), { subs, chips, sums });
 }
 
 function clearScores() {
@@ -864,10 +955,10 @@ function itemRowHtml(item) {
     <span class="cfg-field" data-label="分组"><input class="cfg-input" data-field="group" value="${esc(item.group || '')}" placeholder="无分组"></span>
     <span class="cfg-field cfg-field--name" data-label="名称"><input class="cfg-input" data-field="name" value="${esc(item.name || '')}" placeholder="条目名称"></span>
     <span class="cfg-field" data-label="类型"><select class="cfg-input" data-field="type">${types}</select></span>
-    <span class="cfg-field" data-label="分值"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="score" value="${item.score === undefined ? '' : r2(item.score)}"></span>
+    <span class="cfg-field" data-label="分值"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="score" value="${item.score === undefined ? '' : ruleNumberText(item.score)}"></span>
     <span class="cfg-field cfg-field--unit" data-label="单位"><input class="cfg-input" data-field="unit" value="${esc(item.unit || '')}" placeholder="个"></span>
-    <span class="cfg-field cfg-field--min" data-label="最低值（数量不能小于）"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="min" value="${r2(qtyMin(item, 0))}"></span>
-    <span class="cfg-field cfg-field--threshold" data-label="阈值"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="threshold" value="${item.threshold === undefined ? '' : r2(item.threshold)}"></span>
+    <span class="cfg-field cfg-field--min" data-label="最低值（数量不能小于）"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="min" value="${ruleNumberText(item.min)}"></span>
+    <span class="cfg-field cfg-field--threshold" data-label="阈值"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="threshold" value="${item.threshold === undefined ? '' : ruleNumberText(item.threshold)}"></span>
     <span class="cfg-tools">
       <button type="button" class="icon-btn" data-act="up" title="上移">↑</button>
       <button type="button" class="icon-btn" data-act="down" title="下移">↓</button>
@@ -894,9 +985,9 @@ function itemsEditorHtml(sec) {
 
 function ruleRowHtml(rule) {
   return `<div class="cfg-row cfg-row--rule" data-rule>
-    <span class="cfg-field" data-label="最短（小时）"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="min" value="${r2(rule.min)}"></span>
-    <span class="cfg-field" data-label="最长（小时）"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="max" value="${r2(rule.max)}"></span>
-    <span class="cfg-field" data-label="加/扣分"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="score" value="${r2(rule.score)}"></span>
+    <span class="cfg-field" data-label="最短（小时）"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="min" value="${ruleNumberText(rule.min)}"></span>
+    <span class="cfg-field" data-label="最长（小时）"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="max" value="${ruleNumberText(rule.max)}"></span>
+    <span class="cfg-field" data-label="加/扣分"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="score" value="${ruleNumberText(rule.score)}"></span>
     <span class="cfg-tools"><button type="button" class="icon-btn icon-btn--danger" data-act="delRule" title="删除该时段">✕</button></span>
   </div>`;
 }
@@ -913,7 +1004,7 @@ function basicEditorHtml(sec) {
     <div class="cfg-rows" data-rules>${rules}</div>
     <button type="button" class="btn btn--sm" data-act="addRule">+ 添加时段</button>
     <div class="cfg-line">
-      <span class="cfg-field" data-label="超出最后一个时段后，每超 1 小时"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="perHour" value="${r2(sec.timeOverflow.perHour)}"></span>
+      <span class="cfg-field" data-label="超出最后一个时段后，每超 1 小时"><input class="cfg-input" type="text" inputmode="decimal" autocomplete="off" data-num data-field="perHour" value="${ruleNumberText(sec.timeOverflow.perHour)}"></span>
       <span class="cfg-field" data-label="不足 1 小时的计算方式"><select class="cfg-input" data-field="rounding">
         ${optionHtml('ceil', '不足 1 小时按 1 小时计', rounding)}
         ${optionHtml('exact', '按实际小数精确计算', rounding)}
@@ -934,9 +1025,9 @@ function editorHtml(key, sec) {
 /* ---------- 配置界面读取 ---------- */
 /* 读取编辑器时按条目 id 找回原条目：修改类型后仍保留阈值 / 单位 / 最低值等字段 */
 function existingItems() {
-  const map = {};
+  const map = new Map();
   SECTION_KEYS.forEach(key => (config[key].groups || []).forEach(g => (g.items || []).forEach(it => {
-    if (it && it.id) map[it.id] = it;
+    if (it && it.id) map.set(it.id, it);
   })));
   return map;
 }
@@ -948,8 +1039,14 @@ function readGroups(root) {
   root.querySelectorAll('[data-row]').forEach(row => {
     const title = cfgStr(row, 'group', '');
     const type = (cfgEl(row, 'type') || {}).value || 'check';
-    const id = row.dataset.id || ('it-' + (++itemUid));
-    const old = prev[id];
+    let id = row.dataset.id;
+    if (!id) {
+      // 页面刷新后计数器会重置，仍须跳过已保存和已导入的条目编号。
+      do {
+        id = 'it-' + (++itemUid);
+      } while (prev.has(id));
+    }
+    const old = prev.get(id);
     const item = {
       id: id,
       name: cfgStr(row, 'name', '未命名条目'),
@@ -1038,7 +1135,7 @@ function restoreValues(key, snap) {
     if (el.type === 'checkbox') el.checked = !!v;
     else if (it.type === 'number' || it.type === 'threshold') {
       // 空值保持空（"未填写"不等于"填了 0"），非空才按最低值钳制
-      el.value = String(v).trim() === '' ? '' : String(r2(readQty({ value: v }, qtyMin(it, 0)).value));
+      el.value = quantityText(v, it);
     }
     else el.value = v;
   }));
@@ -1047,8 +1144,7 @@ function restoreValues(key, snap) {
     if (!el || snap[p] === undefined) return;
     if (p !== 'basic:time') { el.value = snap[p]; return; }
     // 用时留空代表"未填写"（不计分），不能固化成 0，否则平白多出 0~2h 档的加分
-    const raw = String(snap[p]).trim();
-    el.value = raw === '' ? '' : String(Math.max(0, parseFloat(raw) || 0));
+    el.value = timeText(snap[p]);
   });
 }
 
@@ -1059,7 +1155,7 @@ function saveEdit(key) {
 
   config[key] = key === 'basic' ? readBasicEditor(cv) : readItemsEditor(key, cv);
   saveConfig();
-  secEl.querySelector('.score-view').innerHTML = key === 'basic' ? basicBodyHtml() : itemsBodyHtml(key);
+  secEl.querySelector('.score-view').innerHTML = sectionBodyHtml(config, key);
   closeEditor(secEl);
   bindAll();
   restoreValues(key, snap);   // 未改动的条目保留已填写的数值
@@ -1130,38 +1226,27 @@ function setMeta(meta) {
 
 /* 明细行：{ 分区, 分组, 名称, 数量/勾选, 单位分值, 小计 } —— 包含未勾选条目，便于复核 */
 function collectRows() {
-  const rows = [];
   const b = config.basic;
-  const timeText = rawText('basic:time');
-  const timeVal = timeText === '' ? null : Math.max(0, parseFloat(timeText) || 0); // 与计分一致：负用时按 0
-  rows.push({ section: b.title, group: '', name: b.scoreLabel, qty: '', unit: '', sub: num('basic:original') });
-  rows.push({
-    section: b.title, group: '', name: b.timeLabel,
-    qty: timeVal === null ? '' : r2(timeVal),
-    unit: '',
-    sub: timeVal === null ? 0 : timeScore(timeVal)
-  });
-
-  SECTION_KEYS.forEach(key => {
-    const sec = config[key];
-    (sec.groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
-      const el = els.get(key + ':' + gi + ':' + ii);
-      let qty = '';
-      if (item.type === 'check') qty = (el && el.checked) ? '已勾选' : '未勾选';
-      else if (item.type === 'fixed') qty = '固定计入';
-      else {
-        const raw = el ? String(el.value).trim() : '';
-        // 数量按钳制后的值导出，避免明细里出现与计算不符的负数
-        qty = raw === '' ? '' : r2(readQty(el, qtyMin(item, 0)).value);
-      }
-      rows.push({ section: sec.title, group: g.title, name: item.name, qty: qty, unit: r2(item.score), sub: itemScore(item, el) });
-    }));
+  const t = calculateFromPage();
+  const rows = [
+    { section: b.title, group: '', name: b.scoreLabel, qty: '', unit: '', sub: t.original },
+    { section: b.title, group: '', name: b.timeLabel, qty: timeText(inputValue('basic:time')), unit: '', sub: t.time }
+  ];
+  eachItem(config, (item, path, key, group) => {
+    let qty;
+    if (item.type === 'check') qty = inputValue(path) ? '已勾选' : '未勾选';
+    else if (item.type === 'fixed') qty = '固定计入';
+    else qty = quantityText(inputValue(path), item);
+    rows.push({
+      section: config[key].title, group: group.title, name: item.name,
+      qty, unit: ruleNumberText(item.score), sub: t.itemScores[path]
+    });
   });
   return rows;
 }
 
 /* 纯数字（可带正负号）保持原样，Excel 才能把它当数值参与计算 */
-const PLAIN_NUMBER_RE = /^[+-]?\d+(\.\d+)?$/;
+const PLAIN_NUMBER_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
 
 function csvCell(value) {
   let s = value === undefined || value === null ? '' : String(value);
@@ -1192,18 +1277,7 @@ function buildCsv() {
 }
 
 function buildJson() {
-  const scores = { original: rawText('basic:original'), time: rawText('basic:time'), items: {} };
-  SECTION_KEYS.forEach(key => (config[key].groups || []).forEach((g, gi) => (g.items || []).forEach((item, ii) => {
-    const el = els.get(key + ':' + gi + ':' + ii);
-    if (!el || !item.id) return;
-    if (el.type === 'checkbox') scores.items[item.id] = !!el.checked;
-    else if (item.type === 'number' || item.type === 'threshold') {
-      // 与计分保持一致：导出的是钳制后的数量，负数不会进入备份文件
-      const info = readQty(el, qtyMin(item, 0));
-      scores.items[item.id] = info.empty ? '' : String(r2(info.value));
-    } else scores.items[item.id] = String(el.value);
-  })));
-
+  const scores = readScores(config, inputValue);
   return JSON.stringify({
     app: 'arknights-ir-score-calculator',
     version: DEFAULT_CONFIG.version,

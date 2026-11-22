@@ -181,7 +181,9 @@
 
 ### 代码结构
 
-全部逻辑在 `集成战略计分器.html` 的单个 `<script>` 里，按功能区段划分，从上到下依次是：
+独立 HTML 内嵌共享计分脚本和离线工具脚本。计分、录入控件与实时预览的源文件为 [score-calculator.js](../app/static/calculator/score-calculator.js)。修改后从仓库根目录运行 `python arknights-score-calculator/sync_shared.py` 更新独立 HTML，`--check` 可检查同步状态。
+
+离线工具脚本按功能划分如下。
 
 | 区段 | 内容 |
 |---|---|
@@ -190,7 +192,7 @@
 | 持久化 | `normalizeItems`、`mergeConfig`、`loadConfig`、`saveConfig`、`embeddedSignature` |
 | 工具函数 | `esc`、`r2`、`signed`、`timeHint` |
 | 渲染 | `render`、`sectionShell`、`itemHtml`、`basicBodyHtml`、`bindAll` |
-| 计算 | `timeScore`、`itemScore`、`computeTotals`、`updateScores` |
+| 计算 | `computeTotals`、`updateScores` 调用共享脚本 |
 | 配置模式 | `enterEdit`、`readGroups`、`readBasicEditor`、`saveEdit`、`restoreValues` 等 |
 | 导出 / 导入 | `collectRows`、`buildCsv`、`buildJson`、`buildConfigJson`、`buildCustomHtml`、`buildPrintSheet` |
 | 事件与启动 | `keydown` / `input` / `change` / `click` 委托，`render()` |
