@@ -33,7 +33,7 @@ from wtforms.validators import (DataRequired, Length, EqualTo, ValidationError,
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from sqlalchemy.dialects.mysql import LONGTEXT
-from sqlalchemy.orm import contains_eager, joinedload, load_only
+from sqlalchemy.orm import column_property, contains_eager, joinedload, load_only
 
 # 业务规则模块（积分/倍率、自动匹配）；模块内部延迟导入本文件的模型，无循环依赖
 from scoring import (calculate_multiplier, get_team_rankings, get_season_summaries, qualification,
@@ -577,6 +577,25 @@ class SeasonContextVersion(db.Model):
     __table_args__ = (db.UniqueConstraint('tournament_id', 'version', name='uq_season_context_version'),)
 
 
+class ScoreRuleSet(db.Model):
+    """An immutable calculator configuration published for one season."""
+    __tablename__ = 'score_rule_sets'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournaments.id'), nullable=False)
+    version = db.Column(db.Integer, nullable=False)
+    calculation_version = db.Column(db.Integer, nullable=False)
+    config = db.Column(db.Text().with_variant(LONGTEXT(), 'mysql'), nullable=False)
+    source = db.Column(db.String(12), nullable=False)
+    published_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (
+        db.UniqueConstraint('tournament_id', 'version', name='uq_score_rule_set_version'),
+        db.CheckConstraint('version >= 1 AND calculation_version >= 1', name='ck_score_rule_versions'),
+        db.CheckConstraint("source = 'import' OR (source = 'initial' AND version = 1)", name='ck_score_rule_source'),
+    )
+
+
 class SeasonRelease(db.Model):
     __tablename__ = 'season_releases'
     id = db.Column(db.Integer, primary_key=True)
@@ -871,10 +890,13 @@ class Match(db.Model):
     winner = db.relationship('User', foreign_keys=[winner_id], backref='matches_won')
     children = db.relationship('Match', backref=db.backref('parent', remote_side=[id]), cascade='all, delete-orphan')
 
-    __table_args__ = (db.ForeignKeyConstraint(
-        ['tournament_id', 'context_version'],
-        ['season_context_versions.tournament_id', 'season_context_versions.version'],
-        name='fk_match_context_version'),)
+    __table_args__ = (
+        db.ForeignKeyConstraint(
+            ['tournament_id', 'context_version'],
+            ['season_context_versions.tournament_id', 'season_context_versions.version'],
+            name='fk_match_context_version'),
+        db.Index('uq_match_id_tournament', 'id', 'tournament_id', unique=True),
+    )
 
     def get_player_a_difficulty(self):
         """获取A选手难度（优先独立难度，回退统一难度）"""
@@ -886,6 +908,26 @@ class Match(db.Model):
 
     def __repr__(self):
         return f'<Match {self.id}: {self.player_a_id} vs {self.player_b_id}>'
+
+
+class MatchCalculatorResult(db.Model):
+    """A whole match's calculator rule and the original submission from each side."""
+    __tablename__ = 'match_calculator_results'
+
+    match_id = db.Column(db.Integer, primary_key=True, autoincrement=False)
+    tournament_id = db.Column(db.Integer, nullable=False)
+    rule_version = db.Column(db.Integer, nullable=False)
+    details_a = column_property(db.Column(db.Text().with_variant(LONGTEXT(), 'mysql')), active_history=True)
+    details_b = column_property(db.Column(db.Text().with_variant(LONGTEXT(), 'mysql')), active_history=True)
+
+    rule_set = db.relationship('ScoreRuleSet', viewonly=True)
+    __table_args__ = (
+        db.ForeignKeyConstraint(['match_id', 'tournament_id'], ['matches.id', 'matches.tournament_id'],
+                                name='fk_calculator_result_match'),
+        db.ForeignKeyConstraint(['tournament_id', 'rule_version'], ['score_rule_sets.tournament_id', 'score_rule_sets.version'],
+                                name='fk_calculator_result_rule'),
+        db.CheckConstraint('details_a IS NOT NULL OR details_b IS NOT NULL', name='ck_calculator_result_has_details'),
+    )
 
 
 class ScoreLog(db.Model):

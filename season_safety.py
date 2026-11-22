@@ -14,6 +14,7 @@ from sqlalchemy import event, inspect
 from sqlalchemy.orm import Session
 
 from backup import create_backup, maintenance_lock, prune_backups
+from formal_match import is_formal
 from season_phase import (FINISHED_SCHEDULING_ACTIONS, REGISTRATION_ACTIONS, admin_schedule_protected, has_enabled_track,
                           registration_denial, window_warnings)
 
@@ -683,13 +684,28 @@ def protect_audit_evidence(session, flush_context, instances):
     if not has_app_context():
         return
     a = ns()
-    if any(isinstance(obj, (a.ScoreLog, a.ScoreAdjustment, a.SeasonContextVersion)) for obj in session.deleted):
+    immutable_evidence = (a.ScoreLog, a.SeasonContextVersion, a.ScoreRuleSet)
+    if any(isinstance(obj, (*immutable_evidence, a.ScoreAdjustment, a.MatchCalculatorResult))
+           for obj in session.deleted):
         raise SeasonError('成绩审计凭证不可删除')
+    for obj in session.new:
+        if isinstance(obj, (a.ScoreRuleSet, a.MatchCalculatorResult)):
+            require_writable(obj.tournament_id)
+        if isinstance(obj, a.MatchCalculatorResult) and not is_formal(session.get(a.Match, obj.match_id)):
+            raise SeasonError('计分器明细必须归属正式整场')
     for obj in session.dirty:
         if isinstance(obj, a.ScoreAdjustment):
             state = inspect(obj)
             immutable = ('tournament_id', 'member_id', 'actor_id', 'delta', 'reason', 'created_at')
             if any(state.attrs[name].history.has_changes() for name in immutable):
                 raise SeasonError('人工调整记录的赛季、成员、操作人、分值和原因不可改写')
-        if isinstance(obj, (a.ScoreLog, a.SeasonContextVersion)):
+        if isinstance(obj, immutable_evidence):
             raise SeasonError('成绩审计凭证不可改写')
+        if isinstance(obj, a.MatchCalculatorResult) and session.is_modified(obj, include_collections=False):
+            require_writable(obj.tournament_id)
+            state = inspect(obj)
+            if any(state.attrs[key].history.has_changes() for key in ('match_id', 'tournament_id', 'rule_version')):
+                raise SeasonError('整场已绑定的计分规则不可更改')
+            if any(previous is not None for key in ('details_a', 'details_b')
+                   for previous in state.attrs[key].history.deleted):
+                raise SeasonError('已保存的计分器原始明细不可改写')

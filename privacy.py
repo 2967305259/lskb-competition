@@ -108,6 +108,7 @@ def _target_is_referenced(user):
         a.Invitation.query.filter_by(user_id=uid), a.JoinRequest.query.filter_by(user_id=uid),
         a.ScoreLog.query.filter_by(modified_by=uid), a.SystemLog.query.filter_by(user_id=uid),
         a.ScoreAdjustment.query.filter(a.db.or_(a.ScoreAdjustment.actor_id == uid, a.ScoreAdjustment.revoked_by == uid)),
+        a.ScoreRuleSet.query.filter_by(published_by_id=uid),
         a.SeasonTransition.query.filter_by(actor_id=uid),
     )
     return any(query.first() is not None for query in checks)
