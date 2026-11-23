@@ -10,15 +10,18 @@ import calculator_submission
 from calculator_rules import initial_configuration
 from conftest import login, png_bytes
 from test_calculator_preview import form_url
+from test_calculator_publication import set_calculator_mode
 from test_calculator_storage import publish_rule
 from test_p0 import settle, submit, transition_data
 
 
 def enable_calculator(application):
+    ids = application.test_ids
     with application.app_context():
-        publish_rule(application.test_ids, initial_configuration())
-        a.Tournament.get_active().calculator_enabled = True
-        a.db.session.commit()
+        publish_rule(ids, initial_configuration())
+    with application.test_client() as admin:
+        login(admin, ids['super'])
+        assert set_calculator_mode(admin, ids['season'], 'calculator').status_code == 302
 
 
 def calculator_form(scores, total, version=1, screenshot=None):
@@ -59,10 +62,11 @@ def test_first_submission_locks_version_and_settles_using_existing_multiplier(ap
                           player_a_id=match.player_a_id, player_b_id=match.player_b_id,
                           team_a_id=match.team_a_id, team_b_id=match.team_b_id, roguelike=match.roguelike)
         a.db.session.add(segment)
-        a.Tournament.get_active().calculator_enabled = False
         a.db.session.commit()
         segment_id = segment.id
 
+    login(client, ids['super'])
+    assert set_calculator_mode(client, ids['season'], 'manual', 2).status_code == 302
     login(client, ids['users'][1])
     url = form_url(application, segment_id)
     page = client.get(url).get_data(as_text=True)

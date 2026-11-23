@@ -42,6 +42,12 @@ def preview_import(client, export):
                                    'score_rules_file': (BytesIO(payload(export)), '计分配置_测试.json')})
 
 
+def set_calculator_mode(client, season_id, mode, version=1):
+    return client.post(f'{RULES}?season_id={season_id}', data={
+        'operation': 'set_mode', 'calculator_mode': mode, 'calculator_rule_version': str(version),
+    })
+
+
 @pytest.mark.parametrize(('modify', 'message'), [
     (lambda x: x.pop('kind'), '导出配置'),
     (lambda x: x.update(version=4), '当前支持独立计分器 v3 配置'),
@@ -219,3 +225,85 @@ def test_failed_rule_audit_rolls_back_switch(application, client, monkeypatch):
         assert a.Tournament.get_active().id == old_id
         assert a.Tournament.query.count() == 1
         assert a.SeasonTransition.query.count() == a.ScoreRuleSet.query.count() == 0
+
+
+def test_enabling_requires_super_admin_and_the_latest_valid_rule(application, client):
+    ids = application.test_ids
+    season_id = ids['season']
+    login(client, ids['admin'])
+    assert set_calculator_mode(client, season_id, 'calculator').status_code == 403
+    login(client, ids['super'])
+    assert b'value="set_mode"' not in client.get(RULES).data
+    assert set_calculator_mode(client, season_id, 'calculator').status_code == 409
+    assert client.post(RULES, data={'operation': 'set_mode', 'calculator_mode': 'calculator'}).status_code == 400
+
+    for version in (1, 2):
+        preview = confirmation(preview_import(client, exported_rules()))
+        assert client.post(RULES, data={**preview, 'operation': 'publish'}).status_code == 302
+    assert set_calculator_mode(client, season_id, 'calculator').status_code == 409
+    assert set_calculator_mode(client, season_id, 'unknown', 2).status_code == 400
+    with application.app_context():
+        assert not a.Tournament.get_active().calculator_enabled
+        assert a.SystemLog.query.filter_by(action='set_calculator_mode').count() == 0
+
+    assert set_calculator_mode(client, season_id, 'calculator', 2).status_code == 302
+    assert set_calculator_mode(client, season_id, 'calculator', 2).status_code == 302
+    assert '当前使用计分器' in client.get(RULES).get_data(as_text=True)
+    assert set_calculator_mode(client, season_id, 'manual').status_code == 302
+    assert '当前使用手填成绩' in client.get(RULES).get_data(as_text=True)
+    with application.app_context():
+        events = a.SystemLog.query.filter_by(action='set_calculator_mode').order_by(a.SystemLog.id).all()
+        assert [(e.user_id, json.loads(e.detail)) for e in events] == [
+            (ids['super'], {'tournament_id': season_id, 'old_mode': 'manual',
+                           'new_mode': 'calculator', 'rule_version': 2}),
+            (ids['super'], {'tournament_id': season_id, 'old_mode': 'calculator',
+                           'new_mode': 'manual', 'rule_version': 2}),
+        ]
+    assert set_calculator_mode(client, season_id, 'calculator', 2).status_code == 302
+
+    switch = transition_data(application, client, force=True)
+    assert client.post(SWITCH, data=switch).status_code == 302
+    login(client, ids['super'])
+    assert set_calculator_mode(client, season_id, 'manual').status_code == 403
+    with application.app_context():
+        assert not a.Tournament.get_active().calculator_enabled
+        assert a.db.session.get(a.Tournament, season_id).calculator_enabled
+
+
+def test_enabling_rejects_invalid_published_configuration(application, client):
+    ids = application.test_ids
+    login(client, ids['super'])
+    preview = confirmation(preview_import(client, exported_rules()))
+    assert client.post(RULES, data={**preview, 'operation': 'publish'}).status_code == 302
+    with application.app_context():
+        corrupted = initial_configuration()
+        corrupted['basic']['groups'][0]['items'][0].pop('score')
+        table = a.ScoreRuleSet.__table__
+        a.db.session.execute(table.update().values(config=json.dumps(corrupted)))
+        a.db.session.commit()
+
+    response = set_calculator_mode(client, ids['season'], 'calculator')
+    assert response.status_code == 409
+    assert '请发布有效配置后重试' in response.get_data(as_text=True)
+    with application.app_context():
+        assert not a.Tournament.get_active().calculator_enabled
+
+
+def test_mode_change_rolls_back_if_audit_write_fails(application, client, monkeypatch):
+    ids = application.test_ids
+    login(client, ids['super'])
+    preview = confirmation(preview_import(client, exported_rules()))
+    assert client.post(RULES, data={**preview, 'operation': 'publish'}).status_code == 302
+    original = a.log_system_action
+
+    def fail_mode_audit(action, detail=''):
+        if action == 'set_calculator_mode':
+            raise RuntimeError('injected calculator mode audit failure')
+        return original(action, detail)
+
+    monkeypatch.setattr(a, 'log_system_action', fail_mode_audit)
+    with pytest.raises(RuntimeError, match='calculator mode audit failure'):
+        set_calculator_mode(client, ids['season'], 'calculator')
+    with application.app_context():
+        assert not a.Tournament.get_active().calculator_enabled
+        assert a.SystemLog.query.filter_by(action='set_calculator_mode').count() == 0

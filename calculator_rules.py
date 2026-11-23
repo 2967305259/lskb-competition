@@ -120,6 +120,18 @@ def _validate_items(config):
     return items
 
 
+def _configuration_items(config):
+    _object(config, 'config')
+    try:
+        json_dump(config).encode('utf-8')
+    except UnicodeEncodeError:
+        _fail('config', '包含无法编码的字符')
+    if type(config.get('version')) is not int or config['version'] != FORMAT_VERSION:
+        _fail('config.version', '须为独立计分器 v3 配置')
+    _validate_time(_object(config.get('basic'), 'basic'))
+    return _validate_items(config)
+
+
 def parse_configuration(raw):
     if len(raw) > MAX_CONFIG_BYTES:
         _fail('配置文件', '大小不得超过 64 KiB')
@@ -140,15 +152,8 @@ def parse_configuration(raw):
         datetime.fromisoformat(data['exportedAt'])
     except ValueError:
         _fail('exportedAt', '须为独立计分器导出的日期时间')
-    config = _object(data.get('config'), 'config')
-    try:
-        json_dump(config).encode('utf-8')
-    except UnicodeEncodeError:
-        _fail('config', '包含无法编码的字符')
-    if type(config.get('version')) is not int or config['version'] != FORMAT_VERSION:
-        _fail('config.version', '须与导出文件版本一致')
-    _validate_time(_object(config.get('basic'), 'basic'))
-    items = _validate_items(config)
+    config = data.get('config')
+    items = _configuration_items(config)
     reserved = {item['id'] for _, item in items}
     seen = set()
     changes = []
@@ -188,6 +193,36 @@ def configuration_from_form():
 def latest_rule(tournament_id):
     rules = ns().ScoreRuleSet
     return rules.query.filter_by(tournament_id=tournament_id).order_by(rules.version.desc()).first()
+
+
+def set_season_mode(season, latest, mode, expected_version):
+    require_writable(season.id)
+    if mode not in ('manual', 'calculator'):
+        raise SeasonError('请选择手填成绩或启用计分器', 400)
+    enabled = mode == 'calculator'
+    if season.calculator_enabled == enabled:
+        return
+    if enabled:
+        if latest is None:
+            raise SeasonError('请先发布本届计分器规则，再启用正式计分', 409)
+        if str(latest.version) != expected_version:
+            raise SeasonError('本届规则版本已更新，请核对后再启用计分器', 409)
+        try:
+            if latest.calculation_version != CALCULATION_VERSION:
+                raise ValueError('计算版本不受支持')
+            config = json.loads(latest.config, object_pairs_hook=_unique_keys,
+                                parse_float=_finite_float, parse_constant=_finite_float)
+            items = _configuration_items(config)
+            if len({item['id'] for _, item in items}) != len(items):
+                raise ValueError('条目编号重复')
+        except (ValueError, RecursionError) as error:
+            raise SeasonError('当前规则无法用于正式计分，请发布有效配置后重试', 409) from error
+    old_mode = 'calculator' if season.calculator_enabled else 'manual'
+    season.calculator_enabled = enabled
+    ns().log_system_action('set_calculator_mode', json_dump({
+        'tournament_id': season.id, 'old_mode': old_mode, 'new_mode': mode,
+        'rule_version': latest.version if latest else None,
+    }))
 
 
 def calculator_result(match):

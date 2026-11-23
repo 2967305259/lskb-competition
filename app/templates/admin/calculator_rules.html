@@ -28,6 +28,30 @@
 {% endif %}
 
 {% if writable %}
+<section class="card mb-4" aria-labelledby="calculator-season-mode-heading">
+    <div class="card-body">
+        <h3 class="h5" id="calculator-season-mode-heading">本届成绩提交方式</h3>
+        <p id="calculator-season-mode">当前使用{{ '计分器' if season.calculator_enabled else '手填成绩' }}。</p>
+        <p class="small text-muted">切换适用于尚无实际成绩的正式整场。已手填的整场继续手填，已绑定规则的整场继续使用其版本。</p>
+        {% if mode_error %}<p class="alert alert-danger" role="alert">{{ mode_error }}</p>{% endif %}
+        {% if versions or season.calculator_enabled %}
+        <form method="post" action="{{ url_for('admin.score_rules', season_id=season.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if season.calculator_enabled %}
+            <input type="hidden" name="calculator_mode" value="manual">
+            <button class="btn btn-outline-secondary" name="operation" value="set_mode" type="submit">切回手填成绩</button>
+            {% else %}
+            <p>启用时使用<a href="{{ url_for('admin.score_rule_version', season_id=season.id, version=versions[0].version) }}">已发布规则 v{{ versions[0].version }}</a>。</p>
+            <input type="hidden" name="calculator_mode" value="calculator">
+            <input type="hidden" name="calculator_rule_version" value="{{ versions[0].version }}">
+            <button class="btn btn-primary" name="operation" value="set_mode" type="submit">启用本届计分器</button>
+            {% endif %}
+        </form>
+        {% else %}
+        <p class="mb-0">本届发布规则后即可启用计分器。</p>
+        {% endif %}
+    </div>
+</section>
 <div class="card mb-4">
     <div class="card-body">
         <h3 class="h5 mb-3">{% if preview %}发布预览{% else %}导入配置{% endif %}</h3>

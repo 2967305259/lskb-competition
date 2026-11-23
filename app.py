@@ -3528,10 +3528,10 @@ def new_season():
 @admin_bp.route('/score-rules', methods=['GET', 'POST'])
 @super_admin_required
 def score_rules():
-    from calculator_rules import confirmed_configuration, create_preview, latest_rule, record_publication
+    from calculator_rules import confirmed_configuration, create_preview, latest_rule, record_publication, set_season_mode
     current = Tournament.get_active()
     season = _calculator_rules_season(current)
-    preview = import_error = None
+    preview = import_error = mode_error = None
     status = 200
     if request.method == 'POST':
         if not season or not current or season.id != current.id:
@@ -3548,19 +3548,32 @@ def score_rules():
                 db.session.commit()
                 flash(f'已发布本届计分规则 v{version + 1}', 'success')
                 return redirect(url_for('admin.score_rules', season_id=season.id))
+            elif operation == 'set_mode':
+                if request.args.get('season_id', type=int) != season.id:
+                    raise SeasonError('请在当前赛季规则页切换提交方式', 400)
+                mode = request.form.get('calculator_mode')
+                set_season_mode(season, latest, mode, request.form.get('calculator_rule_version'))
+                db.session.commit()
+                flash('已启用本届计分器' if mode == 'calculator' else '本届已切回手填成绩', 'success')
+                return redirect(url_for('admin.score_rules', season_id=season.id))
             else:
                 raise SeasonError('未知的计分规则操作', 400)
         except SeasonError as error:
-            if error.status != 400:
+            if operation == 'set_mode' and error.status in (400, 409):
+                db.session.rollback()
+                mode_error, status = str(error), error.status
+            elif error.status != 400:
                 raise
-            db.session.rollback()
-            import_error, status = str(error), 400
+            else:
+                db.session.rollback()
+                import_error, status = str(error), 400
     seasons = Tournament.query.order_by(Tournament.season_number.desc()).all()
     versions = (ScoreRuleSet.query.filter_by(tournament_id=season.id).order_by(ScoreRuleSet.version.desc()).all()
                 if season else [])
     response = current_app.make_response((render_template(
         'admin/calculator_rules.html', seasons=seasons, season=season, versions=versions,
         writable=season is not None and season == current, preview=preview, import_error=import_error,
+        mode_error=mode_error,
     ), status))
     response.cache_control.no_store = True
     return response
