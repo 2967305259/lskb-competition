@@ -125,8 +125,8 @@
                         <i class="fas fa-archive"></i> 查看往届赛事归档
                     </a>
                 </p>
-                <form method="POST" action="{{ url_for('admin.new_season') }}"
-                      onsubmit="return confirm('确定开启新赛季吗？当前赛事将转入归档状态。');">
+                <form method="POST" action="{{ url_for('admin.new_season') }}" enctype="multipart/form-data"
+                      onsubmit="return this.elements.score_rules_mode.value === 'import' || confirm('确定开启新赛季吗？当前赛事将转入归档状态。');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="row g-2 align-items-end">
                         <div class="col-md-8">
@@ -135,11 +135,6 @@
                             <input type="hidden" name="expected_current_season_id" value="{{ transition.expected if transition else '' }}">
                             <input type="text" name="season_name" class="form-control"
                                    placeholder="留空则自动生成（当前赛事名 + 新届数）">
-                        </div>
-                        <div class="col-md-4">
-                            <button type="submit" class="btn btn-warning w-100">
-                                <i class="fas fa-forward"></i> 开启新赛季
-                            </button>
                         </div>
                     </div>
                     <div class="border rounded p-3 mt-3">
@@ -178,6 +173,25 @@
                             </div>
                         </div>
                     </div>
+                    <fieldset class="border rounded p-3 mt-3">
+                        <legend class="h6">新届计分器配置</legend>
+                        {% if current_user.is_super_admin() %}
+                        <label class="form-check mb-2">
+                            <input type="radio" class="form-check-input" name="score_rules_mode" value="import" required>
+                            <span class="form-check-label">导入配置并预览</span>
+                        </label>
+                        <label for="new-season-rules" class="form-label small">独立版导出的配置 JSON</label>
+                        <input id="new-season-rules" type="file" name="score_rules_file"
+                               class="form-control mb-3" accept=".json,application/json">
+                        {% endif %}
+                        <label class="form-check">
+                            <input type="radio" class="form-check-input" name="score_rules_mode" value="initial" required>
+                            <span class="form-check-label">跳过，使用初始配置</span>
+                        </label>
+                        <p class="small text-muted mb-0 mt-2">{% if current_user.is_super_admin() %}
+                            换届后可在<a href="{{ url_for('admin.score_rules') }}">计分器规则</a>补导入。
+                            {% else %}换届后可由超级管理员补导入。{% endif %}</p>
+                    </fieldset>
                     <p class="mt-3 mb-2">新赛季沿用当前全局规则与{{ labels.track }}配置，归档会保留上届快照。新赛季报名默认关闭，请在开放前核对并发布<a href="{{ url_for('admin.manage_rules') }}">本届规则</a>、确认<a href="{{ url_for('admin.roguelikes') }}">启用{{ labels.track }}与难度</a>，再到<a href="{{ url_for('admin.registration_control') }}">报名控制</a>手动开放。</p>
                     {% if current_user.is_super_admin() %}
                     <p class="small mb-2">新届尚无队伍或比赛时，可在<a href="{{ url_for('admin.release_packs') }}">赛事发布包</a>复制其他版本或导入配置。</p>
@@ -198,6 +212,7 @@
                         最近完整备份{% if latest_backup %} {{ latest_backup.created_at }}（UTC）{% else %}暂无{% endif %}
                         <a href="{{ url_for('admin.admin_data_tools') }}" class="ms-2">数据工具</a>
                     </p>
+                    <button type="submit" class="btn btn-warning">继续换届</button>
                 </form>
             </div>
         </div>

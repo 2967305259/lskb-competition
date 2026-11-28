@@ -1,0 +1,110 @@
+.match-score-preview .calculator-total,
+.match-score-preview .calculator-section {
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    padding: .75rem;
+    margin-bottom: .75rem;
+}
+
+.match-score-preview .calculator-total,
+.match-score-preview .calculator-section-header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: .25rem .75rem;
+}
+
+.match-score-preview .calculator-total output {
+    font-size: 1.25rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.match-score-preview .group-title {
+    margin-top: .75rem;
+    font-size: .875rem;
+    font-weight: 600;
+}
+
+.match-score-preview :is(.field, .item) {
+    display: grid;
+    align-items: center;
+    gap: .25rem .625rem;
+    padding: .5rem 0;
+}
+
+.match-score-preview .field {
+    grid-template-columns: minmax(0, 1fr) minmax(5rem, 9rem);
+}
+
+.match-score-preview .item {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.match-score-preview .item--check {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    min-block-size: 44px;
+    cursor: pointer;
+}
+
+.match-score-preview .item--input {
+    grid-template-columns: minmax(0, 1fr) minmax(4.25rem, 7rem) minmax(0, 4.5rem) minmax(0, 4.5rem);
+}
+
+.match-score-preview .field-input {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .5rem;
+}
+
+.match-score-preview .hint {
+    display: block;
+    font-size: .8125rem;
+    color: #a6a6a6;
+}
+
+.match-score-preview [data-num] {
+    width: 100%;
+    min-width: 0;
+    min-block-size: 44px;
+    padding: .25rem .5rem;
+    color: var(--bs-body-color);
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: .375rem;
+}
+
+.match-score-preview .item--check input {
+    inline-size: 1.125rem;
+    block-size: 1.125rem;
+    margin: 0;
+}
+
+.match-score-preview :is(.item-sub, .item-score) {
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+}
+
+.match-score-preview :is(.pos, .is-on-pos) {
+    color: #86d5a7;
+}
+
+.match-score-preview :is(.neg, .is-on-neg) {
+    color: #ffaaa3;
+}
+
+@media (max-width: 575.98px) {
+    .match-score-preview .field {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .match-score-preview .item--input {
+        grid-template-columns: minmax(4.25rem, 1fr) minmax(0, 4.5rem) minmax(0, 4.5rem);
+    }
+
+    .match-score-preview .item--input .item-name {
+        grid-column: 1 / -1;
+    }
+}

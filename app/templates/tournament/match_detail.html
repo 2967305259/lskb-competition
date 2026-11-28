@@ -74,6 +74,7 @@
                         <p><strong>🏆 {{ match.player_a.nickname }} 分数：</strong>
                             {% if match.player_a_score is not none %}
                                 <span class="badge bg-warning" style="font-size: 1rem;">{{ match.player_a_score }}</span>{% if match.player_a_multiplier is not none %}<small class="d-block">换算积分：{{ (match.player_a_score * match.player_a_multiplier)|int }}{{ '（待结算）' if match.settlement_state != 'settled' else '' }}</small>{% endif %}
+                                {% if 'a' in calculator_totals %}<small class="d-block">计分器 v{{ calculator_evidence.rule_version }} · 原始计分 {{ calculator_totals.a }}{{ ' · 人工更正后按上方成绩结算' if match.score_origin_a == 'corrected' else '' }}</small>{% endif %}
                             {% else %}
                                 <span class="text-muted">未提交</span>
                             {% endif %}
@@ -83,6 +84,7 @@
                         <p><strong>🏆 {{ match.player_b.nickname }} 分数：</strong>
                             {% if match.player_b_score is not none %}
                                 <span class="badge bg-warning" style="font-size: 1rem;">{{ match.player_b_score }}</span>{% if match.player_b_multiplier is not none %}<small class="d-block">换算积分：{{ (match.player_b_score * match.player_b_multiplier)|int }}{{ '（待结算）' if match.settlement_state != 'settled' else '' }}</small>{% endif %}
+                                {% if 'b' in calculator_totals %}<small class="d-block">计分器 v{{ calculator_evidence.rule_version }} · 原始计分 {{ calculator_totals.b }}{{ ' · 人工更正后按上方成绩结算' if match.score_origin_b == 'corrected' else '' }}</small>{% endif %}
                             {% else %}
                                 <span class="text-muted">未提交</span>
                             {% endif %}

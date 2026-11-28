@@ -1,0 +1,59 @@
+{% macro show_configuration(configuration) %}
+{% for key in ('basic', 'levelBonus', 'extraBonus', 'penalty') %}
+{% set section = configuration[key] %}
+<section class="border rounded p-3 mb-3">
+    <h3 class="h6">{{ section.title }}</h3>
+    {% if key == 'basic' %}
+    <p class="mb-1">{{ section.scoreLabel }}{% if section.scoreHint %} · {{ section.scoreHint }}{% endif %}</p>
+    {% if section.timeRules %}
+    <p class="mb-1">{{ section.timeLabel }}，按以下顺序匹配</p>
+    <ol class="mb-2">
+        {% for band in section.timeRules %}
+        <li>{{ band.min }}–{{ band.max }} 小时，{{ band.score }} 分</li>
+        {% endfor %}
+    </ol>
+    <p class="small">超时每小时 {{ section.timeOverflow.perHour }} 分，
+        {{ '按实际用时计' if section.timeOverflow.rounding == 'exact' else '不足一小时按一小时计' }}。</p>
+    {% else %}
+    <p class="small">用时不计分。</p>
+    {% endif %}
+    {% endif %}
+    {% for group in section.groups %}
+        {% if group.title %}<h4 class="h6 text-muted">{{ group.title }}</h4>{% endif %}
+        {% if group['items'] %}
+        <ul class="mb-2">
+            {% for item in group['items'] %}
+            <li>
+                {{ item.name }} · {{ item.score }} 分
+                {% if item.type == 'check' %}（勾选计入）
+                {% elif item.type == 'fixed' %}（固定计入）
+                {% elif item.type == 'number' %}（每{{ item.unit|default('个', true) }}，最低数量 {{ item.min|default(0) }}）
+                {% elif item.type == 'threshold' %}（超过 {{ item.threshold }} 后每{{ item.unit|default('个', true) }}，最低数量 {{ item.min|default(0) }}）
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    {% endfor %}
+</section>
+{% endfor %}
+{% endmacro %}
+
+{% macro show_preview(preview) %}
+{% if preview.changes %}
+<div class="alert alert-warning" role="status">
+    <p class="mb-1">原文件中有重复条目编号。发布将采用以下新编号，条目和分值均保留。</p>
+    <ul class="mb-0">
+        {% for change in preview.changes %}
+        <li>{{ change.name }}（<code>{{ change.path }}</code>）<code>{{ change.old }}</code> → <code>{{ change.new }}</code></li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+{{ show_configuration(preview.config) }}
+{% endmacro %}
+
+{% macro confirmed_fields(preview) %}
+<input type="hidden" name="score_rules_preview" value="{{ preview.token }}">
+<input type="hidden" name="score_rules_payload" value="{{ preview.content }}">
+{% endmacro %}

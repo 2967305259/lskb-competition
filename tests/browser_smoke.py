@@ -15,10 +15,12 @@ from werkzeug.serving import make_server, WSGIRequestHandler
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app as a
+from calculator_rules import CALCULATION_VERSION, initial_configuration
 from conftest import png_bytes
 
 PASSWORD = 'BrowserFixture2026'
 TEAM_NAME = '移动端长队名' + 'Sami' * 9
+OFFLINE_DIRECTORY = Path(__file__).resolve().parents[1] / 'arknights-score-calculator'
 
 
 class QuietHandler(WSGIRequestHandler):
@@ -33,7 +35,8 @@ def application(root, args):
         'STATE_DIR': str(root / 'state'), 'BACKUP_DIR': str(root / 'backups'),
         'UPLOAD_ROOT': str(root / 'uploads'), 'IMAGE_DIR': str(root / 'image'),
         'SECRET_KEY': 'isolated-browser-test-only', 'ADMIN_PASSWORD': PASSWORD,
-        'SUPER_ADMIN_USERNAME': '', 'SUPER_ADMIN_PASSWORD': '',
+        'SUPER_ADMIN_USERNAME': 'browser-super' if args.calculator else '',
+        'SUPER_ADMIN_PASSWORD': PASSWORD if args.calculator else '',
         'TOURNAMENT_NAME': '长名称移动端验收' + 'Arknights' * 9, 'TEAM_SIZE': 2,
     })
     if args.bootstrap_dir:
@@ -54,12 +57,16 @@ def application(root, args):
 
         @app.after_request
         def serve_bootstrap_locally(response):
-            if response.mimetype == 'text/html' and response.status_code != 302:
+            if response.mimetype == 'text/html' and not response.direct_passthrough and response.status_code != 302:
                 content = response.get_data(as_text=True)
                 for url, asset in asset_hosts.items():
                     content = content.replace(url, '/_browser_assets/' + asset)
                 response.set_data(content)
             return response
+    if args.calculator:
+        @app.get('/_browser_calculator')
+        def offline_calculator():
+            return send_from_directory(OFFLINE_DIRECTORY, '集成战略计分器.html')
 
     result = app.test_cli_runner().invoke(args=['prepare'])
     assert result.exit_code == 0, result.output
@@ -79,6 +86,12 @@ def application(root, args):
         a.db.session.add(team)
         a.db.session.flush()
         a.db.session.add(a.TeamMember(team_id=team.id, user_id=opponent.id, roguelike='water'))
+        if not args.calculator:
+            a.db.session.add(a.ScoreRuleSet(
+                tournament_id=season_id, version=1, calculation_version=CALCULATION_VERSION,
+                config=json.dumps(initial_configuration(), ensure_ascii=False), source='initial',
+                published_by_id=a.User.query.filter_by(username='admin').one().id,
+            ))
         a.db.session.commit()
     server = make_server('0.0.0.0' if args.host != '127.0.0.1' else args.host, 0, app,
                          threaded=True, request_handler=QuietHandler)
@@ -247,7 +260,38 @@ def login(browser, username, target):
     browser.route(target)
 
 
-def scenario(browser, app, season_id, root):
+def enable_calculator_from_offline_export(browser, root):
+    browser.go('/_browser_calculator')
+    exported = root / '计分配置_浏览器.json'
+    if browser.playwright:
+        with browser.driver.expect_download() as download:
+            browser.press('Enter', '[data-act="export-config"]')
+        assert download.value.suggested_filename.startswith('计分配置_')
+        download.value.save_as(exported)
+    else:
+        exported.write_text(browser.run('() => window.__scoring.buildConfigJson()'), encoding='utf-8')
+    assert json.loads(exported.read_text(encoding='utf-8'))['kind'] == 'config'
+    browser.run('''() => {
+        const config = JSON.parse(window.__scoring.buildConfigJson()).config;
+        config.basic.groups[0].items[0].score = 9999;
+        localStorage.setItem('arknights-ir-score-calculator.config.v1', JSON.stringify(config));
+    }''')
+    login(browser, 'browser-super', '/admin/dashboard')
+    browser.go('/admin/score-rules')
+    browser.upload('#rules-file', exported)
+    browser.press('Enter', 'button[name="operation"][value="preview"]')
+    browser.wait('() => document.querySelector("main")?.textContent.includes("藏品数量")')
+    browser.press('Enter', 'button[name="operation"][value="publish"]')
+    browser.wait('() => document.querySelector("main")?.textContent.includes("已发布规则 v1")')
+    browser.press('Enter', 'button[name="operation"][value="set_mode"]')
+    browser.wait('() => document.querySelector("#calculator-season-mode")?.textContent.includes("当前使用计分器")')
+    browser.no_page_overflow()
+    browser.go('/auth/logout')
+
+
+def scenario(browser, app, season_id, root, calculator=False):
+    if calculator:
+        enable_calculator_from_offline_export(browser, root)
     browser.go('/')
     browser.press('Tab')
     browser.focus('.skip-to-content')
@@ -339,13 +383,31 @@ def scenario(browser, app, season_id, root):
     for user, score in ((first, '100'), (other, '90')):
         login(browser, user, target(user))
         browser.go(path + '/submit-result')
-        browser.fill('#score', score)
+        quantity = '[data-calculator-preview] [data-path="basic:0:0"]'
+        checkbox = '[data-calculator-preview] [data-path="levelBonus:0:0"]'
+        browser.wait('() => !document.querySelector("[data-calculator-content]").hidden')
+        browser.fill(quantity, '１。２３４')
+        browser.wait('() => document.querySelector("[data-sum=total]").textContent === "+6.17"')
+        browser.press('Tab', quantity)
+        browser.focus(checkbox)
+        browser.press('Space', checkbox)
+        browser.wait('() => document.querySelector("[data-sum=total]").textContent === "+206.17"')
+        browser.no_page_overflow()
+        score_field = '#score'
+        if browser.run('() => Boolean(document.querySelector("[data-calculator-submit]"))'):
+            browser.press('Space', checkbox)
+            browser.fill(quantity, '')
+            score_field = '[data-path="basic:original"]'
+        browser.fill(score_field, score)
         if user == first:
             browser.upload('#screenshots', root / 'bad.png')
             browser.press('Enter', 'form button[type=submit]')
             browser.error('screenshots')
-            assert browser.run('() => document.getElementById("score").value') == score
+            browser.wait('selector => Boolean(document.querySelector(selector))', score_field)
+            assert browser.run('selector => document.querySelector(selector).value', score_field) == score
         browser.upload('#screenshots', root / 'valid.png')
+        browser.press('Enter', quantity)
+        browser.route(path + '/submit-result')
         browser.press('Enter', 'form button[type=submit]')
         browser.route(path)
         browser.wait('() => document.querySelector("[role=status]")?.textContent.includes("整场成绩已保存")')
@@ -357,6 +419,7 @@ def scenario(browser, app, season_id, root):
     browser.wait('() => Boolean(document.querySelector("[data-scroll-label] tr"))')
     browser.no_page_overflow()
     browser.go('/admin/tournament-settings')
+    browser.run('''() => { document.querySelector('input[name="score_rules_mode"][value="initial"]').checked = true; }''')
     transition = browser.run('''() => Object.fromEntries([...new FormData(document.querySelector('form[action="/admin/new-season"]'))])''')
     assert browser.post('/admin/new-season', transition)['status'] == 200
     browser.go('/history')
@@ -369,6 +432,14 @@ def scenario(browser, app, season_id, root):
     browser.wait('selector => Boolean(document.querySelector(selector)?.getAttribute("aria-label"))', table)
     if browser.run('() => innerWidth < 500'):
         browser.wait('selector => document.querySelector(selector)?.tabIndex === 0', table)
+    if calculator:
+        browser.go(path)
+        browser.wait('() => document.querySelector("main").textContent.includes("计分器 v1 · 原始计分 100.00")')
+        login(browser, 'browser-super', '/admin/dashboard')
+        browser.go(f'/admin/score-rules/1?season_id={season_id}')
+        browser.wait('() => document.querySelector("main").textContent.includes("藏品数量")')
+        browser.go('/admin/score-rules')
+        browser.wait('() => document.querySelector("#calculator-season-mode")?.textContent.includes("当前使用手填成绩")')
     return browser.run('() => [document.documentElement.clientWidth, document.documentElement.clientHeight]')
 
 
@@ -382,11 +453,12 @@ def main():
     parser.add_argument('--width', type=int, default=390)
     parser.add_argument('--height', type=int, default=844)
     parser.add_argument('--bootstrap-dir', type=Path, help='Optional local copy of Bootstrap 5.3.0 CSS and bundle')
+    parser.add_argument('--calculator', action='store_true', help='Submit official results with the calculator')
     args = parser.parse_args()
     with TemporaryDirectory(prefix='lskb-browser-') as directory:
         root = Path(directory)
         with application(root, args) as (app, season, url), open_browser(url, args) as (browser, version):
-            viewport = scenario(browser, app, season, root)
+            viewport = scenario(browser, app, season, root, calculator=args.calculator)
             print(json.dumps({'browser': args.browser, 'version': version, 'platform': platform.system(),
                               'viewport': viewport, 'result': 'passed'}, ensure_ascii=False))
 

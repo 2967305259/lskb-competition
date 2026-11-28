@@ -5,15 +5,15 @@ from pathlib import Path
 from sqlalchemy import MetaData, Table, inspect, text
 from backup import create_backup, maintenance_lock
 
-SCHEMA_VERSION = 8
-# These additions cover the supported pre-P0 schema. Other missing base columns are an error.
+SCHEMA_VERSION = 10
+# Columns introduced after supported historical schemas. Other missing base columns are an error.
 ADDITIONS = {
     'users': {'has_completed_onboarding': '0', 'tutorial_step': '0', 'anonymized_at': 'NULL'},
     'teams': {'tournament_id': 'NULL'},
     'team_members': {'position': 'NULL', 'squad': "''", 'operator': "''"},
     'settings': {'team_size': 'NULL', 'allow_incomplete_teams': '0'},
     'tournaments': {'context_snapshot': 'NULL', 'snapshot_version': '0', 'archived_at': 'NULL',
-                    'window_times_utc': '0', 'release_source': 'NULL'},
+                    'window_times_utc': '0', 'release_source': 'NULL', 'calculator_enabled': '0'},
     'matches': {'tournament_id': 'NULL', 'player_a_difficulty': 'NULL', 'player_b_difficulty': 'NULL',
                 'match_type': "'match'", 'parent_id': 'NULL', 'segment_order': '0',
                 'player_a_multiplier': 'NULL', 'player_b_multiplier': 'NULL', 'scoring_rule': 'NULL', 'legacy_payload': 'NULL', 'context_version': 'NULL',
@@ -52,10 +52,15 @@ def validate_schema(conn):
                         tuple(e.column.name for e in constraint.elements))
             if expected not in actual_foreign_keys:
                 raise RuntimeError(f'缺少外键: {table.name} {expected}')
-    constraints = {tuple(c['column_names']) for c in inspector.get_unique_constraints('teams')}
-    for columns in (('tournament_id', 'team_name'), ('tournament_id', 'captain_id')):
-        if columns not in constraints:
-            raise RuntimeError(f'缺少联合唯一约束: teams {columns}')
+    for table, required in (
+        ('teams', {('tournament_id', 'team_name'), ('tournament_id', 'captain_id')}),
+        ('score_rule_sets', {('tournament_id', 'version')}),
+    ):
+        constraints = {tuple(c['column_names']) for c in inspector.get_unique_constraints(table)}
+        if required - constraints:
+            raise RuntimeError(f'缺少联合唯一约束: {table} {sorted(required - constraints)}')
+    if not any(i['unique'] and i['column_names'] == ['id', 'tournament_id'] for i in inspector.get_indexes('matches')):
+        raise RuntimeError('缺少整场和赛季的联合唯一索引: matches')
 
 
 def _rebuild_sqlite(conn, name):
@@ -139,8 +144,14 @@ def migrate_database(engine, config, *, prepare_sqlite_directory=None):
                         conn.exec_driver_sql(f'ALTER TABLE {table} ADD COLUMN {name} {sql_type}{nullable}{default_clause}')
                         if not default_clause:
                             conn.exec_driver_sql(f'UPDATE {table} SET {name}={default} WHERE {name} IS NULL')
+                if 'matches' in tables:
+                    # Existing matches keep their rows and schema. The new details table references a match and its season together.
+                    match_index = next(index for index in db.metadata.tables['matches'].indexes
+                                       if index.name == 'uq_match_id_tournament')
+                    match_index.create(bind=conn, checkfirst=True)
                 if current:
-                    for table in ('season_releases', 'upload_assets', 'season_handoffs'):
+                    for table in ('season_releases', 'upload_assets', 'season_handoffs',
+                                  'score_rule_sets', 'match_calculator_results'):
                         db.metadata.tables[table].create(bind=conn, checkfirst=True)
                 else:
                     db.metadata.create_all(bind=conn)

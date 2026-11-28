@@ -1,0 +1,136 @@
+{
+  "version": 3,
+  "basic": {
+    "kind": "bonus",
+    "title": "基础结算",
+    "scoreLabel": "原始分",
+    "scoreHint": "基础分，直接计入总分",
+    "timeLabel": "用时（小时）",
+    "timeRules": [
+      {
+        "min": 0,
+        "max": 2,
+        "score": 30
+      },
+      {
+        "min": 2,
+        "max": 4,
+        "score": 0
+      }
+    ],
+    "timeOverflow": {
+      "perHour": -20,
+      "rounding": "ceil"
+    },
+    "groups": [
+      {
+        "title": "",
+        "items": [
+          {
+            "id": "basic-relic",
+            "name": "藏品数量",
+            "type": "number",
+            "score": 5,
+            "unit": "个",
+            "min": 0
+          }
+        ]
+      }
+    ]
+  },
+  "levelBonus": {
+    "kind": "bonus",
+    "title": "关卡加分",
+    "groups": [
+      {
+        "title": "",
+        "items": [
+          {
+            "id": "lv-1",
+            "name": "无效验尸",
+            "type": "check",
+            "score": 200
+          },
+          {
+            "id": "lv-2",
+            "name": "同域共存",
+            "type": "check",
+            "score": 300
+          }
+        ]
+      }
+    ]
+  },
+  "extraBonus": {
+    "kind": "bonus",
+    "title": "额外加分",
+    "groups": [
+      {
+        "title": "携带特殊藏品",
+        "items": [
+          {
+            "id": "ex-special",
+            "name": "携带特殊藏品",
+            "type": "check",
+            "score": 100
+          }
+        ]
+      },
+      {
+        "title": "临时招募",
+        "items": [
+          {
+            "id": "ex-recruit-6",
+            "name": "六星",
+            "type": "number",
+            "score": 50,
+            "unit": "个",
+            "min": 0
+          },
+          {
+            "id": "ex-recruit-5",
+            "name": "五星",
+            "type": "number",
+            "score": 20,
+            "unit": "个",
+            "min": 0
+          },
+          {
+            "id": "ex-recruit-4",
+            "name": "四星",
+            "type": "number",
+            "score": 10,
+            "unit": "个",
+            "min": 0
+          }
+        ]
+      }
+    ]
+  },
+  "penalty": {
+    "kind": "penalty",
+    "title": "扣分项",
+    "groups": [
+      {
+        "title": "",
+        "items": [
+          {
+            "id": "p-money",
+            "name": "取钱超过 100 锭",
+            "type": "threshold",
+            "threshold": 100,
+            "score": -10,
+            "unit": "锭",
+            "min": 0
+          },
+          {
+            "id": "p-special",
+            "name": "携带特殊藏品",
+            "type": "check",
+            "score": -100
+          }
+        ]
+      }
+    ]
+  }
+}
